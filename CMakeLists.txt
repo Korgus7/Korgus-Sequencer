@@ -16,14 +16,22 @@ juce_add_gui_app(KorgusSequencer
     PRODUCT_NAME "Korgus Sequencer"
     COMPANY_NAME "Korgus"
     VERSION ${PROJECT_VERSION}
-    ICON_BIG ${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png)
+    ICON_BIG ${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon.png
+    NEEDS_WEB_BROWSER TRUE
+    NEEDS_WEBVIEW2 TRUE)
+
+juce_add_binary_data(KorgusData SOURCES Resources/ui/index.html)
 
 target_sources(KorgusSequencer PRIVATE
     Source/Main.cpp
-    Source/MainComponent.cpp)
+    Source/Engine.cpp
+    Source/SongParse.cpp
+    Source/UiCommon.cpp
+    Source/MainView.cpp)
 
 target_compile_definitions(KorgusSequencer PRIVATE
-    JUCE_WEB_BROWSER=0
+    JUCE_WEB_BROWSER=1
+    JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
     JUCE_USE_CURL=0
     JUCE_PLUGINHOST_VST3=1
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:KorgusSequencer,JUCE_PRODUCT_NAME>"
@@ -38,6 +46,7 @@ endif()
 
 target_link_libraries(KorgusSequencer
     PRIVATE
+        KorgusData
         juce::juce_audio_utils
         juce::juce_audio_processors
         juce::juce_audio_devices

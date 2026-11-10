@@ -1,5 +1,5 @@
 #include <juce_gui_basics/juce_gui_basics.h>
-#include "MainComponent.h"
+#include "MainView.h"
 
 class KorgusApp : public juce::JUCEApplication
 {
@@ -75,9 +75,9 @@ public:
             : DocumentWindow (name, juce::Colour (0xff2d4362), DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar (true);
-            setContentOwned (new MainComponent (props), true);
+            setContentOwned (new MainView (props), true);
             setResizable (true, true);
-            setResizeLimits (900, 600, 4000, 3000);
+            setResizeLimits (1000, 640, 6000, 4000);
             centreWithSize (getWidth(), getHeight());
             setVisible (true);
         }

@@ -1,0 +1,109 @@
+#pragma once
+#include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_audio_devices/juce_audio_devices.h>
+#include <atomic>
+
+// Jedna nota na casovej osi (v krokoch = 1/16)
+struct NoteEv
+{
+    double start = 0, end = 0;
+    int pitch = 60;
+    float vel = 0.8f;
+};
+
+struct TrackData
+{
+    int slot = -1;              // index slotu s pluginom v Engine
+    float gainL = 1, gainR = 1; // hlasitost + panorama
+    bool audible = true;        // nie je stlmena / je solo
+    std::vector<NoteEv> notes;  // zoradene podla start
+};
+
+struct SongData
+{
+    double tempo = 120, endStep = 512, locL = 0, locR = 64;
+    bool loopOn = false, click = false;
+    std::vector<TrackData> tracks;
+};
+
+// Zvukovy motor: prehrava piesen cez VST nastroje stop, ziva hra z MIDI, metronom a odpocet
+class Engine : public juce::AudioIODeviceCallback,
+               public juce::MidiInputCallback
+{
+public:
+    Engine();
+    ~Engine() override;
+
+    //== volane z hlavneho vlakna
+    int  getOrCreateSlot (const juce::String& trackId);
+    void setSong (std::unique_ptr<SongData>);
+    void play (double fromStep, int countInBars);
+    void stop();
+    void setPosition (double step);
+    void liveNote (int slot, int pitch, float vel, bool on);
+    void setSelectedSlot (int slot)                 { selectedSlot = slot; }
+    void setTrackPlugin (int slot, std::unique_ptr<juce::AudioPluginInstance>);
+    juce::AudioPluginInstance* getPlugin (int slot);
+    juce::String getSlotTrackId (int slot);
+    int  getNumSlots();
+
+    double getPosition() const       { return publicPos.load(); }
+    bool   isPlaying() const         { return state.load() == playing; }
+    bool   isCounting() const        { return state.load() == counting; }
+    int    getCountBeat() const      { return countBeat.load(); }
+    int    getCountTotal() const     { return countTotal.load(); }
+
+    // MIDI z klaves - zavolane na hlavnom vlakne (pre nahravanie a krokovy vstup)
+    std::function<void (int pitch, float vel, bool on, double pos)> onMidiIn;
+
+    //== AudioIODeviceCallback
+    void audioDeviceIOCallbackWithContext (const float* const*, int, float* const*, int, int,
+                                           const juce::AudioIODeviceCallbackContext&) override;
+    void audioDeviceAboutToStart (juce::AudioIODevice*) override;
+    void audioDeviceStopped() override;
+    void handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage&) override;
+
+private:
+    enum State { stopped, counting, playing };
+
+    struct Slot
+    {
+        juce::String trackId;
+        std::unique_ptr<juce::AudioPluginInstance> plugin;
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> buf;
+        std::vector<std::pair<int, double>> active; // pitch, koniec
+        void prepare (double sr, int bs);
+    };
+
+    struct Live { int slot; juce::MidiMessage msg; };
+    struct Cmd  { int type; double a; int b; };   // 1=play 2=stop 3=setPos
+
+    void renderSegment (const SongData&, double p0, double p1, int off, double samplesPerStep);
+    void allNotesOff (int sampleOffset, bool hard);
+    void addClick (int offset, bool accent);
+    void renderClicks (float* const* out, int numOut, int n);
+
+    juce::CriticalSection slotLock;
+    std::vector<std::unique_ptr<Slot>> slots;
+
+    std::atomic<SongData*> song { nullptr };
+    std::vector<std::unique_ptr<SongData>> songHistory;   // stare verzie sa mazu neskor (nie v audio vlakne)
+
+    juce::AbstractFifo liveFifo { 512 };
+    std::vector<Live> liveBuf { 512 };
+    juce::SpinLock cmdLock;
+    std::vector<Cmd> cmds;
+
+    std::atomic<int> state { stopped }, selectedSlot { -1 }, countBeat { 0 }, countTotal { 0 };
+    std::atomic<double> publicPos { 0 };
+    double pos = 0, sampleRate = 44100, startAfterCount = 0;
+    int blockSize = 512;
+    double countSamples = 0, beatSamples = 0;
+    int countBeatsLeft = 0;
+
+    // metronom
+    int clickLeft = 0, clickLen = 0, clickDelay = 0;
+    double clickPhase = 0, clickInc = 0;
+    double lastBeatStep = -1;
+};
