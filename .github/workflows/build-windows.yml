@@ -1,0 +1,46 @@
+name: Windows build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ASIO SDK
+        shell: bash
+        run: |
+          set -e
+          mkdir -p ext
+          if curl -fsSL -o ext/asiosdk.zip "https://www.steinberg.net/asiosdk"; then
+            (cd ext && unzip -q asiosdk.zip)
+          else
+            git clone --depth 1 https://github.com/jcelerier/asio-2 ext/asio-2
+          fi
+          HDR=$(find ext -name iasiodrv.h | head -1)
+          test -n "$HDR"
+          SDK=$(cd "$(dirname "$HDR")/.." && pwd -W)
+          echo "ASIO SDK: $SDK"
+          echo "ASIO_SDK_DIR=$SDK" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DASIO_SDK_DIR="${{ env.ASIO_SDK_DIR }}"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "build/KorgusSequencer_artefacts/Release/Korgus Sequencer.exe" out/
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KorgusSequencer-windows
+          path: out/
