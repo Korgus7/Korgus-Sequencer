@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -44,3 +47,13 @@ jobs:
         with:
           name: KorgusSequencer-windows
           path: out/
+
+      - name: Publish to build branch
+        shell: bash
+        run: |
+          cd out
+          git init -q
+          git checkout -q -b build
+          git add -A
+          git -c user.name="ci" -c user.email="ci@localhost" commit -qm "build ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" build
