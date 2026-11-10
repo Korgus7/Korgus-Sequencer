@@ -407,5 +407,9 @@ void MainComponent::showPluginWindow()
 {
     if (processor == nullptr || ! processor->hasEditor()) return;
     if (pluginWindow != nullptr) { pluginWindow->toFront (true); return; }
-    pluginWindow = std::make_unique<PluginWindow> (*processor, [this] { juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<MainComponent> (this)] { if (sp != nullptr) sp->pluginWindow = nullptr; }); });
+    juce::Component::SafePointer<MainComponent> sp (this);
+    pluginWindow = std::make_unique<PluginWindow> (*processor, [sp]
+    {
+        juce::MessageManager::callAsync ([sp] { if (sp != nullptr) sp->pluginWindow = nullptr; });
+    });
 }
