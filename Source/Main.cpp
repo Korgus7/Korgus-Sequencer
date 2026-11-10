@@ -29,7 +29,31 @@ public:
             "\"samples\" = \"vzoriek\"\n"
             "\"<< none >>\" = \"<< žiadne >>\"\n"
             "\"(no audio output channels found)\" = \"(žiadne výstupné kanály)\"\n"
-            "\"(no MIDI inputs available)\" = \"(žiadne MIDI vstupy)\"\n"), false));
+            "\"(no MIDI inputs available)\" = \"(žiadne MIDI vstupy)\"\n"
+            "\"Options...\" = \"Možnosti…\"\n"
+            "\"Clear list\" = \"Vymazať zoznam\"\n"
+            "\"Remove selected plug-in from list\" = \"Odstrániť vybraný plugin zo zoznamu\"\n"
+            "\"Remove plug-in from list\" = \"Odstrániť plugin zo zoznamu\"\n"
+            "\"Show folder containing selected plug-in\" = \"Otvoriť priečinok s vybraným pluginom\"\n"
+            "\"Show folder containing plug-in\" = \"Otvoriť priečinok s pluginom\"\n"
+            "\"Remove any plug-ins whose files no longer exist\" = \"Odstrániť pluginy, ktorých súbory už neexistujú\"\n"
+            "\"Scan for new or updated XFMTX plug-ins\" = \"Hľadať nové alebo zmenené XFMTX pluginy\"\n"
+            "\"Remove all XFMTX plug-ins\" = \"Odstrániť všetky XFMTX pluginy\"\n"
+            "\"Select folders to scan...\" = \"Vyber priečinky, v ktorých hľadať pluginy…\"\n"
+            "\"Scan\" = \"Hľadať\"\n"
+            "\"Cancel\" = \"Zrušiť\"\n"
+            "\"Scanning for plug-ins...\" = \"Hľadám pluginy…\"\n"
+            "\"Searching for all possible plug-in files...\" = \"Hľadám súbory pluginov…\"\n"
+            "\"Plugin Scanning\" = \"Hľadanie pluginov\"\n"
+            "\"Scan complete\" = \"Hľadanie dokončené\"\n"
+            "\"Testing\" = \"Testujem\"\n"
+            "\"Name\" = \"Názov\"\n"
+            "\"Format\" = \"Formát\"\n"
+            "\"Category\" = \"Kategória\"\n"
+            "\"Manufacturer\" = \"Výrobca\"\n"
+            "\"Description\" = \"Popis\"\n"
+            "\"Deactivated after failing to initialise correctly\" = \"Vypnutý – nepodarilo sa ho spustiť\"\n"
+            ), false));
 
         juce::PropertiesFile::Options o;
         o.applicationName     = "Korgus Sequencer";

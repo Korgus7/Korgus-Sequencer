@@ -131,14 +131,58 @@ void TestSynthProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
 //==============================================================================
 PluginWindow::PluginWindow (juce::AudioProcessor& p, std::function<void()> onClose)
-    : DocumentWindow (p.getName(), Col::steel, DocumentWindow::closeButton), onCloseFn (std::move (onClose))
+    : DocumentWindow (p.getName(), Col::steel, DocumentWindow::closeButton | DocumentWindow::minimiseButton), onCloseFn (std::move (onClose))
 {
     setUsingNativeTitleBar (true);
     auto* ed = p.createEditorIfNeeded();
-    if (ed != nullptr)
+    auto area = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea.reduced (20);
+    area.removeFromTop (40);   // miesto pre titulok okna, aby sa dalo vzdy zavriet
+
+    if (ed == nullptr)
+    {
+        centreWithSize (300, 100);
+    }
+    else if (ed->getWidth() <= area.getWidth() && ed->getHeight() <= area.getHeight())
+    {
         setContentOwned (ed, true);
-    setResizable (ed != nullptr && ed->isResizable(), false);
-    centreWithSize (juce::jmax (200, getWidth()), juce::jmax (100, getHeight()));
+        setResizable (ed->isResizable(), false);
+        setTopLeftPosition (area.getX() + (area.getWidth() - getWidth()) / 2,
+                            area.getY() + juce::jmax (0, (area.getHeight() - getHeight()) / 3));
+    }
+    else
+    {
+        // plugin je vacsi nez obrazovka - vlozime ho do posuvneho okna
+        auto* vp = new juce::Viewport();
+        vp->setViewedComponent (ed, false);
+        vp->setScrollBarsShown (true, true);
+        editorHolder.reset (ed);
+        const int w = juce::jmin (ed->getWidth() + vp->getScrollBarThickness(), area.getWidth());
+        const int h = juce::jmin (ed->getHeight() + vp->getScrollBarThickness(), area.getHeight());
+        vp->setSize (w, h);
+        setContentOwned (vp, true);
+        setResizable (true, false);
+        setTopLeftPosition (area.getX() + (area.getWidth() - w) / 2, area.getY());
+    }
+    setVisible (true);
+}
+
+PluginWindow::~PluginWindow()
+{
+    clearContentComponent();
+    editorHolder = nullptr;
+}
+
+PluginManagerWindow::PluginManagerWindow (juce::AudioPluginFormatManager& fm, juce::KnownPluginList& kl, const juce::File& pedal,
+                                          juce::PropertiesFile* props, std::function<void()> onClose)
+    : DocumentWindow (juce::String::fromUTF8 ("Pluginy – zoznam a priečinky"), Col::steel, DocumentWindow::closeButton),
+      onCloseFn (std::move (onClose))
+{
+    setUsingNativeTitleBar (true);
+    auto* list = new juce::PluginListComponent (fm, kl, pedal, props, true);
+    list->setSize (820, 520);
+    setContentOwned (list, true);
+    setResizable (true, false);
+    centreWithSize (getWidth(), getHeight());
     setVisible (true);
 }
 
@@ -146,11 +190,16 @@ PluginWindow::PluginWindow (juce::AudioProcessor& p, std::function<void()> onClo
 MainComponent::MainComponent (juce::ApplicationProperties& p) : props (p)
 {
     setLookAndFeel (&lnf);
+    juce::LookAndFeel::setDefaultLookAndFeel (&lnf);
     formatManager.addDefaultFormats();
 
     // obnov ulozene nastavenie zvuku (ASIO zariadenie, buffer, MIDI vstupy)
     auto* settings = props.getUserSettings();
     const juce::File lastPlugin (settings->getValue ("lastPlugin"));
+    std::unique_ptr<juce::XmlElement> lastDescXml (settings->getXmlValue ("lastPluginDesc"));
+    if (std::unique_ptr<juce::XmlElement> kp { settings->getXmlValue ("knownPlugins") })
+        knownPlugins.recreateFromXml (*kp);
+    knownPlugins.addChangeListener (this);
     std::unique_ptr<juce::XmlElement> saved (settings->getXmlValue ("audioDevice"));
     deviceManager.initialise (0, 2, saved.get(), true);
     deviceManager.addChangeListener (this);
@@ -172,15 +221,26 @@ MainComponent::MainComponent (juce::ApplicationProperties& p) : props (p)
     infoLabel.setColour (juce::Label::textColourId, Col::lcdFg);
     infoLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 14.0f, juce::Font::plain));
     hintLabel.setFont (juce::FontOptions (13.0f));
-    hintLabel.setText (sk ("Krok 1 – test zvuku. Vľavo vyber typ zariadenia (najlepšie ASIO), zvukovú kartu, veľkosť bufferu "
-                           "a zaškrtni svoj MIDI vstup. Potom načítaj VST3 nástroj a hraj na MIDI klávesoch alebo na "
-                           "klaviatúre dole (myšou alebo klávesmi A W S E D F T G Z H U J K). "
-                           "Kým nie je načítaný plugin, hrá jednoduchý testovací tón."), juce::dontSendNotification);
+    hintLabel.setText (sk ("Pluginy: klikni na „Pluginy a priečinky…“ → Možnosti… → Hľadať nové alebo zmenené VST3 pluginy. Tam nastavíš aj "
+                           "priečinky, kde máš pluginy. Nájdené pluginy sa ukážu v zozname – dvojklikom ho načítaš. "
+                           "Okno pluginu zavrieš krížikom, klávesom Esc alebo tlačidlom „Zavrieť okno pluginu“."), juce::dontSendNotification);
 
-    for (auto* b : { &loadButton, &editorButton, &unloadButton })
+    for (auto* b : { &managerButton, &loadButton, &editorButton, &unloadButton })
         addAndMakeVisible (*b);
+    managerButton.onClick = [this] { showPluginManager(); };
     loadButton.onClick   = [this] { chooseAndLoadPlugin(); };
-    editorButton.onClick = [this] { showPluginWindow(); };
+    listLabel.setText (sk ("Nájdené pluginy (dvojklik = načítať):"), juce::dontSendNotification);
+    addAndMakeVisible (listLabel);
+    pluginList.setRowHeight (24);
+    pluginList.setColour (juce::ListBox::outlineColourId, Col::border);
+    pluginList.setOutlineThickness (1);
+    addAndMakeVisible (pluginList);
+    refreshPluginList();
+    editorButton.onClick = [this]
+    {
+        if (pluginWindow != nullptr) { pluginWindow = nullptr; updateInfo(); }
+        else showPluginWindow();
+    };
     unloadButton.onClick = [this] { unloadPlugin(); };
 
     keyboardState.addListener (this);
@@ -201,12 +261,17 @@ MainComponent::MainComponent (juce::ApplicationProperties& p) : props (p)
 
     // posledny plugin
     juce::String err;
-    if (lastPlugin.existsAsFile() || lastPlugin.isDirectory())
+    juce::PluginDescription lastDesc;
+    if (lastDescXml != nullptr && lastDesc.loadFromXml (*lastDescXml))
+    {
+        if (! loadPluginDescription (lastDesc, err))
+            setProcessor (std::make_unique<TestSynthProcessor>());
+    }
+    else if (lastPlugin.existsAsFile() || lastPlugin.isDirectory())
     {
         if (! loadPluginFile (lastPlugin, err))
         {
-            std::cerr << "Plugin load failed: " << err << std::endl;
-            setProcessor (std::make_unique<TestSynthProcessor>());
+                    setProcessor (std::make_unique<TestSynthProcessor>());
         }
     }
     else
@@ -225,9 +290,12 @@ MainComponent::~MainComponent()
     deviceManager.removeMidiInputDeviceCallback ({}, &player);
     deviceManager.removeAudioCallback (&player);
     pluginWindow = nullptr;
+    managerWindow = nullptr;
+    knownPlugins.removeChangeListener (this);
     player.setProcessor (nullptr);
     processor = nullptr;
     deviceManager.removeChangeListener (this);
+    juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     setLookAndFeel (nullptr);
 }
 
@@ -247,15 +315,20 @@ void MainComponent::resized()
     deviceSelector->setBounds (r.removeFromLeft (juce::jmin (560, r.getWidth() / 2)));
     r.removeFromLeft (12);
     auto row = r.removeFromTop (30);
-    loadButton.setBounds (row.removeFromLeft (140)); row.removeFromLeft (6);
-    editorButton.setBounds (row.removeFromLeft (120)); row.removeFromLeft (6);
-    unloadButton.setBounds (row.removeFromLeft (130));
-    r.removeFromTop (8);
-    pluginLabel.setBounds (r.removeFromTop (26));
+    managerButton.setBounds (row.removeFromLeft (200)); row.removeFromLeft (6);
+    loadButton.setBounds (row.removeFromLeft (120));
     r.removeFromTop (6);
-    infoLabel.setBounds (r.removeFromTop (120));
-    r.removeFromTop (10);
-    hintLabel.setBounds (r.removeFromTop (110));
+    row = r.removeFromTop (30);
+    editorButton.setBounds (row.removeFromLeft (200)); row.removeFromLeft (6);
+    unloadButton.setBounds (row.removeFromLeft (140));
+    r.removeFromTop (6);
+    pluginLabel.setBounds (r.removeFromTop (24));
+    r.removeFromTop (4);
+    infoLabel.setBounds (r.removeFromTop (112));
+    r.removeFromTop (8);
+    hintLabel.setBounds (r.removeFromBottom (54));
+    listLabel.setBounds (r.removeFromTop (22));
+    pluginList.setBounds (r.reduced (0, 2));
 }
 
 //==============================================================================
@@ -273,8 +346,9 @@ void MainComponent::handleNoteOff (juce::MidiKeyboardState*, int ch, int note, f
     player.getMidiMessageCollector().addMessageToQueue (m);
 }
 
-void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
+void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* src)
 {
+    if (src == &knownPlugins) refreshPluginList();
     saveSettings();
     updateInfo();
 }
@@ -307,6 +381,7 @@ void MainComponent::updateInfo()
     pluginLabel.setText (isPlugin ? sk ("Nástroj: ") + processor->getName()
                                   : sk ("Nástroj: testovací tón (žiadny VST)"), juce::dontSendNotification);
     editorButton.setEnabled (isPlugin && processor->hasEditor());
+    editorButton.setButtonText (pluginWindow != nullptr ? sk ("Zavrieť okno pluginu") : sk ("Otvoriť okno pluginu"));
     unloadButton.setEnabled (isPlugin);
 }
 
@@ -317,6 +392,9 @@ void MainComponent::saveSettings()
     if (auto xml = deviceManager.createStateXml())
         settings->setValue ("audioDevice", xml.get());
     settings->setValue ("lastPlugin", pluginFile.getFullPathName());
+    if (currentDesc != nullptr) { auto x = currentDesc->createXml(); settings->setValue ("lastPluginDesc", x.get()); }
+    else settings->removeValue ("lastPluginDesc");
+    if (auto kp = knownPlugins.createXml()) settings->setValue ("knownPlugins", kp.get());
     props.saveIfNeeded();
 }
 
@@ -357,6 +435,12 @@ bool MainComponent::loadPluginFile (const juce::File& f, juce::String& error)
     for (auto* t : types)
         if (t->isInstrument) { desc = t; break; }
 
+    for (auto* t : types) knownPlugins.addType (*t);   // pridaj aj do zoznamu
+    return loadPluginDescription (*desc, error);
+}
+
+bool MainComponent::loadPluginDescription (const juce::PluginDescription& desc, juce::String& error)
+{
     double sr = 44100.0; int bs = 512;
     if (auto* dev = deviceManager.getCurrentAudioDevice())
     {
@@ -364,7 +448,7 @@ bool MainComponent::loadPluginFile (const juce::File& f, juce::String& error)
         bs = dev->getCurrentBufferSizeSamples();
     }
 
-    auto instance = formatManager.createPluginInstance (*desc, sr, bs, error);
+    auto instance = formatManager.createPluginInstance (desc, sr, bs, error);
     if (instance == nullptr)
     {
         if (error.isEmpty()) error = sk ("Plugin sa nepodarilo spustiť.");
@@ -380,16 +464,71 @@ bool MainComponent::loadPluginFile (const juce::File& f, juce::String& error)
             instance->setBusesLayout (layout);
     }
 
-    pluginFile = f;
+    pluginFile = juce::File (desc.fileOrIdentifier);
+    currentDesc = std::make_unique<juce::PluginDescription> (desc);
     setProcessor (std::move (instance));
     saveSettings();
     if (ready) showPluginWindow();
     return true;
 }
 
+//==============================================================================
+void MainComponent::refreshPluginList()
+{
+    pluginRows.clear();
+    for (const auto& t : knownPlugins.getTypes()) pluginRows.add (t);
+    std::sort (pluginRows.begin(), pluginRows.end(), [] (const juce::PluginDescription& a, const juce::PluginDescription& b)
+    {
+        if (a.isInstrument != b.isInstrument) return a.isInstrument;
+        return a.name.compareIgnoreCase (b.name) < 0;
+    });
+    pluginList.updateContent();
+    pluginList.repaint();
+}
+
+int MainComponent::getNumRows() { return pluginRows.size(); }
+
+void MainComponent::paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool selected)
+{
+    if (! juce::isPositiveAndBelow (row, pluginRows.size())) return;
+    const auto& d = pluginRows.getReference (row);
+    const bool current = currentDesc != nullptr && d.isDuplicateOf (*currentDesc);
+    g.fillAll (selected ? Col::steel : (row % 2 ? juce::Colour (0xfff2f3f5) : juce::Colours::white));
+    g.setColour (selected ? juce::Colours::white : Col::text);
+    g.setFont (juce::FontOptions (14.0f, current ? juce::Font::bold : juce::Font::plain));
+    g.drawText (d.name, 8, 0, w - 220, h, juce::Justification::centredLeft, true);
+    g.setFont (juce::FontOptions (12.0f));
+    g.setColour (selected ? juce::Colours::white.withAlpha (0.8f) : Col::border.darker (0.4f));
+    g.drawText ((d.isInstrument ? sk ("nástroj") : sk ("efekt")) + "  ·  " + d.manufacturerName,
+                w - 210, 0, 202, h, juce::Justification::centredRight, true);
+}
+
+void MainComponent::listBoxItemDoubleClicked (int row, const juce::MouseEvent&) { returnKeyPressed (row); }
+
+void MainComponent::returnKeyPressed (int row)
+{
+    if (! juce::isPositiveAndBelow (row, pluginRows.size())) return;
+    juce::String err;
+    if (! loadPluginDescription (pluginRows.getReference (row), err))
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, sk ("Plugin sa nedá načítať"), err);
+    pluginList.repaint();
+}
+
+void MainComponent::showPluginManager()
+{
+    if (managerWindow != nullptr) { managerWindow->toFront (true); return; }
+    auto pedal = props.getUserSettings()->getFile().getSiblingFile ("RecentlyCrashedPluginsList");
+    juce::Component::SafePointer<MainComponent> sp (this);
+    managerWindow = std::make_unique<PluginManagerWindow> (formatManager, knownPlugins, pedal, props.getUserSettings(), [sp]
+    {
+        juce::MessageManager::callAsync ([sp] { if (sp != nullptr) { sp->managerWindow = nullptr; sp->saveSettings(); } });
+    });
+}
+
 void MainComponent::unloadPlugin()
 {
     pluginFile = juce::File();
+    currentDesc = nullptr;
     setProcessor (std::make_unique<TestSynthProcessor>());
     saveSettings();
 }
@@ -410,6 +549,7 @@ void MainComponent::showPluginWindow()
     juce::Component::SafePointer<MainComponent> sp (this);
     pluginWindow = std::make_unique<PluginWindow> (*processor, [sp]
     {
-        juce::MessageManager::callAsync ([sp] { if (sp != nullptr) sp->pluginWindow = nullptr; });
+        juce::MessageManager::callAsync ([sp] { if (sp != nullptr) { sp->pluginWindow = nullptr; sp->updateInfo(); } });
     });
+    updateInfo();
 }

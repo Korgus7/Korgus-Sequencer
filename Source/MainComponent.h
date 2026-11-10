@@ -36,16 +36,36 @@ private:
     juce::Synthesiser synth;
 };
 
+// Okno s GUI pluginu - vzdy cele na obrazovke, ak je plugin vacsi, da sa posuvat
 class PluginWindow : public juce::DocumentWindow
 {
 public:
     PluginWindow (juce::AudioProcessor& p, std::function<void()> onClose);
+    ~PluginWindow() override;
+    void closeButtonPressed() override { if (onCloseFn) onCloseFn(); }
+    bool keyPressed (const juce::KeyPress& k) override
+    {
+        if (k == juce::KeyPress::escapeKey) { closeButtonPressed(); return true; }
+        return DocumentWindow::keyPressed (k);
+    }
+private:
+    std::function<void()> onCloseFn;
+    std::unique_ptr<juce::Component> editorHolder;
+};
+
+// Okno so zoznamom pluginov a nastavenim priecinkov na hladanie
+class PluginManagerWindow : public juce::DocumentWindow
+{
+public:
+    PluginManagerWindow (juce::AudioPluginFormatManager&, juce::KnownPluginList&, const juce::File& deadMansPedal,
+                         juce::PropertiesFile*, std::function<void()> onClose);
     void closeButtonPressed() override { if (onCloseFn) onCloseFn(); }
 private:
     std::function<void()> onCloseFn;
 };
 
 class MainComponent : public juce::Component,
+                      private juce::ListBoxModel,
                       private juce::MidiKeyboardState::Listener,
                       private juce::ChangeListener,
                       private juce::Timer
@@ -63,8 +83,16 @@ private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
 
+    int getNumRows() override;
+    void paintListBoxItem (int row, juce::Graphics&, int w, int h, bool selected) override;
+    void listBoxItemDoubleClicked (int row, const juce::MouseEvent&) override;
+    void returnKeyPressed (int row) override;
+
+    void refreshPluginList();
+    void showPluginManager();
     void chooseAndLoadPlugin();
     bool loadPluginFile (const juce::File&, juce::String& error);
+    bool loadPluginDescription (const juce::PluginDescription&, juce::String& error);
     void unloadPlugin();
     void setProcessor (std::unique_ptr<juce::AudioProcessor>);
     void showPluginWindow();
@@ -77,6 +105,11 @@ private:
     juce::AudioDeviceManager deviceManager;
     juce::AudioProcessorPlayer player;
     juce::AudioPluginFormatManager formatManager;
+    juce::KnownPluginList knownPlugins;
+    juce::Array<juce::PluginDescription> pluginRows;
+    juce::ListBox pluginList { "pluginy", this };
+    std::unique_ptr<PluginManagerWindow> managerWindow;
+    std::unique_ptr<juce::PluginDescription> currentDesc;
     std::unique_ptr<juce::AudioProcessor> processor;
     std::unique_ptr<PluginWindow> pluginWindow;
     juce::File pluginFile;
@@ -86,8 +119,9 @@ private:
     juce::MidiKeyboardState keyboardState;
     juce::MidiKeyboardComponent keyboard { keyboardState, juce::MidiKeyboardComponent::horizontalKeyboard };
 
-    juce::Label title, pluginLabel, infoLabel, hintLabel;
-    juce::TextButton loadButton { juce::String::fromUTF8 ("Načítať VST3…") },
+    juce::Label title, pluginLabel, infoLabel, hintLabel, listLabel;
+    juce::TextButton managerButton { juce::String::fromUTF8 ("Pluginy a priečinky…") },
+                     loadButton { juce::String::fromUTF8 ("Zo súboru…") },
                      editorButton { juce::String::fromUTF8 ("Okno pluginu") },
                      unloadButton { juce::String::fromUTF8 ("Odstrániť plugin") };
     std::unique_ptr<juce::FileChooser> chooser;
