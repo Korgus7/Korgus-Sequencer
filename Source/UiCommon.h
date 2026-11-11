@@ -22,7 +22,9 @@ public:
 class PluginWindow : public juce::DocumentWindow
 {
 public:
-    PluginWindow (juce::AudioProcessor& p, const juce::String& title, std::function<void()> onClose);
+    // scale = velkost okna pluginu (1.0 = 100 %), onScale = ulozenie zvolenej velkosti
+    PluginWindow (juce::AudioProcessor& p, const juce::String& title, std::function<void()> onClose,
+                  float scale = 1.0f, std::function<void (float)> onScale = {});
     ~PluginWindow() override;
     void closeButtonPressed() override { if (onCloseFn) onCloseFn(); }
     bool keyPressed (const juce::KeyPress& k) override
@@ -32,7 +34,6 @@ public:
     }
 private:
     std::function<void()> onCloseFn;
-    std::unique_ptr<juce::Component> editorHolder;
 };
 
 // Okno so zoznamom pluginov a nastavenim priecinkov na hladanie

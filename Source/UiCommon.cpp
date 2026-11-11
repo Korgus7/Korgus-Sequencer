@@ -69,46 +69,131 @@ void KorgusLookAndFeel::drawComboBox (juce::Graphics& g, int w, int h, bool, int
     g.fillPath (p);
 }
 
-PluginWindow::PluginWindow (juce::AudioProcessor& p, const juce::String& title, std::function<void()> onClose)
+namespace
+{
+    // lista s velkostou nad pluginom + samotny plugin (pripadne v posuvnom okne)
+    class PluginHolder : public juce::Component, private juce::ComponentListener
+    {
+    public:
+        static constexpr int barH = 26;
+
+        PluginHolder (juce::AudioProcessorEditor* e, float scale, std::function<void (float)> onScale)
+            : ed (e), onScaleFn (std::move (onScale))
+        {
+            label.setText (juce::String::fromUTF8 ("Veľkosť pluginu"), juce::dontSendNotification);
+            label.setColour (juce::Label::textColourId, juce::Colour (0xffe4e9ef));
+            label.setFont (juce::FontOptions (13.0f));
+            addAndMakeVisible (label);
+            const int pct[] = { 75, 100, 125, 150, 175, 200, 250 };
+            for (int k = 0; k < 7; ++k) size.addItem (juce::String (pct[k]) + " %", pct[k]);
+            size.setSelectedId (juce::roundToInt (scale * 100.0f) / 25 * 25 > 0 ? juce::roundToInt (scale * 100.0f) : 100, juce::dontSendNotification);
+            if (size.getSelectedId() == 0) size.setSelectedId (100, juce::dontSendNotification);
+            size.onChange = [this] { applyScale ((float) size.getSelectedId() / 100.0f, true); };
+            addAndMakeVisible (size);
+
+            if (ed != nullptr)
+            {
+                if (std::abs (scale - 1.0f) > 0.01f) ed->setScaleFactor (scale);
+                fitToScreen();
+                if (tooBig())
+                {
+                    vp = std::make_unique<juce::Viewport>();
+                    vp->setViewedComponent (ed, false);
+                    vp->setScrollBarsShown (true, true);
+                    addAndMakeVisible (*vp);
+                }
+                else addAndMakeVisible (ed);
+                ed->addComponentListener (this);
+                updateSize();
+            }
+            else setSize (300, barH + 60);
+        }
+        ~PluginHolder() override
+        {
+            if (ed != nullptr) ed->removeComponentListener (this);
+            vp = nullptr;
+            delete ed;
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colour (0xff2a3442));
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            auto bar = r.removeFromTop (barH).reduced (6, 3);
+            label.setBounds (bar.removeFromLeft (110));
+            size.setBounds (bar.removeFromLeft (90));
+            if (vp != nullptr) vp->setBounds (r);
+            else if (ed != nullptr) ed->setTopLeftPosition (0, barH);
+        }
+
+    private:
+        static juce::Rectangle<int> screenArea()
+        {
+            auto a = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea.reduced (20);
+            a.removeFromTop (40 + barH);
+            return a;
+        }
+        bool tooBig() const
+        {
+            const auto a = screenArea();
+            return ed->getWidth() > a.getWidth() || ed->getHeight() > a.getHeight();
+        }
+        // plugin s menitelnou velkostou zmensime na obrazovku
+        void fitToScreen()
+        {
+            if (ed == nullptr || ! ed->isResizable() || ! tooBig()) return;
+            const auto a = screenArea();
+            ed->setSize (juce::jmin (ed->getWidth(), a.getWidth()), juce::jmin (ed->getHeight(), a.getHeight()));
+        }
+        void applyScale (float s, bool save)
+        {
+            if (ed == nullptr) return;
+            ed->setScaleFactor (s);
+            fitToScreen();
+            updateSize();
+            if (save && onScaleFn) onScaleFn (s);
+        }
+        void updateSize()
+        {
+            const auto a = screenArea();
+            const int w = juce::jmax (300, vp != nullptr ? juce::jmin (ed->getWidth() + 16, a.getWidth()) : ed->getWidth());
+            const int h = (vp != nullptr ? juce::jmin (ed->getHeight() + 16, a.getHeight()) : ed->getHeight()) + barH;
+            setSize (w, h);
+        }
+        void componentMovedOrResized (juce::Component&, bool, bool wasResized) override
+        {
+            if (wasResized) updateSize();
+        }
+
+        juce::AudioProcessorEditor* ed = nullptr;
+        std::unique_ptr<juce::Viewport> vp;
+        juce::Label label;
+        juce::ComboBox size;
+        std::function<void (float)> onScaleFn;
+    };
+}
+
+PluginWindow::PluginWindow (juce::AudioProcessor& p, const juce::String& title, std::function<void()> onClose,
+                            float scale, std::function<void (float)> onScale)
     : DocumentWindow (title, Col::steel, DocumentWindow::closeButton | DocumentWindow::minimiseButton), onCloseFn (std::move (onClose))
 {
     setUsingNativeTitleBar (true);
-    auto* ed = p.createEditorIfNeeded();
+    auto* holder = new PluginHolder (p.createEditorIfNeeded(), scale, std::move (onScale));
+    setContentOwned (holder, true);
+    setResizable (false, false);
     auto area = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea.reduced (20);
     area.removeFromTop (40);   // miesto pre titulok okna, aby sa dalo vzdy zavriet
-
-    if (ed == nullptr)
-    {
-        centreWithSize (300, 100);
-    }
-    else if (ed->getWidth() <= area.getWidth() && ed->getHeight() <= area.getHeight())
-    {
-        setContentOwned (ed, true);
-        setResizable (ed->isResizable(), false);
-        setTopLeftPosition (area.getX() + (area.getWidth() - getWidth()) / 2,
-                            area.getY() + juce::jmax (0, (area.getHeight() - getHeight()) / 3));
-    }
-    else
-    {
-        // plugin je vacsi nez obrazovka - vlozime ho do posuvneho okna
-        auto* vp = new juce::Viewport();
-        vp->setViewedComponent (ed, false);
-        vp->setScrollBarsShown (true, true);
-        editorHolder.reset (ed);
-        const int w = juce::jmin (ed->getWidth() + vp->getScrollBarThickness(), area.getWidth());
-        const int h = juce::jmin (ed->getHeight() + vp->getScrollBarThickness(), area.getHeight());
-        vp->setSize (w, h);
-        setContentOwned (vp, true);
-        setResizable (true, false);
-        setTopLeftPosition (area.getX() + (area.getWidth() - w) / 2, area.getY());
-    }
+    setTopLeftPosition (area.getX() + juce::jmax (0, (area.getWidth() - getWidth()) / 2),
+                        area.getY() + juce::jmax (0, (area.getHeight() - getHeight()) / 3));
     setVisible (true);
 }
 
 PluginWindow::~PluginWindow()
 {
     clearContentComponent();
-    editorHolder = nullptr;
 }
 
 PluginManagerWindow::PluginManagerWindow (juce::AudioPluginFormatManager& fm, juce::KnownPluginList& kl, const juce::File& pedal,

@@ -438,9 +438,16 @@ void MainView::openWindow (const juce::String& key, juce::AudioPluginInstance* p
     if (it != pluginWindows.end()) { it->second->toFront (true); return; }
     if (p == nullptr || ! p->hasEditor()) return;
     juce::Component::SafePointer<MainView> sp (this);
+    const auto scaleKey = "pluginScale_" + p->getName().removeCharacters (" \t:/\\");
+    const float scale = (float) props.getUserSettings()->getDoubleValue (scaleKey, 1.0);
     pluginWindows[key] = std::make_unique<PluginWindow> (*p, title, [sp, key]
     {
         juce::MessageManager::callAsync ([sp, key] { if (sp != nullptr) sp->pluginWindows.erase (key); });
+    }, scale, [sp, scaleKey] (float s)
+    {
+        if (sp == nullptr) return;
+        sp->props.getUserSettings()->setValue (scaleKey, (double) s);
+        sp->props.saveIfNeeded();
     });
 }
 
