@@ -50,6 +50,8 @@ private:
     void onSaveFile (const juce::var&);
     void onOpenSong (const juce::var&);
     void onReady();
+    void runBootStep();
+    void bootStatus (const juce::String& text, double progress);
     void onAiRequest (const juce::var&);
     void sendAiState();
     void onImportAudio (const juce::var&);
@@ -101,6 +103,9 @@ private:
     std::map<juce::String, std::map<int, juce::PluginDescription>> fxDesc;   // efekty stop
     juce::var pendingSession;                                    // pluginy z minulého spustenia
     bool sessionApplied = false;
+    bool booting = true, booted = false;
+    std::vector<std::pair<juce::String, std::function<void()>>> bootSteps;
+    size_t bootIndex = 0;
     double lastSentPos = -1;
     bool lastPlaying = false, lastCounting = false;
 

@@ -33,6 +33,13 @@ input[type=range]{accent-color:#2d4362}
 #arrWin{flex:1 1 0;min-height:140px}
 #edWin{flex:1.25 1 0;min-height:180px}
 #mixWin{flex:none;height:360px}
+#boot{position:fixed;inset:0;z-index:100;background:#232c38;display:none;flex-direction:column;align-items:center;justify-content:center;color:#e4e9ef;gap:14px}
+body.native #boot{display:flex}
+body.native #boot.done{display:none}
+#boot .bt{font:bold 22px Tahoma,Arial,sans-serif;letter-spacing:3px}
+#boot .bs{font-size:13px;color:#c9d2dc;min-height:18px}
+#boot .bb{width:320px;height:4px;background:#161d27;border-radius:2px;overflow:hidden}
+#boot .bb i{display:block;height:100%;width:0;background:#8fa9c6;transition:width .2s}
 #mixBody{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;background:#232c38;border-top:1px solid #161d27}
 #mixStrips{display:flex;flex:none}
 .ms{width:92px;flex:none;display:flex;flex-direction:column;gap:5px;padding:6px 5px 5px;background:#2a3442;border-right:1px solid #161d27;color:#e4e9ef;box-sizing:border-box;cursor:default}
@@ -249,6 +256,7 @@ button.ico svg{display:block}
   <div class="frow"><label>Latencia</label><select id="latSel"><option value="low">Najnižšia</option><option value="normal">Normálna</option><option value="safe">Bezpečná</option></select> <span id="latV2"></span></div>
   <p class="hint" style="margin:10px 0 0">Všetok zvuk programu (syntezátory, bicie aj WAV / MP3 stopy) ide na zvolený zvukový výstup. Výber MIDI dole posiela iba noty do externého nástroja – WAV cez MIDI nejde. Ak zvuk praská, zvoľ vyššiu latenciu.</p>
 </div></div></div>
+<div id="boot"><div class="bt">KORGUS SEQUENCER</div><div class="bb"><i id="bootBar"></i></div><div class="bs" id="bootTxt">Spúšťam…</div></div>
 <div id="dlgBack" hidden><div class="win dlg"><div class="tb"><span id="dlgT"></span><span class="sp"></span><button id="dlgX">×</button></div><div class="dlgb" id="dlgB"></div></div></div>
 
 <script>
@@ -356,6 +364,9 @@ function setupNative(){
   onNat('busy',e=>{ dialog('Import audio','<p>'+esc(e.text)+'</p>'); });
   onNat('audioPeaks',natPeaks);
   onNat('aiState',e=>{ aiHasKey=!!e.hasKey; });
+  onNat('boot',e=>{ $('bootTxt').textContent=e.text; if(e.p>=0) $('bootBar').style.width=Math.round(e.p*100)+'%'; });
+  onNat('bootDone',()=>{ $('bootBar').style.width='100%'; setTimeout(()=>$('boot').classList.add('done'),150); });
+  setTimeout(()=>$('boot').classList.add('done'),120000);
   onNat('lastSong',e=>{ try{ const t=e.text; if(t===JSON.stringify(song)) return; const s=normalize(JSON.parse(t));
       song=s; selT=0; selPart=null; closeEditor(); renderAll(); pushSong(true); natSel(); natNeedPeaks(); }catch(err){} });
   $('bAddS').textContent='+ Nástroj'; $('bAddS').title='Pridať stopu pre VST nástroj';

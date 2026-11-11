@@ -91,37 +91,9 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     auto* settings = props.getUserSettings();
     if (std::unique_ptr<juce::XmlElement> kp { settings->getXmlValue ("knownPlugins") })
         knownPlugins.recreateFromXml (*kp);
-    // VST3 pluginy vedla programu (napr. Korgus.vst3) sa pridaju samy; po aktualizacii suboru sa nacitaju znova
-    {
-        // stara rozbalena kopia z nastaveni uz netreba
-        const auto oldDir = dataDir.getChildFile ("Plugins");
-        for (const auto& d : knownPlugins.getTypes())
-            if (juce::File::isAbsolutePath (d.fileOrIdentifier) && juce::File (d.fileOrIdentifier).isAChildOf (oldDir))
-                knownPlugins.removeType (d);
-        oldDir.deleteRecursively();
-
-        const auto files = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory()
-                               .findChildFiles (juce::File::findFilesAndDirectories, false, "*.vst3");
-        for (auto* fmt : formatManager.getFormats())
-        {
-            if (fmt->getName() != "VST3") continue;
-            for (const auto& f : files)
-            {
-                juce::OwnedArray<juce::PluginDescription> found;
-                knownPlugins.scanAndAddFile (f.getFullPathName(), true, found, *fmt);
-            }
-        }
-    }
     knownPlugins.addChangeListener (this);
 
-    std::unique_ptr<juce::XmlElement> saved (settings->getXmlValue ("audioDevice"));
-    deviceManager.initialise (2, 2, saved.get(), true);
-    deviceManager.addChangeListener (this);
-    deviceManager.addAudioCallback (&engine);
-    deviceManager.addMidiInputDeviceCallback ({}, &engine);
-
     store = std::make_unique<AudioStore> (dataDir.getChildFile ("audio"));
-    if (auto* dev = deviceManager.getCurrentAudioDevice()) store->setSampleRate (dev->getCurrentSampleRate());
 
     engine.onMidiIn = [this] (int pitch, float vel, bool on, double pos)
     {
@@ -276,22 +248,15 @@ void MainView::emit (const juce::String& id, const juce::var& v)
 std::unique_ptr<SongData> MainView::parseCurrent (const juce::var& v)
 {
     return parseSong (v, [this] (const juce::String& id) { return engine.getOrCreateSlot (id); },
-                         [this] (const juce::String& id) { return store->get (id); });
+                         [this] (const juce::String& id) { return booting ? store->peek (id) : store->get (id); });
 }
 
 void MainView::onSong (const juce::var& v)
 {
-    lastSong = v;
-    auto sd = parseCurrent (v);
+    if (&v != &lastSong) lastSong = v;   // var sa nesmie priradit sam do seba
+    auto sd = parseCurrent (lastSong);
     if (sd == nullptr) return;
     engine.setSong (std::move (sd));
-
-    if (! sessionApplied)
-    {
-        sessionApplied = true;
-        if (pendingSession.isObject()) restorePluginStates (pendingSession);
-        pendingSession = juce::var();
-    }
 }
 
 void MainView::onTransport (const juce::var& v)
@@ -452,20 +417,143 @@ void MainView::sendDevices()
     emit ("devices", o);
 }
 
+void MainView::bootStatus (const juce::String& text, double progress)
+{
+    auto o = obj();
+    put (o, "text", text); put (o, "p", progress);
+    emit ("boot", o);
+}
+
+// start po nacitani rozhrania: po krokoch, aby okno nezamrzlo a bolo vidiet, co sa deje
 void MainView::onReady()
 {
-    sendPluginList();
-    sendTrackPlugins();
-    sendDevices();
-    sendAiState();
-    // posledna piesen z minuleho spustenia
-    const auto last = dataDir.getChildFile ("lastsong.json");
-    if (last.existsAsFile())
+    if (booted)
     {
-        auto o = obj();
-        put (o, "text", last.loadFileAsString());
-        emit ("lastSong", o);
+        sendPluginList(); sendTrackPlugins(); sendDevices(); sendAiState();
+        return;
     }
+    booted = true;
+    bootSteps.clear();
+    auto step = [this] (juce::String text, std::function<void()> fn) { bootSteps.push_back ({ std::move (text), std::move (fn) }); };
+
+    step (sk ("Otváram poslednú pieseň…"), [this]
+    {
+        const auto last = dataDir.getChildFile ("lastsong.json");
+        if (last.existsAsFile())
+        {
+            auto o = obj();
+            put (o, "text", last.loadFileAsString());
+            emit ("lastSong", o);
+        }
+    });
+    step (sk ("Otváram zvukovú kartu…"), [this]
+    {
+        std::unique_ptr<juce::XmlElement> saved (props.getUserSettings()->getXmlValue ("audioDevice"));
+        deviceManager.initialise (2, 2, saved.get(), true);
+        deviceManager.addChangeListener (this);
+        deviceManager.addAudioCallback (&engine);
+        deviceManager.addMidiInputDeviceCallback ({}, &engine);
+        if (auto* dev = deviceManager.getCurrentAudioDevice())
+        {
+            store->setSampleRate (dev->getCurrentSampleRate());
+            bootStatus (sk ("Zvuková karta: ") + dev->getName(), -1);
+        }
+    });
+    step (sk ("Hľadám pluginy vedľa programu…"), [this]
+    {
+    // VST3 pluginy vedla programu (napr. Korgus.vst3) sa pridaju samy; po aktualizacii suboru sa nacitaju znova
+        {
+            // stara rozbalena kopia z nastaveni uz netreba
+            const auto oldDir = dataDir.getChildFile ("Plugins");
+            for (const auto& d : knownPlugins.getTypes())
+                if (juce::File::isAbsolutePath (d.fileOrIdentifier) && juce::File (d.fileOrIdentifier).isAChildOf (oldDir))
+                    knownPlugins.removeType (d);
+            oldDir.deleteRecursively();
+    
+            const auto files = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory()
+                                   .findChildFiles (juce::File::findFilesAndDirectories, false, "*.vst3");
+            for (auto* fmt : formatManager.getFormats())
+            {
+                if (fmt->getName() != "VST3") continue;
+                for (const auto& f : files)
+                {
+                    juce::OwnedArray<juce::PluginDescription> found;
+                    knownPlugins.scanAndAddFile (f.getFullPathName(), true, found, *fmt);
+                }
+            }
+        }
+        sendPluginList(); sendDevices(); sendAiState();
+    });
+    // pluginy stop z minuleho spustenia - po jednom
+    if (! sessionApplied && pendingSession.isObject())
+    {
+        sessionApplied = true;
+        if (auto* d = pendingSession.getDynamicObject())
+            for (const auto& prop : d->getProperties())
+            {
+                auto one = obj();
+                put (one, prop.name, prop.value);
+                juce::String name;
+                if (auto x = juce::parseXML (prop.value["desc"].toString())) name = x->getStringAttribute ("name");
+                if (name.isEmpty()) name = sk ("efekty stopy");
+                step (sk ("Načítavam nástroj: ") + name + sk ("…"), [this, one] { restorePluginStates (one); });
+            }
+        pendingSession = juce::var();
+    }
+    step (sk ("Načítavam zvukové súbory…"), [this]
+    {
+        // id zvukov z poslednej piesne (subor + to, co poslalo rozhranie)
+        juce::StringArray ids;
+        auto collect = [&ids] (const juce::var& j)
+        {
+            const auto song = j.isString() ? juce::JSON::parse (j.toString()) : j;
+            if (const auto* tracks = song["tracks"].getArray())
+                for (const auto& t : *tracks)
+                {
+                    if (const auto* parts = t["parts"].getArray())
+                        for (const auto& p : *parts) if (p["aid"].toString().isNotEmpty()) ids.addIfNotAlreadyThere (p["aid"].toString());
+                    if (auto* sm = t["smp"].getDynamicObject())
+                        for (const auto& prop : sm->getProperties()) ids.addIfNotAlreadyThere (prop.value.toString());
+                }
+        };
+        collect (lastSong);
+        const auto last = dataDir.getChildFile ("lastsong.json");
+        if (last.existsAsFile()) collect (juce::var (last.loadFileAsString()));
+        int k = 0;
+        for (const auto& id : ids)
+        {
+            ++k;
+            if (store->peek (id) != nullptr) continue;
+            bootStatus (sk ("Načítavam zvuk ") + juce::String (k) + " / " + juce::String (ids.size()) + sk ("…"), -1);
+            store->get (id);
+        }
+    });
+    step (sk ("Hotovo"), [this]
+    {
+        booting = false;
+        if (! lastSong.isVoid()) onSong (lastSong);
+        sendTrackPlugins();
+        emit ("bootDone", obj());
+    });
+    bootIndex = 0;
+    runBootStep();
+}
+
+void MainView::runBootStep()
+{
+    if (bootIndex >= bootSteps.size()) return;
+    auto& st = bootSteps[bootIndex];
+    bootStatus (st.first, (double) bootIndex / (double) bootSteps.size());
+    juce::Component::SafePointer<MainView> sp (this);
+    // kratka pauza, aby sa text stihol zobrazit
+    juce::Timer::callAfterDelay (30, [sp]
+    {
+        if (sp == nullptr) return;
+        auto fn = sp->bootSteps[sp->bootIndex].second;
+        fn();
+        ++sp->bootIndex;
+        sp->runBootStep();
+    });
 }
 
 void MainView::sendAiState()

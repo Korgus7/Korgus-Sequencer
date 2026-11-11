@@ -22,6 +22,7 @@ public:
     void addFromData (const juce::String& id, const juce::String& name, const juce::MemoryBlock& data);
 
     AudioBufPtr get (const juce::String& id);      // dekoduje pri prvom pouziti
+    AudioBufPtr peek (const juce::String& id) const { auto it = cache.find (id); return it != cache.end() ? it->second : nullptr; }
     juce::File fileFor (const juce::String& id);
     juce::var peaksFor (const juce::String& id);   // tvar vlny pre rozhranie
     bool detectTempo (const juce::String& id, double& bpm, double& phase);
