@@ -20,7 +20,7 @@ juce_add_gui_app(KorgusSequencer
     NEEDS_WEB_BROWSER TRUE
     NEEDS_WEBVIEW2 TRUE)
 
-juce_add_binary_data(KorgusData SOURCES Resources/ui/index.html)
+juce_add_binary_data(KorgusData SOURCES Resources/ui/index.html Resources/plugins/Korgus.vst3)
 
 target_sources(KorgusSequencer PRIVATE
     Source/Main.cpp

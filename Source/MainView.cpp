@@ -91,6 +91,29 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     auto* settings = props.getUserSettings();
     if (std::unique_ptr<juce::XmlElement> kp { settings->getXmlValue ("knownPlugins") })
         knownPlugins.recreateFromXml (*kp);
+    // vstavany Korgus Synth: rozbali sa z exe do nastaveni programu a prida do zoznamu nastrojov
+    {
+        auto plugDir = dataDir.getChildFile ("Plugins");
+        plugDir.createDirectory();
+        auto korgus = plugDir.getChildFile ("Korgus.vst3");
+        if (korgus.getSize() != (juce::int64) BinaryData::Korgus_vst3Size)
+            korgus.replaceWithData (BinaryData::Korgus_vst3, (size_t) BinaryData::Korgus_vst3Size);
+
+        juce::Array<juce::File> files { korgus };
+        // aj dalsie .vst3 vedla programu
+        files.addArray (juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory()
+                            .findChildFiles (juce::File::findFilesAndDirectories, false, "*.vst3"));
+        for (auto* fmt : formatManager.getFormats())
+        {
+            if (fmt->getName() != "VST3") continue;
+            for (const auto& f : files)
+            {
+                if (! f.exists()) continue;
+                juce::OwnedArray<juce::PluginDescription> found;
+                knownPlugins.scanAndAddFile (f.getFullPathName(), true, found, *fmt);
+            }
+        }
+    }
     knownPlugins.addChangeListener (this);
 
     std::unique_ptr<juce::XmlElement> saved (settings->getXmlValue ("audioDevice"));
@@ -282,7 +305,7 @@ void MainView::onTrackPlugin (const juce::var& v)
     for (const auto& d : knownPlugins.getTypes())
         if (d.createIdentifierString() == uid)
         {
-            if (loadPluginForTrack (trackId, d, nullptr))
+            if (loadPluginForTrack (trackId, d, nullptr) && ! (bool) v.getProperty ("quiet", false))
                 onOpenPlugin (v);
             return;
         }

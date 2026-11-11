@@ -280,6 +280,7 @@ function natUpload(f,trId,bar){
       const last=end>=f.size; nat('audioChunk',{up,b64:btoa(bin),last,name:f.name,track:trId||'',bar:bar||0}); o=end; if(!last) setTimeout(next,0); };
     rd.readAsArrayBuffer(f.slice(o,end)); };
   next(); }
+function natDefaultInst(tr){ if(!NATIVE) return; const p=natPlugins.find(x=>x.inst&&/korgus/i.test(x.name)); if(p) nat('trackPlugin',{track:tr.id,uid:p.uid,name:tr.name,quiet:true}); }
 function natNoteShort(tr,pitch,vel){ nat('note',{track:tr.id,pitch,vel,on:true}); setTimeout(()=>nat('note',{track:tr.id,pitch,vel:0,on:false}),250); }
 function setupNative(){
   document.body.classList.add('native');
@@ -973,7 +974,9 @@ function renderTracksNative(L){
     nm.ondblclick=()=>{ const inp=el('input'); inp.type='text'; inp.value=tr.name; nm.innerHTML=''; nm.appendChild(inp); inp.focus(); inp.select();
       const done=ok=>{ if(ok&&inp.value.trim()&&inp.value!==tr.name){ pushUndo(); tr.name=inp.value.trim(); save(); if(ed) renderEditor(); } renderTracks(); };
       inp.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter') done(true); if(e.key==='Escape') done(false); }; inp.onblur=()=>done(true); inp.onmousedown=e=>e.stopPropagation(); };
-    const ti=el('div','ti',audio?ICO_WAVE:ICO_PIANO); ti.title=audio?'Audio stopa':'Nástrojová stopa';
+    const ti=el('div','ti',audio?ICO_WAVE:ICO_PIANO); ti.title=audio?'Audio stopa':'Otvoriť okno nástroja';
+    if(!audio){ ti.style.cursor='pointer'; ti.onmousedown=e=>e.stopPropagation();
+      ti.onclick=()=>{ const c=natTrackPlugins[tr.id]; if(c&&c.uid) nat('openPlugin',{track:tr.id,name:tr.name}); else toast('Najprv vyber VST nástroj v riadku pod názvom stopy.'); }; }
     r1.append(g,nm,ti);
     // riadok 2: hlasitost
     const vb=el('div','vb'), fill=el('i'); vb.appendChild(fill);
@@ -1116,7 +1119,7 @@ function aiApply(job,res){
   });
   if(maxEnd>song.bars) song.bars=Math.min(256,maxEnd);
   // nova nastrojova stopa dostane ten isty VST (aj s nastavenim) ako zdrojova stopa
-  if(!into&&!drum&&src&&natTrackPlugins[src.id]&&natTrackPlugins[src.id].uid) nat('copyPlugin',{from:src.id,to:tr.id});
+  if(!into&&!drum){ if(src&&natTrackPlugins[src.id]&&natTrackPlugins[src.id].uid) nat('copyPlugin',{from:src.id,to:tr.id}); else natDefaultInst(tr); }
   selT=song.tracks.indexOf(tr); $('dlgBack').hidden=true; closeEditor(); renderAll(); save(); natSel();
   toast((res.message?esc(res.message)+' ':'')+'Ctrl+Z vráti späť.');
 }
@@ -1725,7 +1728,7 @@ $('outSel').onchange=e=>{midiOut=e.target.value&&midi?midi.outputs.get(e.target.
 /* ---------------- horna lista ---------------- */
 $('bNew').onclick=()=>{pushUndo(); stopIfPlaying(); emptySong(); selT=0; selPart=null; closeEditor(); renderAll(); save();};
 $('bAddD').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('drum')); selT=song.tracks.length-1; renderAll(); save();};
-$('bAddS').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('synth')); selT=song.tracks.length-1; renderAll(); save();};
+$('bAddS').onclick=()=>{pushUndo(); const t=mkTrack('synth'); song.tracks.push(t); selT=song.tracks.length-1; renderAll(); save(); natDefaultInst(t);};
 $('bAddA').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('audio')); selT=song.tracks.length-1; renderAll(); save();};
 $('bImpA').onclick=()=>{const tr=song.tracks[selT]; audTarget={trId:tr&&tr.type==='audio'?tr.id:null,bar:Math.floor(curPos()/SPB)}; pickAudio();};
 function pickAudio(){ $('audIn').click(); }
