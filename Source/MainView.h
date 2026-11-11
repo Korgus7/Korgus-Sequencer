@@ -39,6 +39,13 @@ private:
     void onTransport (const juce::var&);
     void onNote (const juce::var&);
     void onTrackPlugin (const juce::var&);
+    void onTrackFx (const juce::var&);
+    void onOpenFx (const juce::var&);
+    void onSelTrack (const juce::var&);
+    void sendDevices();
+    std::unique_ptr<juce::AudioPluginInstance> createInstance (const juce::PluginDescription&, const juce::MemoryBlock* state, bool instrument);
+    bool loadFxForTrack (const juce::String& trackId, int idx, const juce::PluginDescription&, const juce::MemoryBlock* state);
+    void openWindow (const juce::String& key, juce::AudioPluginInstance*, const juce::String& title);
     void onOpenPlugin (const juce::var&);
     void onSaveFile (const juce::var&);
     void onOpenSong (const juce::var&);
@@ -76,8 +83,8 @@ private:
     std::unique_ptr<AudioStore> store;
     juce::var lastSong;
     std::map<juce::String, juce::MemoryBlock> uploads;
-    juce::String recTrack;
-    std::vector<float> recData;
+    struct RecTrack { juce::String id; int a = 0, b = -1; std::vector<float> l, r; };
+    std::vector<RecTrack> recTracks;
     bool recOn = false, recFinishing = false;
     juce::uint32 recStopTime = 0;
     std::atomic<bool> exporting { false };
@@ -89,6 +96,7 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 
     std::map<juce::String, juce::PluginDescription> trackDesc;   // ktory plugin ma ktora stopa
+    std::map<juce::String, std::map<int, juce::PluginDescription>> fxDesc;   // efekty stop
     juce::var pendingSession;                                    // pluginy z minulého spustenia
     bool sessionApplied = false;
     double lastSentPos = -1;

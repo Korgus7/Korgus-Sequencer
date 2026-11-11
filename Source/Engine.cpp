@@ -1,12 +1,31 @@
 #include "Engine.h"
 
+namespace
+{
+    int pluginChans (const juce::AudioPluginInstance* p)
+    {
+        return p == nullptr ? 0 : juce::jmax (p->getTotalNumInputChannels(), p->getTotalNumOutputChannels());
+    }
+    void preparePlugin (juce::AudioPluginInstance* p, double sr, int bs)
+    {
+        if (p == nullptr) return;
+        p->setRateAndBufferSizeDetails (sr, bs);
+        p->prepareToPlay (sr, bs);
+    }
+}
+
+int Engine::Slot::numChans() const
+{
+    int ch = juce::jmax (2, pluginChans (plugin.get()));
+    for (const auto& f : fx) ch = juce::jmax (ch, pluginChans (f.get()));
+    return ch;
+}
+
 void Engine::Slot::prepare (double sr, int bs)
 {
-    if (plugin == nullptr) return;
-    plugin->setRateAndBufferSizeDetails (sr, bs);
-    plugin->prepareToPlay (sr, bs);
-    const int ch = juce::jmax (2, plugin->getTotalNumInputChannels(), plugin->getTotalNumOutputChannels());
-    buf.setSize (ch, juce::jmax (bs, 16), false, true, false);
+    preparePlugin (plugin.get(), sr, bs);
+    for (auto& f : fx) preparePlugin (f.get(), sr, bs);
+    buf.setSize (numChans(), juce::jmax (bs, 16), false, true, false);
     midi.ensureSize (2048);
     active.reserve (128);
 }
@@ -14,13 +33,22 @@ void Engine::Slot::prepare (double sr, int bs)
 Engine::Engine()
 {
     cmds.reserve (64);
+    fxMidi.ensureSize (64);
 }
 
 Engine::~Engine()
 {
     const juce::ScopedLock sl (slotLock);
+    forEachPlugin ([] (juce::AudioPluginInstance& p) { p.releaseResources(); });
+}
+
+void Engine::forEachPlugin (const std::function<void (juce::AudioPluginInstance&)>& fn)
+{
     for (auto& s : slots)
-        if (s->plugin != nullptr) s->plugin->releaseResources();
+    {
+        if (s->plugin != nullptr) fn (*s->plugin);
+        for (auto& f : s->fx) if (f != nullptr) fn (*f);
+    }
 }
 
 //==============================================================================
@@ -31,6 +59,7 @@ int Engine::getOrCreateSlot (const juce::String& trackId)
         if (slots[i]->trackId == trackId) return (int) i;
     auto s = std::make_unique<Slot>();
     s->trackId = trackId;
+    s->buf.setSize (2, juce::jmax (blockSize, 16));
     s->midi.ensureSize (2048);
     s->active.reserve (128);
     slots.push_back (std::move (s));
@@ -55,14 +84,16 @@ juce::AudioPluginInstance* Engine::getPlugin (int slot)
     return juce::isPositiveAndBelow (slot, (int) slots.size()) ? slots[(size_t) slot]->plugin.get() : nullptr;
 }
 
+juce::AudioPluginInstance* Engine::getFx (int slot, int index)
+{
+    const juce::ScopedLock sl (slotLock);
+    if (! juce::isPositiveAndBelow (slot, (int) slots.size()) || ! juce::isPositiveAndBelow (index, numFx)) return nullptr;
+    return slots[(size_t) slot]->fx[(size_t) index].get();
+}
+
 void Engine::setTrackPlugin (int slot, std::unique_ptr<juce::AudioPluginInstance> p)
 {
-    if (p != nullptr)
-    {
-        // pripravime mimo zamku, aby audio nezaváhalo
-        p->setRateAndBufferSizeDetails (sampleRate, blockSize);
-        p->prepareToPlay (sampleRate, blockSize);
-    }
+    preparePlugin (p.get(), sampleRate, blockSize);   // mimo zamku, aby audio nezavahalo
     std::unique_ptr<juce::AudioPluginInstance> old;
     {
         const juce::ScopedLock sl (slotLock);
@@ -71,13 +102,31 @@ void Engine::setTrackPlugin (int slot, std::unique_ptr<juce::AudioPluginInstance
         old = std::move (s.plugin);
         s.plugin = std::move (p);
         s.active.clear();
-        if (s.plugin != nullptr)
-        {
-            const int ch = juce::jmax (2, s.plugin->getTotalNumInputChannels(), s.plugin->getTotalNumOutputChannels());
-            s.buf.setSize (ch, juce::jmax (blockSize, 16), false, true, false);
-        }
+        s.buf.setSize (s.numChans(), juce::jmax (blockSize, 16), false, true, false);
     }
     if (old != nullptr) old->releaseResources();
+}
+
+void Engine::setTrackFx (int slot, int index, std::unique_ptr<juce::AudioPluginInstance> p)
+{
+    if (! juce::isPositiveAndBelow (index, numFx)) return;
+    preparePlugin (p.get(), sampleRate, blockSize);
+    std::unique_ptr<juce::AudioPluginInstance> old;
+    {
+        const juce::ScopedLock sl (slotLock);
+        if (! juce::isPositiveAndBelow (slot, (int) slots.size())) return;
+        auto& s = *slots[(size_t) slot];
+        old = std::move (s.fx[(size_t) index]);
+        s.fx[(size_t) index] = std::move (p);
+        s.buf.setSize (s.numChans(), juce::jmax (blockSize, 16), false, true, false);
+    }
+    if (old != nullptr) old->releaseResources();
+}
+
+void Engine::setMidiFilter (const juce::String& deviceId)
+{
+    const juce::SpinLock::ScopedLockType l (filterLock);
+    midiFilter = deviceId;
 }
 
 void Engine::setSong (std::unique_ptr<SongData> s)
@@ -117,8 +166,13 @@ void Engine::liveNote (int slot, int pitch, float vel, bool on)
     else if (scope.blockSize2 > 0) liveBuf[(size_t) scope.startIndex2] = { slot, m };
 }
 
-void Engine::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage& m)
+void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMessage& m)
 {
+    {
+        // stopa moze mat vybrane, z ktorych klaves hra
+        const juce::SpinLock::ScopedLockType l (filterLock);
+        if (midiFilter.isNotEmpty() && (src == nullptr || src->getIdentifier() != midiFilter)) return;
+    }
     const int slot = selectedSlot.load();
     if (m.isNoteOnOrOff() || m.isController() || m.isPitchWheel() || m.isChannelPressure() || m.isAftertouch())
     {
@@ -150,8 +204,7 @@ void Engine::audioDeviceAboutToStart (juce::AudioIODevice* dev)
 void Engine::audioDeviceStopped()
 {
     const juce::ScopedLock sl (slotLock);
-    for (auto& s : slots)
-        if (s->plugin != nullptr) s->plugin->releaseResources();
+    forEachPlugin ([] (juce::AudioPluginInstance& p) { p.releaseResources(); });
 }
 
 void Engine::addClick (int offset, bool accent)
@@ -191,9 +244,9 @@ void Engine::allNotesOff (int off, bool hard)
     }
 }
 
-void Engine::mixClips (const TrackData& td, double p0, int off, int len, double sps)
+//==============================================================================
+void Engine::mixClips (const TrackData& td, juce::AudioBuffer<float>& dst, double p0, int off, int len, double sps)
 {
-    if (curOut == nullptr || curNumOut < 1) return;
     for (const auto& c : td.clips)
     {
         if (c.buf == nullptr) continue;
@@ -212,48 +265,66 @@ void Engine::mixClips (const TrackData& td, double p0, int off, int len, double 
         if (cnt <= 0) continue;
         const float* l = c.buf->getReadPointer (0) + sp;
         const float* r = c.buf->getNumChannels() > 1 ? c.buf->getReadPointer (1) + sp : l;
-        if (curOut[0] != nullptr) juce::FloatVectorOperations::addWithMultiply (curOut[0] + off + a, l, td.gainL, cnt);
-        if (curNumOut > 1 && curOut[1] != nullptr) juce::FloatVectorOperations::addWithMultiply (curOut[1] + off + a, r, td.gainR, cnt);
+        dst.addFrom (0, off + a, l, cnt);
+        dst.addFrom (1, off + a, r, cnt);
     }
 }
 
 void Engine::captureInput (int off, int len, double p0)
 {
-    if (! recArmed.load() || recStopped.load() || curIn == nullptr || curNumIn <= 0 || len <= 0) return;
+    const int nr = numRecs.load();
+    if (! recArmed.load() || recStopped.load() || curIn == nullptr || curNumIn <= 0 || len <= 0 || nr <= 0) return;
     if (! recActive.load()) { recStartStep = p0; recActive = true; }
-    const int chans = juce::jmin (2, curNumIn);
-    const auto scope = recFifo.write (len);
-    auto put = [&] (int start, int size, int from)
+    for (int k = 0; k < nr; ++k)
     {
-        for (int i = 0; i < size; ++i)
+        auto& r = *recs[(size_t) k];
+        const float* a = juce::isPositiveAndBelow (r.a, curNumIn) ? curIn[r.a] : nullptr;
+        const float* b = juce::isPositiveAndBelow (r.b, curNumIn) ? curIn[r.b] : nullptr;
+        const auto scope = r.fifo.write (len);
+        auto put = [&] (int start, int size, int from)
         {
-            float v = 0;
-            for (int c = 0; c < chans; ++c)
-                if (curIn[c] != nullptr) v += curIn[c][off + from + i];
-            recRing[(size_t) (start + i)] = v;
-        }
-    };
-    put (scope.startIndex1, scope.blockSize1, 0);
-    put (scope.startIndex2, scope.blockSize2, scope.blockSize1);
-}
-
-void Engine::setRecording (bool on)
-{
-    if (on)
-    {
-        recStopped = false;
-        recActive = false;
-        recArmed = true;
+            for (int i = 0; i < size; ++i)
+            {
+                r.l[(size_t) (start + i)] = a != nullptr ? a[off + from + i] : 0.0f;
+                if (r.b >= 0) r.r[(size_t) (start + i)] = b != nullptr ? b[off + from + i] : 0.0f;
+            }
+        };
+        put (scope.startIndex1, scope.blockSize1, 0);
+        put (scope.startIndex2, scope.blockSize2, scope.blockSize1);
     }
-    else recArmed = false;
 }
 
-void Engine::drainRecording (std::vector<float>& dst)
+void Engine::startRecording (const std::vector<RecSpec>& specs)
 {
-    const int ready = recFifo.getNumReady();
-    const auto scope = recFifo.read (ready);
-    dst.insert (dst.end(), recRing.begin() + scope.startIndex1, recRing.begin() + scope.startIndex1 + scope.blockSize1);
-    dst.insert (dst.end(), recRing.begin() + scope.startIndex2, recRing.begin() + scope.startIndex2 + scope.blockSize2);
+    recArmed = false;
+    numRecs = 0;
+    // volane az po dokonceni predoslej nahravky, audio vlakno teraz zasobniky nepouziva
+    const int cap = (int) (juce::jmax (44100.0, sampleRate) * 10);
+    recs.clear();
+    for (const auto& sp : specs)
+    {
+        auto r = std::make_unique<Rec> (cap);
+        r->a = sp.a; r->b = sp.b;
+        recs.push_back (std::move (r));
+    }
+    recStopped = false;
+    recActive = false;
+    numRecs = (int) recs.size();
+    recArmed = ! recs.empty();
+}
+
+void Engine::drainRecording (int index, std::vector<float>& left, std::vector<float>& right)
+{
+    if (! juce::isPositiveAndBelow (index, (int) recs.size())) return;
+    auto& r = *recs[(size_t) index];
+    const auto scope = r.fifo.read (r.fifo.getNumReady());
+    auto take = [&] (std::vector<float>& dst, const std::vector<float>& src)
+    {
+        dst.insert (dst.end(), src.begin() + scope.startIndex1, src.begin() + scope.startIndex1 + scope.blockSize1);
+        dst.insert (dst.end(), src.begin() + scope.startIndex2, src.begin() + scope.startIndex2 + scope.blockSize2);
+    };
+    take (left, r.l);
+    if (r.b >= 0) take (right, r.r);
 }
 
 void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, int len, double sps)
@@ -265,13 +336,14 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
 
     for (const auto& td : sd.tracks)
     {
-        if (td.isAudio)
-        {
-            if (td.audible) mixClips (td, p0, off, len, sps);
-            continue;
-        }
         if (! juce::isPositiveAndBelow (td.slot, (int) slots.size())) continue;
         auto& s = *slots[(size_t) td.slot];
+
+        if (td.isAudio)
+        {
+            if (td.audible) mixClips (td, s.buf, p0, off, len, sps);
+            continue;
+        }
 
         // konce nôt
         for (size_t i = 0; i < s.active.size();)
@@ -299,6 +371,7 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
     }
 }
 
+//==============================================================================
 void Engine::audioDeviceIOCallbackWithContext (const float* const* in, int numIn, float* const* out, int numOut, int n,
                                                const juce::AudioIODeviceCallbackContext&)
 {
@@ -307,13 +380,11 @@ void Engine::audioDeviceIOCallbackWithContext (const float* const* in, int numIn
 
 void Engine::process (const float* const* in, int numIn, float* const* out, int numOut, int n, const SongData* forced)
 {
-    recWriting = recArmed.load();
-
     for (int c = 0; c < numOut; ++c)
         if (out[c] != nullptr) juce::FloatVectorOperations::clear (out[c], n);
 
     const juce::ScopedTryLock sl (slotLock);
-    if (! sl.isLocked() || (offline.load() && forced == nullptr)) { recWriting = false; return; }   // pocas exportu ticho
+    if (! sl.isLocked() || (offline.load() && forced == nullptr)) return;   // pocas exportu ticho
     curIn = in; curNumIn = numIn; curOut = out; curNumOut = juce::jmin (2, numOut);
 
     for (auto& s : slots) s->midi.clear();
@@ -373,8 +444,18 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     }
 
     auto* sd = forced != nullptr ? forced : song.load();
-    int startOffset = 0;
 
+    // pracovne buffre stop
+    if (sd != nullptr)
+        for (const auto& td : sd->tracks)
+        {
+            if (! juce::isPositiveAndBelow (td.slot, (int) slots.size())) continue;
+            auto& b = slots[(size_t) td.slot]->buf;
+            if (b.getNumSamples() < n) b.setSize (juce::jmax (2, b.getNumChannels()), n, false, true, true);
+            for (int c = 0; c < b.getNumChannels(); ++c) juce::FloatVectorOperations::clear (b.getWritePointer (c), n);
+        }
+
+    int startOffset = 0;
     if (state == counting && sd != nullptr)
     {
         const double total = countTotal.load() * beatSamples;
@@ -423,30 +504,38 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         if (! offline) publicPos = pos;
     }
 
-    // zvuk z pluginov
+    // stopy: odposluch vstupu, nastroj, efekty, hlasitost a panorama
     if (sd != nullptr)
     {
         for (const auto& td : sd->tracks)
         {
             if (! juce::isPositiveAndBelow (td.slot, (int) slots.size())) continue;
             auto& slot = *slots[(size_t) td.slot];
-            if (slot.plugin == nullptr) continue;
-            if (slot.buf.getNumSamples() < n)
-                slot.buf.setSize (slot.buf.getNumChannels(), n, false, true, true);
             juce::AudioBuffer<float> view (slot.buf.getArrayOfWritePointers(), slot.buf.getNumChannels(), n);
-            view.clear();
-            slot.plugin->processBlock (view, slot.midi);
-            const int chans = juce::jmin (2, view.getNumChannels());
-            if (chans < 1) continue;
-            if (numOut > 0 && out[0] != nullptr)
+
+            if (td.isAudio && td.monitor && td.audible && curIn != nullptr)
+            {
+                const float* a = juce::isPositiveAndBelow (td.inA, curNumIn) ? curIn[td.inA] : nullptr;
+                const float* b = td.inB < 0 ? a : (juce::isPositiveAndBelow (td.inB, curNumIn) ? curIn[td.inB] : nullptr);
+                if (a != nullptr) view.addFrom (0, 0, a, n);
+                if (b != nullptr) view.addFrom (1, 0, b, n);
+            }
+
+            bool any = false;
+            if (slot.plugin != nullptr) { slot.plugin->processBlock (view, slot.midi); any = true; }
+            for (auto& f : slot.fx)
+                if (f != nullptr) { fxMidi.clear(); f->processBlock (view, fxMidi); any = true; }
+            if (! any && ! td.isAudio) continue;
+
+            const int chans = view.getNumChannels();
+            if (curNumOut > 0 && out[0] != nullptr)
                 juce::FloatVectorOperations::addWithMultiply (out[0], view.getReadPointer (0), td.gainL, n);
-            if (numOut > 1 && out[1] != nullptr)
+            if (curNumOut > 1 && out[1] != nullptr)
                 juce::FloatVectorOperations::addWithMultiply (out[1], view.getReadPointer (chans > 1 ? 1 : 0), td.gainR, n);
         }
     }
 
-    renderClicks (out, juce::jmin (numOut, 2), n);
-    recWriting = false;
+    renderClicks (out, curNumOut, n);
 }
 
 //==============================================================================
@@ -463,11 +552,8 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
         savedPos = pos;
         offline = true;     // realne audio odteraz len ticho
         recArmed = false;
-        for (auto& s : slots)
-        {
-            s->active.clear();
-            if (s->plugin != nullptr) { s->plugin->setNonRealtime (true); s->plugin->reset(); }
-        }
+        for (auto& s : slots) s->active.clear();
+        forEachPlugin ([] (juce::AudioPluginInstance& p) { p.setNonRealtime (true); p.reset(); });
         clickLeft = clickDelay = 0;
         state = playing;
         pos = 0;
@@ -494,11 +580,8 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
         const juce::ScopedLock sl (slotLock);
         state = stopped;
         pos = savedPos;
-        for (auto& s : slots)
-        {
-            s->active.clear();
-            if (s->plugin != nullptr) { s->plugin->setNonRealtime (false); s->plugin->reset(); }
-        }
+        for (auto& s : slots) s->active.clear();
+        forEachPlugin ([] (juce::AudioPluginInstance& p) { p.setNonRealtime (false); p.reset(); });
         offline = false;
     }
     return ok;

@@ -16,8 +16,8 @@ public:
 
     // nacita subor (WAV/MP3/...) do skladu, vrati id alebo prazdny retazec
     juce::String importFile (const juce::File& src);
-    // ulozi nahravku (mono) ako WAV
-    juce::String addRecording (const float* data, int n, double sr);
+    // ulozi nahravku ako WAV (right = nullptr -> mono)
+    juce::String addRecording (const float* left, const float* right, int n, double sr);
     // ulozi data zo suboru piesne (.s92) pod danym id
     void addFromData (const juce::String& id, const juce::String& name, const juce::MemoryBlock& data);
 

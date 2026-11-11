@@ -45,24 +45,26 @@ juce::String AudioStore::importFile (const juce::File& src)
     return id;
 }
 
-juce::String AudioStore::addRecording (const float* data, int n, double sr)
+juce::String AudioStore::addRecording (const float* left, const float* right, int n, double sr)
 {
-    if (n <= 0) return {};
+    if (n <= 0 || left == nullptr) return {};
+    const int ch = right != nullptr ? 2 : 1;
     const auto id = newId();
     const auto f = dir.getChildFile (id + ".wav");
     {
         std::unique_ptr<juce::OutputStream> os (f.createOutputStream().release());
         if (os == nullptr) return {};
         juce::WavAudioFormat wav;
-        auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (1).withBitsPerSample (24));
+        auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (ch).withBitsPerSample (24));
         if (w == nullptr) return {};
-        const float* chans[] = { data };
-        w->writeFromFloatArrays (chans, 1, n);
+        const float* chans[] = { left, right };
+        w->writeFromFloatArrays (chans, ch, n);
     }
     if (std::abs (sr - sampleRate) < 0.5)
     {
-        auto b = std::make_shared<juce::AudioBuffer<float>> (1, n);
-        b->copyFrom (0, 0, data, n);
+        auto b = std::make_shared<juce::AudioBuffer<float>> (ch, n);
+        b->copyFrom (0, 0, left, n);
+        if (right != nullptr) b->copyFrom (1, 0, right, n);
         cache[id] = b;
     }
     peaks.erase (id);

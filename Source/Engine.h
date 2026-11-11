@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <atomic>
+#include <array>
 #include "AudioStore.h"
 
 // Jedna nota na casovej osi (v krokoch = 1/16)
@@ -24,6 +25,8 @@ struct ClipEv
 struct TrackData
 {
     bool isAudio = false;
+    bool monitor = false;       // odposluch vstupu (audio stopa)
+    int inA = 0, inB = -1;      // vstupne kanaly zvukovky (inB = -1 -> mono)
     std::vector<ClipEv> clips;
     int slot = -1;              // index slotu s pluginom v Engine
     float gainL = 1, gainR = 1; // hlasitost + panorama
@@ -56,15 +59,20 @@ public:
     void setSelectedSlot (int slot)                 { selectedSlot = slot; }
     void setTrackPlugin (int slot, std::unique_ptr<juce::AudioPluginInstance>);
     juce::AudioPluginInstance* getPlugin (int slot);
+    static constexpr int numFx = 4;
+    void setTrackFx (int slot, int index, std::unique_ptr<juce::AudioPluginInstance>);
+    juce::AudioPluginInstance* getFx (int slot, int index);
+    void setMidiFilter (const juce::String& deviceId);
     juce::String getSlotTrackId (int slot);
     int  getNumSlots();
 
-    // nahravanie zo vstupu zvukovky
-    void   setRecording (bool on);
-    bool   isRecWriting() const      { return recWriting.load(); }
+    // nahravanie zo vstupu zvukovky (aj viac stop naraz)
+    struct RecSpec { int a = 0, b = -1; };
+    void   startRecording (const std::vector<RecSpec>&);
+    void   stopRecording()           { recArmed = false; }
     bool   hasRecStarted() const     { return recActive.load(); }
     double getRecStartStep() const   { return recStartStep.load(); }
-    void   drainRecording (std::vector<float>& dst);
+    void   drainRecording (int index, std::vector<float>& left, std::vector<float>& right);
 
     // export do WAV (zvukovka musi byt odpojena)
     bool renderOffline (const SongData&, double endStep, double tailSec, juce::AudioFormatWriter&,
@@ -95,10 +103,19 @@ private:
     {
         juce::String trackId;
         std::unique_ptr<juce::AudioPluginInstance> plugin;
+        std::array<std::unique_ptr<juce::AudioPluginInstance>, numFx> fx;
         juce::MidiBuffer midi;
         juce::AudioBuffer<float> buf;
         std::vector<std::pair<int, double>> active; // pitch, koniec
         void prepare (double sr, int bs);
+        int  numChans() const;
+    };
+    struct Rec
+    {
+        explicit Rec (int cap) : fifo (cap), l ((size_t) cap), r ((size_t) cap) {}
+        int a = 0, b = -1;
+        juce::AbstractFifo fifo;
+        std::vector<float> l, r;
     };
 
     struct Live { int slot; juce::MidiMessage msg; };
@@ -106,7 +123,8 @@ private:
 
     void process (const float* const* in, int numIn, float* const* out, int numOut, int n, const SongData* forced);
     void renderSegment (const SongData&, double p0, double p1, int off, int len, double samplesPerStep);
-    void mixClips (const TrackData&, double p0, int off, int len, double samplesPerStep);
+    void mixClips (const TrackData&, juce::AudioBuffer<float>& dst, double p0, int off, int len, double samplesPerStep);
+    void forEachPlugin (const std::function<void (juce::AudioPluginInstance&)>&);
     void captureInput (int off, int len, double p0);
     void allNotesOff (int sampleOffset, bool hard);
     void addClick (int offset, bool accent);
@@ -131,10 +149,13 @@ private:
     int countBeatsLeft = 0;
 
     // nahravanie
-    std::atomic<bool> recArmed { false }, recActive { false }, recStopped { false }, recWriting { false };
+    std::atomic<bool> recArmed { false }, recActive { false }, recStopped { false };
     std::atomic<double> recStartStep { 0 };
-    juce::AbstractFifo recFifo { 48000 * 10 };
-    std::vector<float> recRing = std::vector<float> (48000 * 10);
+    std::vector<std::unique_ptr<Rec>> recs;
+    std::atomic<int> numRecs { 0 };
+    juce::MidiBuffer fxMidi;
+    juce::SpinLock filterLock;
+    juce::String midiFilter;
     const float* const* curIn = nullptr;
     int curNumIn = 0;
     float* const* curOut = nullptr;

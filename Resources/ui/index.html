@@ -56,6 +56,23 @@ canvas{display:block}
 .trk button.plw{width:40px}
 body.native .smp,body.native #outSel,body.native #outLbl{display:none!important}
 .trk button.plw svg{display:block;margin:auto}
+.ntr{display:flex;flex-direction:column;gap:1px;padding:2px 4px 0 2px;border-bottom:1px solid #a4a4a4;box-sizing:border-box;overflow:hidden;cursor:default}
+.ntr.sel{background:#8fa1b8}
+.ntr .r{display:flex;align-items:center;gap:3px;height:20px;flex:none}
+.ntr .num{width:16px;text-align:right;font-size:11px;color:#2a2a2a;margin-right:1px;flex:none}
+.ntr button{width:22px;height:20px;padding:0;line-height:16px;flex:none}
+.ntr button svg{display:block;margin:auto}
+.ntr .m.on{background:#9a7c34;border-color:#6b5520;color:#fff}
+.ntr .s.on{background:#5c7a54;border-color:#3d5437;color:#fff}
+.ntr .a.on{background:#8e3a2c;border-color:#5e2419;color:#fff}
+.ntr .o.on{background:#46617f;border-color:#2d4362;color:#fff}
+.ntr input[type=text]{flex:1;min-width:0;height:18px;box-sizing:border-box}
+.ntr select{flex:1;min-width:0;height:20px;padding:0 2px;font-size:11px;line-height:18px}
+.ntr select.mi{flex:0 0 104px}
+.ntr .ico{width:22px;display:flex;justify-content:center;color:#2d4362;flex:none}
+.ntr .lb{width:22px;font-size:9px;color:#2d4362;text-align:center;flex:none;font-weight:bold}
+.ntr .vb{height:4px;margin-left:19px;background:#8a929c;border-radius:2px;position:relative;cursor:ew-resize;flex:none}
+.ntr .vb i{position:absolute;left:0;top:0;bottom:0;background:#2d4362;border-radius:2px}
 .w22{width:22px;text-align:center}.w84{width:84px}.w82{width:82px}.w40{width:40px}
 #edBody{flex:1;overflow:auto;background:#b8b8b8;border-top:1px solid #808080;position:relative}
 #keyWrap{display:flex;width:max-content}
@@ -191,15 +208,16 @@ function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
   return {tempo:song.tempo,bars:song.bars,locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,
-    tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,parts:t.parts}))};
+    tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',parts:t.parts}))};
 }
 function pushSong(now){ if(!NATIVE) return; clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
 function curNatPos(){ if(!playing) return song.pos; return natLast.pos+(performance.now()-natLast.t)/1000*song.tempo/60*4; }
-let natRec=null;
+let natRec=null, natMidiDevs=[], natIns=[];
 function natNeedPeaks(){ const ids=[...usedAudioIds()].filter(id=>!audioPeaks[id]); if(ids.length) nat('needPeaks',{ids}); }
 function natPeaks(e){ const dec=b=>{const t=atob(b), a=new Float32Array(t.length); for(let i=0;i<t.length;i++){let v=t.charCodeAt(i); if(v>127) v-=256; a[i]=v/127;} return a;};
   audioPeaks[e.id]={mn:dec(e.mn),mx:dec(e.mx),B:e.B,sr:e.sr}; audioBufs[e.id]={duration:e.full,sampleRate:e.sr}; drawArrange(); }
 function natRecStop(){ if(!natRec) return; nat('recAudio',{on:false}); natRec=null; drawArrange(); }
+function natRecTracks(){ const a=song.tracks.filter(t=>t.type==='audio'&&t.arm); if(a.length) return a; const tr=song.tracks[selT]; return tr&&tr.type==='audio'&&!song.tracks.some(t=>t.arm)?[tr]:[]; }
 function natUpload(f,trId,bar){
   if(f.size>300*1024*1024){dialog('Import audio','<p>Súbor je príliš veľký (max. 300 MB).</p>'); return;}
   dialog('Import audio','<p>Načítavam '+esc(f.name)+'…</p>');
@@ -244,8 +262,9 @@ function setupNative(){
     if(h.step&&!Object.values(held).some(x=>x.step)) stepMove(stepSize()); };
   toggleRec=function(){
     const tr=song.tracks[selT];
-    if(!rec&&tr&&tr.type==='audio'){ rec=true; pushUndo(); natRec={trId:tr.id,startStep:song.pos}; nat('recAudio',{on:true,track:tr.id});
-      if(!playing) play(COUNT_BARS); else natRec.startStep=Math.floor(curNatPos()); updTransport(); return; }
+    if(!rec){ const at=natRecTracks(); if(at.length){ rec=true; pushUndo(); natRec={ids:at.map(t=>t.id),startStep:song.pos};
+      nat('recAudio',{on:true,tracks:at.map(t=>({track:t.id,inp:t.inp||'0'}))});
+      if(!playing) play(COUNT_BARS); else natRec.startStep=Math.floor(curNatPos()); updTransport(); return; } }
     rec=!rec; if(rec){ pushUndo(); if(!playing) play(COUNT_BARS); }
     else { Object.keys(held).forEach(k=>{const h=held[k]; if(h.r){recEnd(h.r); h.r=null;}}); natRecStop(); }
     updTransport(); };
@@ -275,6 +294,7 @@ function setupNative(){
     stopIfPlaying(); nat('exportWav',{end}); };
   onNat('busy',e=>{ dialog('Import audio','<p>'+esc(e.text)+'</p>'); });
   onNat('audioPeaks',natPeaks);
+  onNat('devices',e=>{ natMidiDevs=e.midi||[]; natIns=e.ins||[]; renderTracks(); });
   onNat('audioImported',e=>{
     if(e.error){ dialog('Import audio','<p>Tento súbor sa nedá prečítať. Použi WAV alebo MP3.</p>'); return; }
     pushUndo();
@@ -794,7 +814,7 @@ function noteOff(key){
 /* ---------------- krokovy vstup ---------------- */
 let stepOn=false, stepCur=0, stepChord=false, drumStep=1;
 function stepActive(){return stepOn&&!!ed&&!playing&&!!edGet();}
-function targetTrack(){ if(stepActive()) return edGet().tr; return song.tracks[selT]; }
+function targetTrack(){ if(stepActive()) return edGet().tr; if(NATIVE){ const a=song.tracks.find(t=>t.arm&&t.type!=='audio'); if(a) return a; } return song.tracks[selT]; }
 function stepSize(){const r=edGet(); return r&&r.tr.type==='drum'?drumStep:curLen;}
 function stepMax(){const r=edGet(); if(!r) return 16; return r.tr.type==='drum'?r.p.plen:r.p.len*SPB;}
 function stepMove(d){ stepChord=false; const m=stepMax(); stepCur=((stepCur+d)%m+m)%m; showStepCur(); }
@@ -857,8 +877,69 @@ function sizeCv(cv,w,h){
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 /* ---------------- stopy ---------------- */
+const ICO_WAVE='<svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 7h1M4 4v6M7 1v12M10 3v8M13 5v4M15 7h0"/></svg>';
+const ICO_WIN='<svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="13" height="11" rx="1"/><path d="M.5 3.5h13" /></svg>';
+function trackIn(tr){ const v=tr.inp||'0', opts=[]; natIns.forEach((n,i)=>opts.push([String(i),n]));
+  for(let i=0;i+1<natIns.length;i+=2) opts.push([i+'+'+(i+1),natIns[i]+' + '+natIns[i+1]+' (stereo)']);
+  if(!opts.length) opts.push(['0','Vstup 1']); if(!opts.some(o=>o[0]===v)) opts.push([v,'Vstup '+v.split('+').map(x=>+x+1).join('+')]);
+  return opts.map(o=>`<option value="${o[0]}"${o[0]===v?' selected':''}>${esc(o[1])}</option>`).join(''); }
+function renderTracksNative(L){
+  const h=document.createElement('div'); h.className='thead'; h.innerHTML='<span style="padding-left:20px">Stopy</span><span style="margin-left:auto;color:#55606e">Alt + koliesko = výška stôp</span>'; L.appendChild(h);
+  const btn=(cls,txt,title,on,fn)=>{const b=document.createElement('button'); b.className=cls+(on?' on':''); b.innerHTML=txt; b.title=title; b.onclick=e=>{e.stopPropagation(); fn(b);}; return b;};
+  const row=()=>{const d=document.createElement('div'); d.className='r'; return d;};
+  song.tracks.forEach((tr,i)=>{
+    const audio=tr.type==='audio', r=document.createElement('div'); r.className='ntr'+(i===selT?' sel':''); r.dataset.i=i; r.style.height=ROWH+'px';
+    const r1=row(), num=document.createElement('span'); num.className='num'; num.textContent=i+1;
+    const m=btn('m','M','Stlmiť',tr.mute,b=>{tr.mute=!tr.mute; b.classList.toggle('on',tr.mute); drawArrange(); save();});
+    const s=btn('s','S','Sólo',tr.solo,b=>{tr.solo=!tr.solo; b.classList.toggle('on',tr.solo); save();});
+    const a=btn('a','●',audio?'Nahrávať do tejto stopy':'Klávesy hrajú a nahrávajú do tejto stopy',tr.arm,b=>{tr.arm=!tr.arm; b.classList.toggle('on',tr.arm);
+      if(tr.arm&&!audio) song.tracks.forEach(t=>{if(t!==tr&&t.type!=='audio') t.arm=false;}); save(); natSel(); if(tr.arm&&!audio) renderTracks();});
+    const n=document.createElement('input'); n.type='text'; n.value=tr.name;
+    n.onchange=()=>{pushUndo(); tr.name=n.value||'Stopa'; save(); if(ed) renderEditor();};
+    const ico=document.createElement('span'); ico.className='ico'; ico.innerHTML=audio?ICO_WAVE:ICO_KEYS; ico.title=audio?'Audio stopa':'Nástrojová stopa';
+    r1.append(num,m,s,a);
+    if(audio) r1.append(btn('o','◐','Odposluch vstupu cez stopu',tr.mon,b=>{tr.mon=!tr.mon; b.classList.toggle('on',tr.mon); save();}));
+    r1.append(n,ico);
+    const vb=document.createElement('div'); vb.className='vb'; const fill=document.createElement('i'); vb.appendChild(fill);
+    const showV=()=>{fill.style.width=(tr.vol*100)+'%'; vb.title='Hlasitosť '+(tr.vol>0?(40*Math.log10(tr.vol)).toFixed(1)+' dB':'−∞')+' (dvojklik = 0 dB)';}; showV();
+    vb.onmousedown=e=>{ e.stopPropagation(); selectTrack(i); const rc=vb.getBoundingClientRect();
+      const set=x=>{tr.vol=clamp((x-rc.left)/rc.width,0,1); showV(); save();}; set(e.clientX);
+      const mv=ev=>set(ev.clientX), up=()=>{removeEventListener('mousemove',mv); removeEventListener('mouseup',up);};
+      addEventListener('mousemove',mv); addEventListener('mouseup',up); };
+    vb.ondblclick=()=>{tr.vol=1; showV(); save();};
+    const r3=row();
+    if(audio){ const lb=document.createElement('span'); lb.className='lb'; lb.textContent='IN'; lb.title='Vstup zvukovky pre nahrávanie a odposluch';
+      const si=document.createElement('select'); si.innerHTML=trackIn(tr); si.title='Vstup zvukovky';
+      si.onchange=()=>{tr.inp=si.value; save(); si.blur();}; r3.append(lb,si); }
+    else{ const cur=natTrackPlugins[tr.id]||{};
+      const li=document.createElement('span'); li.className='lb'; li.textContent='VST'; li.title='VST nástroj stopy'; r3.append(li);
+      const sel=document.createElement('select');
+      sel.innerHTML='<option value="">– VST nástroj –</option>'+natPlugins.filter(p=>p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
+      sel.value=cur.uid||''; sel.title=cur.name||'Vyber VST nástroj';
+      sel.onchange=()=>{ if(sel.value==='__scan'){ sel.value=cur.uid||''; nat('showPlugins'); sel.blur(); return; } nat('trackPlugin',{track:tr.id,uid:sel.value,name:tr.name}); sel.blur(); };
+      const kb=btn('plw',ICO_KEYS,'Otvoriť okno nástroja',false,()=>nat('openPlugin',{track:tr.id,name:tr.name})); kb.disabled=!cur.uid;
+      const mi=document.createElement('select'); mi.className='mi'; mi.title='Z ktorých MIDI kláves hrá stopa';
+      mi.innerHTML='<option value="">Všetky MIDI</option>'+natMidiDevs.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
+      if(tr.midiIn&&!natMidiDevs.some(d=>d.id===tr.midiIn)) mi.innerHTML+=`<option value="${esc(tr.midiIn)}">(odpojené)</option>`;
+      mi.value=tr.midiIn||''; mi.onchange=()=>{tr.midiIn=mi.value; save(); natSel(); mi.blur();};
+      r3.append(sel,kb,mi); }
+    const r4=row(), fx=((natTrackPlugins[tr.id]||{}).fx||[])[0];
+    const lf=document.createElement('span'); lf.className='lb'; lf.textContent='FX'; lf.title='Efekt na stope';
+    const sf=document.createElement('select'); sf.title=fx?fx.name:'Vyber VST efekt';
+    sf.innerHTML='<option value="">Žiadny efekt</option>'+natPlugins.filter(p=>!p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
+    sf.value=fx?fx.uid:''; sf.onchange=()=>{ if(sf.value==='__scan'){ sf.value=fx?fx.uid:''; nat('showPlugins'); sf.blur(); return; } nat('trackFx',{track:tr.id,idx:0,uid:sf.value,name:tr.name}); sf.blur(); };
+    const fw=btn('',ICO_WIN,'Otvoriť okno efektu',false,()=>nat('openFx',{track:tr.id,idx:0,name:tr.name})); fw.disabled=!fx;
+    r4.append(lf,sf,fw);
+    r.append(r1,vb);
+    if(ROWH>=52) r.append(r3);
+    if(ROWH>=76) r.append(r4);
+    r.addEventListener('mousedown',()=>selectTrack(i));
+    L.appendChild(r);
+  });
+}
 function renderTracks(){
   const L=$('trackList'); L.innerHTML='';
+  if(NATIVE){ renderTracksNative(L); return; }
   const h=document.createElement('div'); h.className='thead';
   h.innerHTML='<span class="w22">M</span><span class="w22">S</span><span class="w84">Stopa</span>'+(mixMode?(NATIVE?'<span class="w82">Pan</span><span class="w40"></span>':'<span class="w40">Pan</span><span class="w40">Dozvuk</span><span class="w40">Ozvena</span>'):(NATIVE?'<span class="w82">VST nástroj</span><span class="w40">Okno</span>':'<span class="w82">Zvuk</span><span class="w40">Kan.</span>'))+'<span>Hlasitosť</span>';
   L.appendChild(h);
@@ -902,11 +983,11 @@ function renderTracks(){
     L.appendChild(r);
   });
 }
-function natSel(){ const tr=song.tracks[selT]; if(tr) nat('selTrack',{track:tr.id}); }
+function natSel(){ const tr=targetTrack(); if(tr) nat('selTrack',{track:tr.id,midiIn:tr.midiIn||''}); }
 function selectTrack(i){
   if(NATIVE) setTimeout(natSel,0);
   if(i===selT) return; selT=i;
-  [...document.querySelectorAll('.trk')].forEach(r=>r.classList.toggle('sel',+r.dataset.i===i)); drawArrange();
+  [...document.querySelectorAll('.trk,.ntr')].forEach(r=>r.classList.toggle('sel',+r.dataset.i===i)); drawArrange();
 }
 
 /* ---------------- aranzman ---------------- */
@@ -957,8 +1038,8 @@ function drawArrange(){
     c.fillStyle='rgba(45,67,98,.12)'; c.fillRect(bx,by,Math.abs(drag.x1-drag.x0),Math.abs(drag.y1-drag.y0));
     c.strokeStyle='#2d4362'; c.setLineDash([4,3]); c.strokeRect(bx+.5,by+.5,Math.abs(drag.x1-drag.x0),Math.abs(drag.y1-drag.y0)); c.setLineDash([]);}
   if(arrTool==='cut'&&cutHover){c.strokeStyle='#8e3a2c'; c.lineWidth=2; c.setLineDash([3,2]); c.beginPath(); c.moveTo(cutHover.x+.5,RULH+cutHover.ti*ROWH+1); c.lineTo(cutHover.x+.5,RULH+cutHover.ti*ROWH+ROWH-2); c.stroke(); c.setLineDash([]); c.lineWidth=1;}
-  if(natRec&&playing&&!counting&&playStep>=natRec.startStep){const ti=song.tracks.findIndex(t=>t.id===natRec.trId);
-    if(ti>=0){c.fillStyle='rgba(142,58,44,.55)'; c.fillRect(natRec.startStep/SPB*bw,RULH+ti*ROWH+3,(playStep-natRec.startStep+1)/SPB*bw,ROWH-7);}}
+  if(natRec&&playing&&!counting&&playStep>=natRec.startStep) natRec.ids.forEach(id=>{const ti=song.tracks.findIndex(t=>t.id===id);
+    if(ti>=0){c.fillStyle='rgba(142,58,44,.55)'; c.fillRect(natRec.startStep/SPB*bw,RULH+ti*ROWH+3,(playStep-natRec.startStep+1)/SPB*bw,ROWH-7);}});
   if(recAudio&&playing&&ac.currentTime>=recAudio.t0&&playStep>=recAudio.startStep){const ti=song.tracks.findIndex(t=>t.id===recAudio.tr.id);
     if(ti>=0){c.fillStyle='rgba(142,58,44,.55)'; c.fillRect(recAudio.startStep/SPB*bw,RULH+ti*ROWH+3,(playStep-recAudio.startStep+1)/SPB*bw,ROWH-7);}}
   const ph=(playing?playStep:song.pos)/SPB*bw;
@@ -1716,7 +1797,8 @@ try{const s=localStorage.getItem(LS); if(s) song=normalize(JSON.parse(s));}catch
 try{const x=localStorage.getItem(LSS); if(x) sampleStore=JSON.parse(x)||{};}catch(e){sampleStore={};}
 try{const v=JSON.parse(localStorage.getItem(LSV)||'null'); if(v){if(['low','normal','safe'].includes(v.latMode)) latMode=v.latMode; sinkId=v.sinkId||''; inId=v.inId||''; zoomA=clamp(+v.zoomA||28,8,160); ROWH=clamp(+v.ROWH||28,28,140); zoomK=clamp(+v.zoomK||20,6,80); KH=clamp(+v.KH||12,8,28);}}catch(e){}
 if(!song) song=demoSong();
-if(NATIVE){ setupNative(); renderAll(); requestAnimationFrame(frame); pushSong(true); natSel(); nat('ready'); natNeedPeaks(); }
+if(NATIVE){ try{ if(!localStorage.getItem('korgus.rows')){ ROWH=76; localStorage.setItem('korgus.rows','1'); saveView(); } }catch(e){}
+  setupNative(); renderAll(); requestAnimationFrame(frame); pushSong(true); natSel(); nat('ready'); natNeedPeaks(); }
 else { renderAll(); initMidi(); requestAnimationFrame(frame);
   if(Object.keys(sampleStore).length) decodeSamples();
   if(usedAudioIds().size) loadAudioStore(); }

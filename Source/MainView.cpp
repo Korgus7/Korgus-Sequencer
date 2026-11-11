@@ -160,7 +160,9 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("song",        [this] (const juce::var& v) { onSong (v); })
         .withEventListener ("transport",   [this] (const juce::var& v) { onTransport (v); })
         .withEventListener ("note",        [this] (const juce::var& v) { onNote (v); })
-        .withEventListener ("selTrack",    [this] (const juce::var& v) { engine.setSelectedSlot (engine.getOrCreateSlot (v["track"].toString())); })
+        .withEventListener ("selTrack",    [this] (const juce::var& v) { onSelTrack (v); })
+        .withEventListener ("trackFx",     [this] (const juce::var& v) { onTrackFx (v); })
+        .withEventListener ("openFx",      [this] (const juce::var& v) { onOpenFx (v); })
         .withEventListener ("trackPlugin", [this] (const juce::var& v) { onTrackPlugin (v); })
         .withEventListener ("openPlugin",  [this] (const juce::var& v) { onOpenPlugin (v); })
         .withEventListener ("showSettings",[this] (const juce::var&)   { showSettings(); })
@@ -236,6 +238,12 @@ void MainView::onNote (const juce::var& v)
     engine.liveNote (slot, (int) v["pitch"], (float) (double) v.getProperty ("vel", 0.8), (bool) v["on"]);
 }
 
+void MainView::onSelTrack (const juce::var& v)
+{
+    engine.setSelectedSlot (engine.getOrCreateSlot (v["track"].toString()));
+    engine.setMidiFilter (v.getProperty ("midiIn", "").toString());
+}
+
 void MainView::onTrackPlugin (const juce::var& v)
 {
     const auto trackId = v["track"].toString(), uid = v["uid"].toString();
@@ -257,7 +265,30 @@ void MainView::onTrackPlugin (const juce::var& v)
         }
 }
 
-bool MainView::loadPluginForTrack (const juce::String& trackId, const juce::PluginDescription& d, const juce::MemoryBlock* state)
+void MainView::onTrackFx (const juce::var& v)
+{
+    const auto trackId = v["track"].toString(), uid = v["uid"].toString();
+    const int idx = (int) v.getProperty ("idx", 0);
+    if (! juce::isPositiveAndBelow (idx, Engine::numFx)) return;
+    if (uid.isEmpty())
+    {
+        pluginWindows.erase (trackId + "#fx" + juce::String (idx));
+        engine.setTrackFx (engine.getOrCreateSlot (trackId), idx, nullptr);
+        fxDesc[trackId].erase (idx);
+        sendTrackPlugins();
+        saveSession();
+        return;
+    }
+    for (const auto& d : knownPlugins.getTypes())
+        if (d.createIdentifierString() == uid)
+        {
+            if (loadFxForTrack (trackId, idx, d, nullptr))
+                onOpenFx (v);
+            return;
+        }
+}
+
+std::unique_ptr<juce::AudioPluginInstance> MainView::createInstance (const juce::PluginDescription& d, const juce::MemoryBlock* state, bool instrument)
 {
     double sr = 44100; int bs = 512;
     if (auto* dev = deviceManager.getCurrentAudioDevice()) { sr = dev->getCurrentSampleRate(); bs = dev->getCurrentBufferSizeSamples(); }
@@ -267,17 +298,21 @@ bool MainView::loadPluginForTrack (const juce::String& trackId, const juce::Plug
     {
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, sk ("Plugin sa nedá načítať"),
                                                 d.name + "\n" + err);
-        return false;
+        return nullptr;
     }
     auto layout = inst->getBusesLayout();
-    if (layout.outputBuses.size() > 0)
-    {
-        layout.outputBuses.getReference (0) = juce::AudioChannelSet::stereo();
-        if (inst->checkBusesLayoutSupported (layout)) inst->setBusesLayout (layout);
-    }
+    if (layout.outputBuses.size() > 0) layout.outputBuses.getReference (0) = juce::AudioChannelSet::stereo();
+    if (! instrument && layout.inputBuses.size() > 0) layout.inputBuses.getReference (0) = juce::AudioChannelSet::stereo();
+    if (inst->checkBusesLayoutSupported (layout)) inst->setBusesLayout (layout);
     if (state != nullptr && state->getSize() > 0)
         inst->setStateInformation (state->getData(), (int) state->getSize());
+    return inst;
+}
 
+bool MainView::loadPluginForTrack (const juce::String& trackId, const juce::PluginDescription& d, const juce::MemoryBlock* state)
+{
+    auto inst = createInstance (d, state, true);
+    if (inst == nullptr) return false;
     pluginWindows.erase (trackId);
     engine.setTrackPlugin (engine.getOrCreateSlot (trackId), std::move (inst));
     trackDesc[trackId] = d;
@@ -286,25 +321,72 @@ bool MainView::loadPluginForTrack (const juce::String& trackId, const juce::Plug
     return true;
 }
 
+bool MainView::loadFxForTrack (const juce::String& trackId, int idx, const juce::PluginDescription& d, const juce::MemoryBlock* state)
+{
+    auto inst = createInstance (d, state, false);
+    if (inst == nullptr) return false;
+    pluginWindows.erase (trackId + "#fx" + juce::String (idx));
+    engine.setTrackFx (engine.getOrCreateSlot (trackId), idx, std::move (inst));
+    fxDesc[trackId][idx] = d;
+    sendTrackPlugins();
+    saveSession();
+    return true;
+}
+
+void MainView::openWindow (const juce::String& key, juce::AudioPluginInstance* p, const juce::String& title)
+{
+    auto it = pluginWindows.find (key);
+    if (it != pluginWindows.end()) { it->second->toFront (true); return; }
+    if (p == nullptr || ! p->hasEditor()) return;
+    juce::Component::SafePointer<MainView> sp (this);
+    pluginWindows[key] = std::make_unique<PluginWindow> (*p, title, [sp, key]
+    {
+        juce::MessageManager::callAsync ([sp, key] { if (sp != nullptr) sp->pluginWindows.erase (key); });
+    });
+}
+
 void MainView::onOpenPlugin (const juce::var& v)
 {
     const auto trackId = v["track"].toString();
-    auto it = pluginWindows.find (trackId);
-    if (it != pluginWindows.end()) { it->second->toFront (true); return; }
     auto* p = engine.getPlugin (engine.getOrCreateSlot (trackId));
-    if (p == nullptr || ! p->hasEditor()) return;
-    juce::Component::SafePointer<MainView> sp (this);
-    const juce::String title = p->getName() + "  –  " + v.getProperty ("name", "").toString();
-    pluginWindows[trackId] = std::make_unique<PluginWindow> (*p, title, [sp, trackId]
+    if (p != nullptr) openWindow (trackId, p, p->getName() + "  –  " + v.getProperty ("name", "").toString());
+}
+
+void MainView::onOpenFx (const juce::var& v)
+{
+    const auto trackId = v["track"].toString();
+    const int idx = (int) v.getProperty ("idx", 0);
+    auto* p = engine.getFx (engine.getOrCreateSlot (trackId), idx);
+    if (p != nullptr) openWindow (trackId + "#fx" + juce::String (idx), p, p->getName() + "  –  " + v.getProperty ("name", "").toString());
+}
+
+void MainView::sendDevices()
+{
+    auto o = obj();
+    juce::Array<juce::var> md, ins;
+    for (const auto& info : juce::MidiInput::getAvailableDevices())
+        if (deviceManager.isMidiInputDeviceEnabled (info.identifier))
+        {
+            auto m = obj();
+            put (m, "id", info.identifier); put (m, "name", info.name);
+            md.add (m);
+        }
+    if (auto* dev = deviceManager.getCurrentAudioDevice())
     {
-        juce::MessageManager::callAsync ([sp, trackId] { if (sp != nullptr) sp->pluginWindows.erase (trackId); });
-    });
+        const auto names = dev->getInputChannelNames();
+        const auto active = dev->getActiveInputChannels();
+        for (int i = 0; i < names.size(); ++i)
+            if (active[i]) ins.add (names[i]);
+    }
+    put (o, "midi", md); put (o, "ins", ins);
+    emit ("devices", o);
 }
 
 void MainView::onReady()
 {
     sendPluginList();
     sendTrackPlugins();
+    sendDevices();
 }
 
 void MainView::sendPluginList()
@@ -330,11 +412,30 @@ void MainView::sendPluginList()
 void MainView::sendTrackPlugins()
 {
     auto o = obj();
+    auto entry = [&o] (const juce::String& id) -> juce::var
+    {
+        if (! o.hasProperty (id)) put (o, id, obj());
+        return o[juce::Identifier (id)];
+    };
     for (const auto& [id, d] : trackDesc)
     {
-        auto t = obj();
+        auto t = entry (id);
         put (t, "name", d.name); put (t, "uid", d.createIdentifierString());
-        put (o, id, t);
+    }
+    for (const auto& [id, m] : fxDesc)
+    {
+        if (m.empty()) continue;
+        auto t = entry (id);
+        juce::Array<juce::var> fx;
+        for (int i = 0; i < Engine::numFx; ++i)
+        {
+            auto it = m.find (i);
+            if (it == m.end()) { fx.add (juce::var()); continue; }
+            auto f = obj();
+            put (f, "name", it->second.name); put (f, "uid", it->second.createIdentifierString());
+            fx.add (f);
+        }
+        put (t, "fx", fx);
     }
     emit ("trackPlugins", o);
 }
@@ -343,33 +444,68 @@ void MainView::sendTrackPlugins()
 juce::var MainView::collectPluginStates()
 {
     auto o = obj();
-    for (const auto& [id, d] : trackDesc)
+    auto stateOf = [] (juce::AudioPluginInstance* p, const juce::PluginDescription& d)
     {
-        auto* p = engine.getPlugin (engine.getOrCreateSlot (id));
-        if (p == nullptr) continue;
         juce::MemoryBlock mb;
         p->getStateInformation (mb);
         auto t = obj();
         if (auto x = d.createXml()) put (t, "desc", x->toString (juce::XmlElement::TextFormat().singleLine()));
         put (t, "state", mb.toBase64Encoding());
-        put (o, id, t);
+        return t;
+    };
+    auto entry = [&o] (const juce::String& id) -> juce::var
+    {
+        if (! o.hasProperty (id)) put (o, id, obj());
+        return o[juce::Identifier (id)];
+    };
+    for (const auto& [id, d] : trackDesc)
+    {
+        auto* p = engine.getPlugin (engine.getOrCreateSlot (id));
+        if (p == nullptr) continue;
+        auto t = entry (id);
+        auto st = stateOf (p, d);
+        put (t, "desc", st["desc"]); put (t, "state", st["state"]);
+    }
+    for (const auto& [id, m] : fxDesc)
+    {
+        juce::Array<juce::var> fx;
+        for (const auto& [idx, d] : m)
+            if (auto* p = engine.getFx (engine.getOrCreateSlot (id), idx))
+            {
+                auto st = stateOf (p, d);
+                put (st, "idx", idx);
+                fx.add (st);
+            }
+        if (! fx.isEmpty()) { auto t = entry (id); put (t, "fx", fx); }
     }
     return o;
 }
 
 void MainView::restorePluginStates (const juce::var& vst)
 {
+    auto load = [] (const juce::var& t, juce::PluginDescription& desc, juce::MemoryBlock& mb)
+    {
+        const auto xml = juce::parseXML (t["desc"].toString());
+        if (xml == nullptr || ! desc.loadFromXml (*xml)) return false;
+        mb.fromBase64Encoding (t["state"].toString());
+        return true;
+    };
     if (auto* d = vst.getDynamicObject())
     {
         for (const auto& prop : d->getProperties())
         {
             const auto trackId = prop.name.toString();
-            const auto xml = juce::parseXML (prop.value["desc"].toString());
             juce::PluginDescription desc;
-            if (xml == nullptr || ! desc.loadFromXml (*xml)) continue;
             juce::MemoryBlock mb;
-            mb.fromBase64Encoding (prop.value["state"].toString());
-            loadPluginForTrack (trackId, desc, &mb);
+            if (prop.value.hasProperty ("desc") && load (prop.value, desc, mb))
+                loadPluginForTrack (trackId, desc, &mb);
+            if (const auto* fx = prop.value["fx"].getArray())
+                for (const auto& f : *fx)
+                {
+                    juce::PluginDescription fd;
+                    juce::MemoryBlock fm;
+                    if (load (f, fd, fm)) loadFxForTrack (trackId, (int) f.getProperty ("idx", 0), fd, &fm);
+                }
         }
     }
 }
@@ -396,6 +532,7 @@ void MainView::saveSettings()
 void MainView::changeListenerCallback (juce::ChangeBroadcaster* src)
 {
     if (src == &knownPlugins) sendPluginList();
+    if (src == &deviceManager) sendDevices();
     if (src == &deviceManager)
         if (auto* dev = deviceManager.getCurrentAudioDevice())
             if (std::abs (dev->getCurrentSampleRate() - store->getSampleRate()) > 0.5)
@@ -508,7 +645,8 @@ void MainView::showPluginManager()
 
 void MainView::timerCallback()
 {
-    if (recOn || recFinishing) engine.drainRecording (recData);
+    if (recOn || recFinishing)
+        for (size_t i = 0; i < recTracks.size(); ++i) engine.drainRecording ((int) i, recTracks[i].l, recTracks[i].r);
     if (recFinishing && juce::Time::getMillisecondCounter() - recStopTime > 250) finishRecording();
     if (exporting.load()) return;
 
@@ -601,16 +739,26 @@ void MainView::onRecAudio (const juce::var& v)
     if ((bool) v["on"])
     {
         if (recFinishing) finishRecording();
-        std::vector<float> junk;
-        engine.drainRecording (junk);
-        recData.clear();
-        recTrack = v["track"].toString();
+        recTracks.clear();
+        std::vector<Engine::RecSpec> specs;
+        if (const auto* arr = v["tracks"].getArray())
+            for (const auto& t : *arr)
+            {
+                RecTrack rt;
+                rt.id = t["track"].toString();
+                const auto inp = t.getProperty ("inp", "0").toString();
+                rt.a = inp.upToFirstOccurrenceOf ("+", false, false).getIntValue();
+                rt.b = inp.contains ("+") ? inp.fromFirstOccurrenceOf ("+", false, false).getIntValue() : -1;
+                specs.push_back ({ rt.a, rt.b });
+                recTracks.push_back (std::move (rt));
+            }
+        if (specs.empty()) return;
+        engine.startRecording (specs);
         recOn = true;
-        engine.setRecording (true);
     }
     else if (recOn)
     {
-        engine.setRecording (false);
+        engine.stopRecording();
         recOn = false;
         recFinishing = true;
         recStopTime = juce::Time::getMillisecondCounter();
@@ -620,26 +768,26 @@ void MainView::onRecAudio (const juce::var& v)
 void MainView::finishRecording()
 {
     recFinishing = false;
-    engine.drainRecording (recData);
     const double sr = engine.getSampleRate();
     int lat = 0;
     if (auto* dev = deviceManager.getCurrentAudioDevice())
         lat = juce::jmax (0, dev->getInputLatencyInSamples() + dev->getOutputLatencyInSamples());
-    if (engine.hasRecStarted() && (double) recData.size() > lat + sr * 0.1)
+    for (size_t i = 0; i < recTracks.size(); ++i)
     {
-        const int n = (int) recData.size() - lat;
-        const auto id = store->addRecording (recData.data() + lat, n, sr);
-        if (id.isNotEmpty())
-        {
-            emit ("audioPeaks", store->peaksFor (id));
-            auto o = obj();
-            put (o, "track", recTrack); put (o, "id", id);
-            put (o, "start", engine.getRecStartStep()); put (o, "dur", n / sr);
-            emit ("audioRec", o);
-        }
+        auto& rt = recTracks[i];
+        engine.drainRecording ((int) i, rt.l, rt.r);
+        if (! engine.hasRecStarted() || (double) rt.l.size() <= lat + sr * 0.1) continue;
+        const int n = (int) rt.l.size() - lat;
+        const bool stereo = rt.b >= 0 && rt.r.size() == rt.l.size();
+        const auto id = store->addRecording (rt.l.data() + lat, stereo ? rt.r.data() + lat : nullptr, n, sr);
+        if (id.isEmpty()) continue;
+        emit ("audioPeaks", store->peaksFor (id));
+        auto o = obj();
+        put (o, "track", rt.id); put (o, "id", id);
+        put (o, "start", engine.getRecStartStep()); put (o, "dur", n / sr);
+        emit ("audioRec", o);
     }
-    recData.clear();
-    recData.shrink_to_fit();
+    recTracks.clear();
 }
 
 namespace

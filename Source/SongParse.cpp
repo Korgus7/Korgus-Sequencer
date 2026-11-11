@@ -29,7 +29,14 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             const auto type = t["type"].toString();
             TrackData td;
             td.isAudio = type == "audio";
-            td.slot = td.isAudio ? -1 : slotFor (t["id"].toString());
+            td.slot = slotFor (t["id"].toString());
+            if (td.isAudio)
+            {
+                td.monitor = (bool) t.getProperty ("mon", false);
+                const auto inp = t.getProperty ("inp", "0").toString();
+                td.inA = inp.upToFirstOccurrenceOf ("+", false, false).getIntValue();
+                td.inB = inp.contains ("+") ? inp.fromFirstOccurrenceOf ("+", false, false).getIntValue() : -1;
+            }
             const float vol = (float) (double) t.getProperty ("vol", 0.8);
             const float pan = juce::jlimit (-1.0f, 1.0f, (float) (double) t.getProperty ("pan", 0.0));
             const float g = vol * vol;
