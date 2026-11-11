@@ -34,6 +34,9 @@ input[type=range]{accent-color:#2d4362}
 #edWin{flex:1.25 1 0;min-height:180px}
 #mixWin{flex:none;height:360px}
 #autoWin{flex:none;height:230px}
+#ctxMenu{position:fixed;z-index:90;background:#2a3442;border:1px solid #161d27;border-radius:3px;padding:3px 0;min-width:150px;color:#e4e9ef;font-size:12px}
+#ctxMenu div{padding:5px 14px;cursor:default}
+#ctxMenu div:hover{background:#4f6f91}
 button.qb{font:bold 11px Tahoma,Arial,sans-serif;min-width:26px;padding:0 4px}
 #autoWin .tb select{height:20px;font-size:11px;max-width:260px}
 #autoBody{flex:1;overflow-x:auto;overflow-y:hidden;background:#232c38;border-top:1px solid #161d27}
@@ -206,7 +209,7 @@ button.ico svg{display:block}
     <button id="bAddA">+ Audio</button>
     <button id="bImpA" title="Načítať WAV / MP3 do audio stopy (alebo súbor pretiahni myšou do Aranžmánu)">Import audio…</button>
     <input type="file" id="audIn" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a" hidden>
-    <button id="bDelT" class="ico" title="Odstrániť vybranú stopu"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9.5 1.5l5 5-6.5 6.5H4.5L1.5 10z"/><path d="M5.5 5.5l5 5"/><path d="M4.5 13h10"/></svg></button>
+
     <span class="sep"></span>
     <button id="bUndo">Späť</button>
     <span class="sep"></span>
@@ -217,7 +220,7 @@ button.ico svg{display:block}
 </div>
 
 <div class="win" id="arrWin">
-  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><span class="sp"></span><button id="bAuto" title="Automatizácia vybranej stopy (hlasitosť, panoráma, parametre pluginov)">Auto</button><span style="width:4px"></span><button id="bAi" title="AI asistent pre vybranú stopu (Ctrl+I)">AI</button><span style="width:4px"></span><button id="bMix" title="Mixpult (F3)">Mix</button></div>
+  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><button id="atErase" class="ico" title="Guma – klik na časť ju zmaže"><svg width="14" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9.5 1.5l5 5-6.5 6.5H4.5L1.5 10z"/><path d="M5.5 5.5l5 5"/><path d="M4.5 13h10"/></svg></button><span class="sp"></span><button id="bAuto" title="Automatizácia vybranej stopy (hlasitosť, panoráma, parametre pluginov)">Auto</button><span style="width:4px"></span><button id="bAi" title="AI asistent pre vybranú stopu (Ctrl+I)">AI</button><span style="width:4px"></span><button id="bMix" title="Mixpult (F3)">Mix</button></div>
   <div id="arrScroll"><div id="arrInner"><div id="trackList"></div><canvas id="arrCv"></canvas></div></div>
 </div>
 
@@ -993,6 +996,15 @@ function trackIn(tr){ const v=tr.inp||'0', st=v.includes('+'), opts=[];
   else { natIns.forEach((n,i)=>opts.push([String(i),n])); if(!opts.length) opts.push(['0','Vstup 1']); }
   if(!opts.some(o=>o[0]===v)) opts.push([v,'Vstup '+v.split('+').map(x=>+x+1).join(' + ')]);
   return opts.map(o=>`<option value="${o[0]}"${o[0]===v?' selected':''}>${esc(o[1])}</option>`).join(''); }
+function ctxMenu(x,y,items){
+  let m=$('ctxMenu'); if(m) m.remove();
+  m=document.createElement('div'); m.id='ctxMenu';
+  items.forEach(([t,fn])=>{ const d=document.createElement('div'); d.textContent=t; d.onmousedown=e=>e.stopPropagation(); d.onclick=()=>{ m.remove(); fn(); }; m.appendChild(d); });
+  document.body.appendChild(m);
+  m.style.left=Math.min(x,innerWidth-m.offsetWidth-4)+'px'; m.style.top=Math.min(y,innerHeight-m.offsetHeight-4)+'px';
+  const close=e=>{ if(e.type==='keydown'&&e.key!=='Escape') return; m.remove(); removeEventListener('mousedown',close); removeEventListener('keydown',close); };
+  setTimeout(()=>{ addEventListener('mousedown',close); addEventListener('keydown',close); },0);
+}
 function renderTracksNative(L){
   const h=document.createElement('div'); h.className='thead'; L.appendChild(h);
   const el=(tag,cls,html)=>{const d=document.createElement(tag); if(cls) d.className=cls; if(html!=null) d.innerHTML=html; return d;};
@@ -1054,6 +1066,7 @@ function renderTracksNative(L){
     let hgt=5; rows.forEach(x=>{ const hh=x===vb?6:26; if(hgt+hh<=ROWH){ col.appendChild(x); hgt+=hh; } });
     r.append(num,col);
     r.addEventListener('mousedown',()=>selectTrack(i));
+    r.addEventListener('contextmenu',e=>{ e.preventDefault(); selectTrack(i); ctxMenu(e.clientX,e.clientY,[['Zmazať stopu',()=>deleteTrack(i)]]); });
     L.appendChild(r);
   });
 }
@@ -1599,7 +1612,7 @@ arrCv.addEventListener('mousedown',e=>{
   if(e.button!==0) return; e.preventDefault();
   const {x,y}=arrXY(e), bw=zoomA;
   if(arrTool!=='arrow'&&y>=RULH){ const ti0=Math.floor((y-RULH)/ROWH), tr0=song.tracks[ti0], p0=tr0&&tr0.parts.find(q=>x/bw>=q.start&&x/bw<q.start+q.len);
-    if(p0){ if(arrTool==='cut') splitPart(tr0,p0,x); else gluePart(tr0,p0); } return; }
+    if(p0){ if(arrTool==='cut') splitPart(tr0,p0,x); else if(arrTool==='erase') deletePart(tr0,p0); else gluePart(tr0,p0); } return; }
   if(SECH&&y<SECH){ secMouseDown(e,x); return; }
   if(y<RULH){drag={src:'arr',type:'ruler',x0:x,moved:false,ctrl:e.ctrlKey,alt:e.altKey}; return;}
   const ti=Math.floor((y-RULH)/ROWH);
@@ -1647,7 +1660,7 @@ function keyRightClick(d){
 }
 function drumDouble(){const r=edGet(); if(!r||r.tr.type!=='drum'||r.p.plen>32) return false; pushUndo(); const p=r.p; p.grid=p.grid.map(x=>x.concat(x)); p.plen*=2; renderEditor(); drawArrange(); save(); return true;}
 let arrTool='arrow', cutHover=null;
-function setArrTool(t){arrTool=t; ['Arrow','Cut','Glue'].forEach(k=>$('at'+k).classList.toggle('on',t===k.toLowerCase())); arrCv.style.cursor=t==='cut'?'crosshair':t==='glue'?'copy':'default'; cutHover=null; drawArrange();}
+function setArrTool(t){arrTool=t; ['Arrow','Cut','Glue','Erase'].forEach(k=>$('at'+k).classList.toggle('on',t===k.toLowerCase())); arrCv.style.cursor=t==='cut'?'crosshair':t==='glue'?'copy':t==='erase'?'not-allowed':'default'; cutHover=null; drawArrange();}
 function cutStep(tr,p,x){
   const unit=tr.type==='audio'?(zoomA>=48?1:4):(zoomA>=48?4:16);
   const a=p.start*SPB, b=a+p.len*SPB, st=Math.round(x/zoomA*SPB/unit)*unit;
@@ -1690,7 +1703,7 @@ function gluePart(tr,p){
   selParts.clear(); selParts.add(p.id); if(ed&&ed.pId===p.id) renderEditor();
   drawArrange(); save();
 }
-$('atArrow').onclick=()=>setArrTool('arrow'); $('atCut').onclick=()=>setArrTool('cut'); $('atGlue').onclick=()=>setArrTool('glue');
+$('atArrow').onclick=()=>setArrTool('arrow'); $('atCut').onclick=()=>setArrTool('cut'); $('atGlue').onclick=()=>setArrTool('glue'); $('atErase').onclick=()=>setArrTool('erase');
 arrCv.addEventListener('mousemove',e=>{
   if(arrTool!=='cut'||drag) return; const {x,y}=arrXY(e), ti=Math.floor((y-RULH)/ROWH), tr=song.tracks[ti];
   const p=tr&&y>=RULH&&tr.parts.find(q=>x/zoomA>=q.start&&x/zoomA<q.start+q.len); const st=p?cutStep(tr,p,x):null;
@@ -2043,8 +2056,8 @@ $('bAddA').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('audio')); selT=son
 $('bImpA').onclick=()=>{const tr=song.tracks[selT]; audTarget={trId:tr&&tr.type==='audio'?tr.id:null,bar:Math.floor(curPos()/SPB)}; pickAudio();};
 function pickAudio(){ $('audIn').click(); }
 $('audIn').onchange=e=>{const f=e.target.files[0]; e.target.value=''; if(f&&audTarget) importAudioFile(f,audTarget.trId,audTarget.bar);};
-$('bDelT').onclick=()=>{ if(!song.tracks[selT]) return; pushUndo(); const tr=song.tracks.splice(selT,1)[0];
-  if(ed&&tr.parts.some(p=>p.id===ed.pId)) closeEditor(); selT=clamp(selT,0,Math.max(0,song.tracks.length-1)); renderAll(); save();};
+function deleteTrack(i){ if(!song.tracks[i]) return; pushUndo(); const tr=song.tracks.splice(i,1)[0];
+  if(ed&&tr.parts.some(p=>p.id===ed.pId)) closeEditor(); selT=clamp(selT>i?selT-1:selT,0,Math.max(0,song.tracks.length-1)); renderAll(); save(); if(NATIVE) natSel();}
 $('bUndo').onclick=undo;
 $('barsIn').onchange=e=>{const mx=Math.max(4,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len))); song.bars=clamp(+e.target.value||32,mx,256);
   song.locR=Math.min(song.locR,song.bars*SPB); song.locL=Math.min(song.locL,song.locR-1); song.pos=Math.min(song.pos,song.bars*SPB-1); updTransport(); drawArrange(); save();};
