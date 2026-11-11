@@ -127,6 +127,8 @@ MainView::~MainView()
     saveSession();
     saveSettings();
     pluginWindows.clear();
+    for (auto& [k, w] : watches) if (w->proc != nullptr) w->proc->removeListener (w.get());
+    watches.clear();
     settingsWindow = nullptr;
     managerWindow = nullptr;
     knownPlugins.removeChangeListener (this);
@@ -213,6 +215,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                                       });
                             })
         .withEventListener ("exportStems", [this] (const juce::var& v) { onExportStems (v); })
+        .withEventListener ("autoRec",     [this] (const juce::var& v) { autoRecOn = (bool) v["on"]; })
         .withEventListener ("melody",      [this] (const juce::var& v)
                             {
                                 const auto req = v["req"].toString();
@@ -349,6 +352,7 @@ void MainView::onTrackPlugin (const juce::var& v)
     if (uid.isEmpty())
     {
         pluginWindows.erase (trackId);
+        unwatchPlugin (trackId, 0);
         engine.setTrackPlugin (engine.getOrCreateSlot (trackId), nullptr);
         trackDesc.erase (trackId);
         sendTrackPlugins();
@@ -372,6 +376,7 @@ void MainView::onTrackFx (const juce::var& v)
     if (uid.isEmpty())
     {
         pluginWindows.erase (trackId + "#fx" + juce::String (idx));
+        unwatchPlugin (trackId, idx + 1);
         engine.setTrackFx (engine.getOrCreateSlot (trackId), idx, nullptr);
         fxDesc[trackId].erase (idx);
         sendTrackPlugins();
@@ -413,7 +418,10 @@ bool MainView::loadPluginForTrack (const juce::String& trackId, const juce::Plug
     auto inst = createInstance (d, state, true);
     if (inst == nullptr) return false;
     pluginWindows.erase (trackId);
+    unwatchPlugin (trackId, 0);
+    auto* raw = inst.get();
     engine.setTrackPlugin (engine.getOrCreateSlot (trackId), std::move (inst));
+    watchPlugin (trackId, 0, raw);
     trackDesc[trackId] = d;
     sendTrackPlugins();
     saveSession();
@@ -425,7 +433,10 @@ bool MainView::loadFxForTrack (const juce::String& trackId, int idx, const juce:
     auto inst = createInstance (d, state, false);
     if (inst == nullptr) return false;
     pluginWindows.erase (trackId + "#fx" + juce::String (idx));
+    unwatchPlugin (trackId, idx + 1);
+    auto* raw = inst.get();
     engine.setTrackFx (engine.getOrCreateSlot (trackId), idx, std::move (inst));
+    watchPlugin (trackId, idx + 1, raw);
     fxDesc[trackId][idx] = d;
     sendTrackPlugins();
     saveSession();
@@ -1310,4 +1321,43 @@ void MainView::onExportStems (const juce::var& v)
                               });
                               job->launchThread();
                           });
+}
+
+//==============================================================================
+void MainView::watchPlugin (const juce::String& track, int which, juce::AudioProcessor* p)
+{
+    unwatchPlugin (track, which);
+    if (p == nullptr) return;
+    auto w = std::make_unique<ParamWatch> (*this, track, which, p);
+    p->addListener (w.get());
+    watches[track + "#" + juce::String (which)] = std::move (w);
+}
+
+void MainView::unwatchPlugin (const juce::String& track, int which)
+{
+    auto it = watches.find (track + "#" + juce::String (which));
+    if (it == watches.end()) return;
+    if (it->second->proc != nullptr) it->second->proc->removeListener (it->second.get());
+    watches.erase (it);
+}
+
+// pohyb gombika v plugine (moze prist aj z audio vlakna)
+void MainView::paramTouched (const juce::String& track, int which, int index, float v, int kind)
+{
+    if (! autoRecOn.load()) return;
+    juce::Component::SafePointer<MainView> sp (this);
+    juce::MessageManager::callAsync ([sp, track, which, index, v, kind]
+    {
+        if (sp == nullptr) return;
+        const int slot = sp->engine.getOrCreateSlot (track);
+        auto* p = which == 0 ? sp->engine.getPlugin (slot) : sp->engine.getFx (slot, which - 1);
+        if (p == nullptr || ! juce::isPositiveAndBelow (index, p->getParameters().size())) return;
+        auto* pr = p->getParameters()[index];
+        if (! pr->isAutomatable()) return;
+        auto o = obj();
+        put (o, "track", track); put (o, "w", which); put (o, "i", index); put (o, "kind", kind);
+        put (o, "v", kind == 0 ? v : pr->getValue());
+        put (o, "name", pr->getName (60)); put (o, "plugin", p->getName());
+        sp->emit ("paramTouched", o);
+    });
 }

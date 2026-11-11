@@ -52,6 +52,21 @@ private:
     void onSaveFile (const juce::var&);
     void onOpenSong (const juce::var&);
     void onReady();
+    // sledovanie pohybu gombikov v pluginoch (nahravanie automatizacie)
+    struct ParamWatch : juce::AudioProcessorListener
+    {
+        ParamWatch (MainView& m, juce::String t, int w, juce::AudioProcessor* p) : mv (m), track (std::move (t)), which (w), proc (p) {}
+        void audioProcessorParameterChanged (juce::AudioProcessor*, int i, float v) override { mv.paramTouched (track, which, i, v, 0); }
+        void audioProcessorChanged (juce::AudioProcessor*, const ChangeDetails&) override {}
+        void audioProcessorParameterChangeGestureBegin (juce::AudioProcessor*, int i) override { mv.paramTouched (track, which, i, -1, 1); }
+        void audioProcessorParameterChangeGestureEnd (juce::AudioProcessor*, int i) override { mv.paramTouched (track, which, i, -1, 2); }
+        MainView& mv; juce::String track; int which; juce::AudioProcessor* proc;
+    };
+    void paramTouched (const juce::String& track, int which, int index, float v, int kind);
+    void watchPlugin (const juce::String& track, int which, juce::AudioProcessor* p);
+    void unwatchPlugin (const juce::String& track, int which);
+    std::map<juce::String, std::unique_ptr<ParamWatch>> watches;
+    std::atomic<bool> autoRecOn { false };
     void runBootStep();
     void bootStatus (const juce::String& text, double progress);
     void onAiRequest (const juce::var&);
