@@ -91,24 +91,22 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     auto* settings = props.getUserSettings();
     if (std::unique_ptr<juce::XmlElement> kp { settings->getXmlValue ("knownPlugins") })
         knownPlugins.recreateFromXml (*kp);
-    // vstavany Korgus Synth: rozbali sa z exe do nastaveni programu a prida do zoznamu nastrojov
+    // VST3 pluginy vedla programu (napr. Korgus.vst3) sa pridaju samy; po aktualizacii suboru sa nacitaju znova
     {
-        auto plugDir = dataDir.getChildFile ("Plugins");
-        plugDir.createDirectory();
-        auto korgus = plugDir.getChildFile ("Korgus.vst3");
-        if (korgus.getSize() != (juce::int64) BinaryData::Korgus_vst3Size)
-            korgus.replaceWithData (BinaryData::Korgus_vst3, (size_t) BinaryData::Korgus_vst3Size);
+        // stara rozbalena kopia z nastaveni uz netreba
+        const auto oldDir = dataDir.getChildFile ("Plugins");
+        for (const auto& d : knownPlugins.getTypes())
+            if (juce::File::isAbsolutePath (d.fileOrIdentifier) && juce::File (d.fileOrIdentifier).isAChildOf (oldDir))
+                knownPlugins.removeType (d);
+        oldDir.deleteRecursively();
 
-        juce::Array<juce::File> files { korgus };
-        // aj dalsie .vst3 vedla programu
-        files.addArray (juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory()
-                            .findChildFiles (juce::File::findFilesAndDirectories, false, "*.vst3"));
+        const auto files = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory()
+                               .findChildFiles (juce::File::findFilesAndDirectories, false, "*.vst3");
         for (auto* fmt : formatManager.getFormats())
         {
             if (fmt->getName() != "VST3") continue;
             for (const auto& f : files)
             {
-                if (! f.exists()) continue;
                 juce::OwnedArray<juce::PluginDescription> found;
                 knownPlugins.scanAndAddFile (f.getFullPathName(), true, found, *fmt);
             }
@@ -607,10 +605,13 @@ juce::var MainView::collectPluginStates()
 
 void MainView::restorePluginStates (const juce::var& vst)
 {
-    auto load = [] (const juce::var& t, juce::PluginDescription& desc, juce::MemoryBlock& mb)
+    auto load = [this] (const juce::var& t, juce::PluginDescription& desc, juce::MemoryBlock& mb)
     {
         const auto xml = juce::parseXML (t["desc"].toString());
         if (xml == nullptr || ! desc.loadFromXml (*xml)) return false;
+        if (juce::File::isAbsolutePath (desc.fileOrIdentifier) && ! juce::File (desc.fileOrIdentifier).exists())
+            for (const auto& k : knownPlugins.getTypes())   // plugin sa presunul (napr. vedla programu)
+                if (k.uniqueId == desc.uniqueId && k.name == desc.name && k.pluginFormatName == desc.pluginFormatName) { desc = k; break; }
         mb.fromBase64Encoding (t["state"].toString());
         return true;
     };
