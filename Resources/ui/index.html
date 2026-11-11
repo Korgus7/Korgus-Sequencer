@@ -55,24 +55,41 @@ canvas{display:block}
 .trk input.mx{width:40px}
 .trk button.plw{width:40px}
 body.native .smp,body.native #outSel,body.native #outLbl{display:none!important}
+body.native #trackList{background:#232c38}
+body.native #trackList .thead{background:#232c38;border-bottom:1px solid #161d27}
 .trk button.plw svg{display:block;margin:auto}
-.ntr{display:flex;flex-direction:column;gap:1px;padding:2px 4px 0 2px;border-bottom:1px solid #a4a4a4;box-sizing:border-box;overflow:hidden;cursor:default}
-.ntr.sel{background:#8fa1b8}
-.ntr .r{display:flex;align-items:center;gap:3px;height:20px;flex:none}
-.ntr .num{width:16px;text-align:right;font-size:11px;color:#2a2a2a;margin-right:1px;flex:none}
-.ntr button{width:22px;height:20px;padding:0;line-height:16px;flex:none}
-.ntr button svg{display:block;margin:auto}
-.ntr .m.on{background:#9a7c34;border-color:#6b5520;color:#fff}
-.ntr .s.on{background:#5c7a54;border-color:#3d5437;color:#fff}
-.ntr .a.on{background:#8e3a2c;border-color:#5e2419;color:#fff}
-.ntr .o.on{background:#46617f;border-color:#2d4362;color:#fff}
-.ntr input[type=text]{flex:1;min-width:0;height:18px;box-sizing:border-box}
-.ntr select{flex:1;min-width:0;height:20px;padding:0 2px;font-size:11px;line-height:18px}
-.ntr select.mi{flex:0 0 104px}
-.ntr .ico{width:22px;display:flex;justify-content:center;color:#2d4362;flex:none}
-.ntr .lb{width:22px;font-size:9px;color:#2d4362;text-align:center;flex:none;font-weight:bold}
-.ntr .vb{height:4px;margin-left:19px;background:#8a929c;border-radius:2px;position:relative;cursor:ew-resize;flex:none}
-.ntr .vb i{position:absolute;left:0;top:0;bottom:0;background:#2d4362;border-radius:2px}
+.ntr{position:relative;display:flex;gap:6px;padding:5px 8px 0 4px;background:#2a3442;border-bottom:1px solid #161d27;box-sizing:border-box;overflow:hidden;cursor:default;color:#e4e9ef}
+.ntr.sel{background:#55657a}
+.ntr.sel::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:#8fa9c6}
+.ntr .num{width:18px;flex:none;text-align:center;font-size:13px;font-weight:bold;line-height:22px;color:#e4e9ef}
+.ntr .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.ntr .r{display:flex;align-items:center;gap:4px;height:22px;flex:none}
+.ntr .grp{display:flex;flex:none;border:1px solid #161d27;border-radius:3px;overflow:hidden}
+.ntr .grp button{width:26px;height:22px;padding:0;margin:0;border:0;border-right:1px solid #6d7886;border-radius:0;background:#b9c1cb;color:#1b2533;font:bold 12px Tahoma,Arial,sans-serif;box-shadow:none;display:flex;align-items:center;justify-content:center}
+.ntr .grp button:last-child{border-right:0}
+.ntr .grp .a.on{background:#a14a3e;color:#fff}
+.ntr .grp .o.on{background:#4f6f91;color:#fff}
+.ntr .grp .m.on{background:#9a7c34;color:#fff}
+.ntr .grp .s.on{background:#5c7a54;color:#fff}
+.ntr .nm{flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
+.ntr .nm input{width:100%;box-sizing:border-box;height:20px;font-size:12px}
+.ntr .ti{flex:none;display:flex;align-items:center;margin-left:auto}
+.ntr .vb{height:4px;width:74%;background:#161d27;border-radius:2px;position:relative;cursor:ew-resize;flex:none;margin:0 0 2px}
+.ntr .vb i{position:absolute;left:0;top:0;bottom:0;background:#c9d2dc;border-radius:2px}
+.ntr .dd{position:relative;flex:1;min-width:0;height:22px;background:#3a4757;border-radius:3px;display:flex;align-items:center}
+.ntr.sel .dd{background:#6b7b90}
+.ntr .dd svg.ic{position:absolute;left:5px;top:50%;transform:translateY(-50%);pointer-events:none;color:#e4e9ef}
+.ntr .dd::after{content:'';position:absolute;right:7px;top:9px;border:5px solid transparent;border-top-color:#e4e9ef;pointer-events:none}
+.ntr .dd select{appearance:none;-webkit-appearance:none;width:100%;height:22px;border:0;background:transparent;color:#e4e9ef;font-size:12px;padding:0 20px 0 24px;outline:none;cursor:pointer;border-radius:3px}
+.ntr .dd.noic select{padding-left:6px}
+.ntr .dd select option{background:#2a3442;color:#e4e9ef}
+.ntr .tg{flex:none;width:34px;height:22px;padding:0;border:0;border-radius:3px;background:#3a4757;color:#e4e9ef;display:flex;align-items:center;justify-content:center}
+.ntr.sel .tg{background:#6b7b90}
+.ntr .tg.on{background:#4f6f91}
+.ntr button,.ntr select,.ntr input,.ntr button:hover,.ntr button:active,.ntr select:focus,.ntr input:focus{box-shadow:none!important;transition:none}
+.ntr .grp button:hover{background:#c9d0d8}.ntr .grp .a.on:hover{background:#a14a3e}.ntr .grp .o.on:hover{background:#4f6f91}.ntr .grp .m.on:hover{background:#9a7c34}.ntr .grp .s.on:hover{background:#5c7a54}
+.ntr .tg:hover{background:#46546a}.ntr .tg.on:hover{background:#4f6f91}
+.ntr .nm input{border:0;border-radius:3px;background:#e4e9ef;color:#1b2533;padding:0 4px}
 .w22{width:22px;text-align:center}.w84{width:84px}.w82{width:82px}.w40{width:40px}
 #edBody{flex:1;overflow:auto;background:#b8b8b8;border-top:1px solid #808080;position:relative}
 #keyWrap{display:flex;width:max-content}
@@ -208,7 +225,7 @@ function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
   return {tempo:song.tempo,bars:song.bars,locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,
-    tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',parts:t.parts}))};
+    tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,parts:t.parts}))};
 }
 function pushSong(now){ if(!NATIVE) return; clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
 function curNatPos(){ if(!playing) return song.pos; return natLast.pos+(performance.now()-natLast.t)/1000*song.tempo/60*4; }
@@ -814,7 +831,7 @@ function noteOff(key){
 /* ---------------- krokovy vstup ---------------- */
 let stepOn=false, stepCur=0, stepChord=false, drumStep=1;
 function stepActive(){return stepOn&&!!ed&&!playing&&!!edGet();}
-function targetTrack(){ if(stepActive()) return edGet().tr; if(NATIVE){ const a=song.tracks.find(t=>t.arm&&t.type!=='audio'); if(a) return a; } return song.tracks[selT]; }
+function targetTrack(){ if(stepActive()) return edGet().tr; if(NATIVE){ const a=song.tracks.find(t=>(t.arm||t.mon)&&t.type!=='audio'); if(a) return a; } return song.tracks[selT]; }
 function stepSize(){const r=edGet(); return r&&r.tr.type==='drum'?drumStep:curLen;}
 function stepMax(){const r=edGet(); if(!r) return 16; return r.tr.type==='drum'?r.p.plen:r.p.len*SPB;}
 function stepMove(d){ stepChord=false; const m=stepMax(); stepCur=((stepCur+d)%m+m)%m; showStepCur(); }
@@ -877,62 +894,77 @@ function sizeCv(cv,w,h){
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 /* ---------------- stopy ---------------- */
-const ICO_WAVE='<svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 7h1M4 4v6M7 1v12M10 3v8M13 5v4M15 7h0"/></svg>';
-const ICO_WIN='<svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="13" height="11" rx="1"/><path d="M.5 3.5h13" /></svg>';
-function trackIn(tr){ const v=tr.inp||'0', opts=[]; natIns.forEach((n,i)=>opts.push([String(i),n]));
-  for(let i=0;i+1<natIns.length;i+=2) opts.push([i+'+'+(i+1),natIns[i]+' + '+natIns[i+1]+' (stereo)']);
-  if(!opts.length) opts.push(['0','Vstup 1']); if(!opts.some(o=>o[0]===v)) opts.push([v,'Vstup '+v.split('+').map(x=>+x+1).join('+')]);
+const ICO_WAVE='<svg width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="#c9d2dc" stroke-width="2" stroke-linecap="round"><path d="M2 8v0M6 5v6M10 2v12M14 4v8M18 6v4"/></svg>';
+const ICO_PIANO='<svg width="24" height="16" viewBox="0 0 24 16"><rect x=".5" y=".5" width="23" height="15" rx="1.5" fill="#d9a65a"/><path d="M6.5 6v9.5M12 6v9.5M17.5 6v9.5" stroke="#2a3442"/><path d="M4.5 0h3v8h-3zM10 0h3v8h-3zM15.5 0h3v8h-3zM21 0h2v8h-2z" fill="#2a3442"/></svg>';
+const ICO_KBD='<svg class="ic" width="14" height="10" viewBox="0 0 14 10" fill="currentColor"><path d="M0 0h2.5v10H0zM3.8 0h2.5v10H3.8zM7.6 0h2.5v10H7.6zM11.4 0H14v10h-2.6z"/></svg>';
+const ICO_IN='<svg class="ic" width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M0 5h9M6 2l3 3-3 3M12.5 0v10"/></svg>';
+const ICO_FXB='<svg class="ic" width="12" height="10" viewBox="0 0 12 10" fill="currentColor"><path d="M0 4h3v6H0zM4.5 0h3v10h-3zM9 6h3v4H9z"/></svg>';
+const ICO_MON='<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 1a5 5 0 0 1 0 10z" fill="currentColor"/></svg>';
+const ICO_ST='<svg width="22" height="12" viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="6" r="4.5"/><circle cx="15" cy="6" r="4.5"/></svg>';
+const ICO_MO='<svg width="22" height="12" viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="6" r="4.5"/></svg>';
+function trackIn(tr){ const v=tr.inp||'0', st=v.includes('+'), opts=[];
+  if(st){ for(let i=0;i+1<natIns.length;i+=2) opts.push([i+'+'+(i+1),natIns[i]+' + '+natIns[i+1]]); if(!opts.length) opts.push(['0+1','Vstup 1 + 2']); }
+  else { natIns.forEach((n,i)=>opts.push([String(i),n])); if(!opts.length) opts.push(['0','Vstup 1']); }
+  if(!opts.some(o=>o[0]===v)) opts.push([v,'Vstup '+v.split('+').map(x=>+x+1).join(' + ')]);
   return opts.map(o=>`<option value="${o[0]}"${o[0]===v?' selected':''}>${esc(o[1])}</option>`).join(''); }
 function renderTracksNative(L){
-  const h=document.createElement('div'); h.className='thead'; h.innerHTML='<span style="padding-left:20px">Stopy</span><span style="margin-left:auto;color:#55606e">Alt + koliesko = výška stôp</span>'; L.appendChild(h);
-  const btn=(cls,txt,title,on,fn)=>{const b=document.createElement('button'); b.className=cls+(on?' on':''); b.innerHTML=txt; b.title=title; b.onclick=e=>{e.stopPropagation(); fn(b);}; return b;};
-  const row=()=>{const d=document.createElement('div'); d.className='r'; return d;};
+  const h=document.createElement('div'); h.className='thead'; L.appendChild(h);
+  const el=(tag,cls,html)=>{const d=document.createElement(tag); if(cls) d.className=cls; if(html!=null) d.innerHTML=html; return d;};
+  const dd=(ico,opts,val,title,fn)=>{const d=el('div','dd'+(ico?'':' noic'),ico||''); const sl=el('select'); sl.innerHTML=opts; sl.value=val; sl.title=title;
+    sl.onmousedown=e=>e.stopPropagation(); sl.onchange=()=>{fn(sl.value,sl); sl.blur();}; d.appendChild(sl); return d;};
+  const fxOpts='<option value="">Žiadny</option>'+natPlugins.filter(p=>!p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
+  const fxRow=tr=>{ const fx=((natTrackPlugins[tr.id]||{}).fx||[])[0], r=el('div','r');
+    const d=dd(ICO_FXB,fxOpts,fx?fx.uid:'',fx?fx.name+' (dvojklik = okno efektu)':'Efekt na stope',(v,sl)=>{ if(v==='__scan'){ sl.value=fx?fx.uid:''; nat('showPlugins'); return; } nat('trackFx',{track:tr.id,idx:0,uid:v,name:tr.name}); });
+    d.ondblclick=()=>{ if(fx) nat('openFx',{track:tr.id,idx:0,name:tr.name}); }; r.appendChild(d); return r; };
   song.tracks.forEach((tr,i)=>{
-    const audio=tr.type==='audio', r=document.createElement('div'); r.className='ntr'+(i===selT?' sel':''); r.dataset.i=i; r.style.height=ROWH+'px';
-    const r1=row(), num=document.createElement('span'); num.className='num'; num.textContent=i+1;
-    const m=btn('m','M','Stlmiť',tr.mute,b=>{tr.mute=!tr.mute; b.classList.toggle('on',tr.mute); drawArrange(); save();});
-    const s=btn('s','S','Sólo',tr.solo,b=>{tr.solo=!tr.solo; b.classList.toggle('on',tr.solo); save();});
-    const a=btn('a','●',audio?'Nahrávať do tejto stopy':'Klávesy hrajú a nahrávajú do tejto stopy',tr.arm,b=>{tr.arm=!tr.arm; b.classList.toggle('on',tr.arm);
-      if(tr.arm&&!audio) song.tracks.forEach(t=>{if(t!==tr&&t.type!=='audio') t.arm=false;}); save(); natSel(); if(tr.arm&&!audio) renderTracks();});
-    const n=document.createElement('input'); n.type='text'; n.value=tr.name;
-    n.onchange=()=>{pushUndo(); tr.name=n.value||'Stopa'; save(); if(ed) renderEditor();};
-    const ico=document.createElement('span'); ico.className='ico'; ico.innerHTML=audio?ICO_WAVE:ICO_KEYS; ico.title=audio?'Audio stopa':'Nástrojová stopa';
-    r1.append(num,m,s,a);
-    if(audio) r1.append(btn('o','◐','Odposluch vstupu cez stopu',tr.mon,b=>{tr.mon=!tr.mon; b.classList.toggle('on',tr.mon); save();}));
-    r1.append(n,ico);
-    const vb=document.createElement('div'); vb.className='vb'; const fill=document.createElement('i'); vb.appendChild(fill);
+    const audio=tr.type==='audio', r=el('div','ntr'+(i===selT?' sel':'')); r.dataset.i=i; r.style.height=ROWH+'px';
+    const num=el('div','num',String(i+1)), col=el('div','col');
+    // riadok 1: M S ● ◐, nazov, ikona
+    const r1=el('div','r'), g=el('div','grp');
+    const b=(cls,html,title,on,fn)=>{const x=el('button',cls+(on?' on':''),html); x.title=title; x.onmousedown=e=>e.stopPropagation(); x.onclick=()=>fn(x); return x;};
+    const solo=(key,x)=>{ tr[key]=!tr[key]; if(tr[key]&&!audio) song.tracks.forEach(t=>{ if(t!==tr&&t.type!=='audio') t[key]=false; }); save(); natSel(); renderTracks(); };
+    g.append(b('m','M','Stlmiť',tr.mute,x=>{tr.mute=!tr.mute; x.classList.toggle('on',tr.mute); drawArrange(); save();}),
+             b('s','S','Sólo',tr.solo,x=>{tr.solo=!tr.solo; x.classList.toggle('on',tr.solo); save();}),
+             b('a','●','Pripraviť na nahrávanie',tr.arm,x=>{ if(audio){ tr.arm=!tr.arm; x.classList.toggle('on',tr.arm); save(); } else solo('arm',x); }),
+             b('o',ICO_MON,'Odposluch',tr.mon,x=>{ if(audio){ tr.mon=!tr.mon; x.classList.toggle('on',tr.mon); save(); } else solo('mon',x); }));
+    const nm=el('div','nm'); nm.textContent=tr.name; nm.title='Dvojklik = premenovať';
+    nm.ondblclick=()=>{ const inp=el('input'); inp.type='text'; inp.value=tr.name; nm.innerHTML=''; nm.appendChild(inp); inp.focus(); inp.select();
+      const done=ok=>{ if(ok&&inp.value.trim()&&inp.value!==tr.name){ pushUndo(); tr.name=inp.value.trim(); save(); if(ed) renderEditor(); } renderTracks(); };
+      inp.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter') done(true); if(e.key==='Escape') done(false); }; inp.onblur=()=>done(true); inp.onmousedown=e=>e.stopPropagation(); };
+    const ti=el('div','ti',audio?ICO_WAVE:ICO_PIANO); ti.title=audio?'Audio stopa':'Nástrojová stopa';
+    r1.append(g,nm,ti);
+    // riadok 2: hlasitost
+    const vb=el('div','vb'), fill=el('i'); vb.appendChild(fill);
     const showV=()=>{fill.style.width=(tr.vol*100)+'%'; vb.title='Hlasitosť '+(tr.vol>0?(40*Math.log10(tr.vol)).toFixed(1)+' dB':'−∞')+' (dvojklik = 0 dB)';}; showV();
     vb.onmousedown=e=>{ e.stopPropagation(); selectTrack(i); const rc=vb.getBoundingClientRect();
       const set=x=>{tr.vol=clamp((x-rc.left)/rc.width,0,1); showV(); save();}; set(e.clientX);
       const mv=ev=>set(ev.clientX), up=()=>{removeEventListener('mousemove',mv); removeEventListener('mouseup',up);};
       addEventListener('mousemove',mv); addEventListener('mouseup',up); };
     vb.ondblclick=()=>{tr.vol=1; showV(); save();};
-    const r3=row();
-    if(audio){ const lb=document.createElement('span'); lb.className='lb'; lb.textContent='IN'; lb.title='Vstup zvukovky pre nahrávanie a odposluch';
-      const si=document.createElement('select'); si.innerHTML=trackIn(tr); si.title='Vstup zvukovky';
-      si.onchange=()=>{tr.inp=si.value; save(); si.blur();}; r3.append(lb,si); }
-    else{ const cur=natTrackPlugins[tr.id]||{};
-      const li=document.createElement('span'); li.className='lb'; li.textContent='VST'; li.title='VST nástroj stopy'; r3.append(li);
-      const sel=document.createElement('select');
-      sel.innerHTML='<option value="">– VST nástroj –</option>'+natPlugins.filter(p=>p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
-      sel.value=cur.uid||''; sel.title=cur.name||'Vyber VST nástroj';
-      sel.onchange=()=>{ if(sel.value==='__scan'){ sel.value=cur.uid||''; nat('showPlugins'); sel.blur(); return; } nat('trackPlugin',{track:tr.id,uid:sel.value,name:tr.name}); sel.blur(); };
-      const kb=btn('plw',ICO_KEYS,'Otvoriť okno nástroja',false,()=>nat('openPlugin',{track:tr.id,name:tr.name})); kb.disabled=!cur.uid;
-      const mi=document.createElement('select'); mi.className='mi'; mi.title='Z ktorých MIDI kláves hrá stopa';
-      mi.innerHTML='<option value="">Všetky MIDI</option>'+natMidiDevs.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
-      if(tr.midiIn&&!natMidiDevs.some(d=>d.id===tr.midiIn)) mi.innerHTML+=`<option value="${esc(tr.midiIn)}">(odpojené)</option>`;
-      mi.value=tr.midiIn||''; mi.onchange=()=>{tr.midiIn=mi.value; save(); natSel(); mi.blur();};
-      r3.append(sel,kb,mi); }
-    const r4=row(), fx=((natTrackPlugins[tr.id]||{}).fx||[])[0];
-    const lf=document.createElement('span'); lf.className='lb'; lf.textContent='FX'; lf.title='Efekt na stope';
-    const sf=document.createElement('select'); sf.title=fx?fx.name:'Vyber VST efekt';
-    sf.innerHTML='<option value="">Žiadny efekt</option>'+natPlugins.filter(p=>!p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
-    sf.value=fx?fx.uid:''; sf.onchange=()=>{ if(sf.value==='__scan'){ sf.value=fx?fx.uid:''; nat('showPlugins'); sf.blur(); return; } nat('trackFx',{track:tr.id,idx:0,uid:sf.value,name:tr.name}); sf.blur(); };
-    const fw=btn('',ICO_WIN,'Otvoriť okno efektu',false,()=>nat('openFx',{track:tr.id,idx:0,name:tr.name})); fw.disabled=!fx;
-    r4.append(lf,sf,fw);
-    r.append(r1,vb);
-    if(ROWH>=52) r.append(r3);
-    if(ROWH>=76) r.append(r4);
+    const rows=[r1,vb];
+    if(audio){
+      const r3=el('div','r'), st=(tr.inp||'0').includes('+');
+      const di=dd('',trackIn(tr),tr.inp||'0','Vstup zvukovky',v=>{tr.inp=v; save();});
+      const tg=el('button','tg'+(st?' on':''),st?ICO_ST:ICO_MO); tg.title=st?'Stereo (klik = mono)':'Mono (klik = stereo)'; tg.onmousedown=e=>e.stopPropagation();
+      tg.onclick=()=>{ const a=parseInt(tr.inp||'0')||0; tr.inp=st?String(a):(a-a%2)+'+'+(a-a%2+1); save(); renderTracks(); };
+      r3.append(di,tg); rows.push(r3,fxRow(tr));
+    } else {
+      const cur=natTrackPlugins[tr.id]||{}, r3=el('div','r');
+      const inst='<option value="">Žiadny nástroj</option>'+natPlugins.filter(p=>p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
+      const di=dd(ICO_KBD,inst,cur.uid||'',cur.uid?cur.name+' (dvojklik = okno nástroja)':'VST nástroj',(v,sl)=>{ if(v==='__scan'){ sl.value=cur.uid||''; nat('showPlugins'); return; } nat('trackPlugin',{track:tr.id,uid:v,name:tr.name}); });
+      di.ondblclick=()=>{ if(cur.uid) nat('openPlugin',{track:tr.id,name:tr.name}); };
+      let ch=''; for(let k=1;k<=16;k++) ch+=`<option value="${k}">MIDI kanál ${k}</option>`;
+      const dc=dd('',ch,String(tr.midiCh||1),'MIDI kanál nástroja',v=>{tr.midiCh=+v; save();});
+      r3.append(di,dc);
+      const r4=el('div','r');
+      const mi='<option value="">Všetky vstupy</option>'+natMidiDevs.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')
+        +(tr.midiIn&&!natMidiDevs.some(d=>d.id===tr.midiIn)?`<option value="${esc(tr.midiIn)}">(odpojené)</option>`:'');
+      r4.appendChild(dd(ICO_IN,mi,tr.midiIn||'','MIDI vstup',v=>{tr.midiIn=v; save(); natSel();}));
+      rows.push(r3,r4,fxRow(tr));
+    }
+    // len riadky, ktore sa zmestia
+    let hgt=5; rows.forEach(x=>{ const hh=x===vb?6:26; if(hgt+hh<=ROWH){ col.appendChild(x); hgt+=hh; } });
+    r.append(num,col);
     r.addEventListener('mousedown',()=>selectTrack(i));
     L.appendChild(r);
   });
@@ -1797,7 +1829,7 @@ try{const s=localStorage.getItem(LS); if(s) song=normalize(JSON.parse(s));}catch
 try{const x=localStorage.getItem(LSS); if(x) sampleStore=JSON.parse(x)||{};}catch(e){sampleStore={};}
 try{const v=JSON.parse(localStorage.getItem(LSV)||'null'); if(v){if(['low','normal','safe'].includes(v.latMode)) latMode=v.latMode; sinkId=v.sinkId||''; inId=v.inId||''; zoomA=clamp(+v.zoomA||28,8,160); ROWH=clamp(+v.ROWH||28,28,140); zoomK=clamp(+v.zoomK||20,6,80); KH=clamp(+v.KH||12,8,28);}}catch(e){}
 if(!song) song=demoSong();
-if(NATIVE){ try{ if(!localStorage.getItem('korgus.rows')){ ROWH=76; localStorage.setItem('korgus.rows','1'); saveView(); } }catch(e){}
+if(NATIVE){ try{ if(localStorage.getItem('korgus.rows')!=='2'){ ROWH=140; localStorage.setItem('korgus.rows','2'); saveView(); } }catch(e){}
   setupNative(); renderAll(); requestAnimationFrame(frame); pushSong(true); natSel(); nat('ready'); natNeedPeaks(); }
 else { renderAll(); initMidi(); requestAnimationFrame(frame);
   if(Object.keys(sampleStore).length) decodeSamples();

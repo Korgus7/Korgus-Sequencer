@@ -30,6 +30,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             TrackData td;
             td.isAudio = type == "audio";
             td.slot = slotFor (t["id"].toString());
+            td.channel = juce::jlimit (1, 16, (int) t.getProperty ("midiCh", 1));
             if (td.isAudio)
             {
                 td.monitor = (bool) t.getProperty ("mon", false);

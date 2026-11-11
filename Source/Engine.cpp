@@ -234,12 +234,12 @@ void Engine::allNotesOff (int off, bool hard)
     for (auto& s : slots)
     {
         for (auto& a : s->active)
-            s->midi.addEvent (juce::MidiMessage::noteOff (1, a.first), off);
+            s->midi.addEvent (juce::MidiMessage::noteOff (s->channel, a.first), off);
         s->active.clear();
         if (hard)
         {
-            s->midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 0), off);
-            s->midi.addEvent (juce::MidiMessage::allNotesOff (1), off);
+            s->midi.addEvent (juce::MidiMessage::controllerEvent (s->channel, 64, 0), off);
+            s->midi.addEvent (juce::MidiMessage::allNotesOff (s->channel), off);
         }
     }
 }
@@ -351,7 +351,7 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
             if (s.active[i].second < p1)
             {
                 const int o = off + juce::jmax (0, (int) ((s.active[i].second - p0) * sps));
-                s.midi.addEvent (juce::MidiMessage::noteOff (1, s.active[i].first), o);
+                s.midi.addEvent (juce::MidiMessage::noteOff (td.channel, s.active[i].first), o);
                 s.active[i] = s.active.back();
                 s.active.pop_back();
             }
@@ -365,7 +365,7 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
         for (; it != td.notes.end() && it->start < p1; ++it)
         {
             const int o = off + juce::jmax (0, (int) ((it->start - p0) * sps));
-            s.midi.addEvent (juce::MidiMessage::noteOn (1, it->pitch, it->vel), o);
+            s.midi.addEvent (juce::MidiMessage::noteOn (td.channel, it->pitch, it->vel), o);
             if (s.active.size() < 512) s.active.push_back ({ it->pitch, it->end });
         }
     }
@@ -399,7 +399,12 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             {
                 const auto& l = liveBuf[(size_t) (start + i)];
                 if (juce::isPositiveAndBelow (l.slot, (int) slots.size()))
-                    slots[(size_t) l.slot]->midi.addEvent (l.msg, 0);
+                {
+                    auto& sl = *slots[(size_t) l.slot];
+                    auto msg = l.msg;
+                    msg.setChannel (sl.channel);
+                    sl.midi.addEvent (msg, 0);
+                }
             }
         };
         take (scope.startIndex1, scope.blockSize1);
@@ -450,6 +455,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         for (const auto& td : sd->tracks)
         {
             if (! juce::isPositiveAndBelow (td.slot, (int) slots.size())) continue;
+            slots[(size_t) td.slot]->channel = td.channel;
             auto& b = slots[(size_t) td.slot]->buf;
             if (b.getNumSamples() < n) b.setSize (juce::jmax (2, b.getNumChannels()), n, false, true, true);
             for (int c = 0; c < b.getNumChannels(); ++c) juce::FloatVectorOperations::clear (b.getWritePointer (c), n);

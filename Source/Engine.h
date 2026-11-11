@@ -29,6 +29,7 @@ struct TrackData
     int inA = 0, inB = -1;      // vstupne kanaly zvukovky (inB = -1 -> mono)
     std::vector<ClipEv> clips;
     int slot = -1;              // index slotu s pluginom v Engine
+    int channel = 1;            // MIDI kanal pre VST nastroj
     float gainL = 1, gainR = 1; // hlasitost + panorama
     bool audible = true;        // nie je stlmena / je solo
     std::vector<NoteEv> notes;  // zoradene podla start
@@ -102,6 +103,7 @@ private:
     struct Slot
     {
         juce::String trackId;
+        int channel = 1;
         std::unique_ptr<juce::AudioPluginInstance> plugin;
         std::array<std::unique_ptr<juce::AudioPluginInstance>, numFx> fx;
         juce::MidiBuffer midi;
