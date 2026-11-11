@@ -44,6 +44,22 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             const float g = vol * vol;
             td.gainL = g * juce::jmin (1.0f, 1.0f - pan);
             td.gainR = g * juce::jmin (1.0f, 1.0f + pan);
+            td.vol = vol; td.pan = pan;
+            if (const auto* autos = t["auto"].getArray())
+                for (const auto& av : *autos)
+                {
+                    AutoLane al;
+                    const auto tt = av["t"].toString();
+                    al.type = tt == "vol" ? 0 : tt == "pan" ? 1 : 2;
+                    al.which = (int) av.getProperty ("w", 0);
+                    al.param = (int) av.getProperty ("i", 0);
+                    if (const auto* pts = av["pts"].getArray())
+                        for (const auto& pv : *pts)
+                            if (const auto* xy = pv.getArray(); xy != nullptr && xy->size() >= 2)
+                                al.pts.push_back ({ (double) (*xy)[0], (float) (double) (*xy)[1] });
+                    std::sort (al.pts.begin(), al.pts.end(), [] (const auto& x, const auto& y) { return x.first < y.first; });
+                    if (! al.pts.empty()) td.autos.push_back (std::move (al));
+                }
             td.audible = ! (bool) t.getProperty ("mute", false) && (! anySolo || (bool) t.getProperty ("solo", false));
 
             std::array<AudioBufPtr, 10> laneBuf {};

@@ -100,6 +100,7 @@ int Engine::getOrCreateSlot (const juce::String& trackId)
     s->midi.ensureSize (2048);
     s->active.reserve (128);
     s->voices.reserve (64);
+    s->lastParams.reserve (64);
     slots.push_back (std::move (s));
     return (int) slots.size() - 1;
 }
@@ -601,6 +602,40 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 if (b != nullptr) view.addFrom (1, 0, b, n);
             }
 
+            // automatizacia: parametre pluginov a hlasitost / panorama
+            float gL = td.gainL, gR = td.gainR;
+            if (! td.autos.empty())
+            {
+                float vol = td.vol, pan = td.pan;
+                bool mix = false;
+                for (const auto& al : td.autos)
+                {
+                    const float v = juce::jlimit (0.0f, 1.0f, al.valueAt (pos));
+                    if (al.type == 0) { vol = v; mix = true; }
+                    else if (al.type == 1) { pan = v * 2.0f - 1.0f; mix = true; }
+                    else
+                    {
+                        juce::AudioPluginInstance* pl = al.which == 0 ? slot.plugin.get()
+                                                      : (juce::isPositiveAndBelow (al.which - 1, numFx) ? slot.fx[(size_t) al.which - 1].get() : nullptr);
+                        if (pl == nullptr) continue;
+                        const auto& params = pl->getParameters();
+                        if (! juce::isPositiveAndBelow (al.param, params.size())) continue;
+                        const int key = al.which * 100000 + al.param;
+                        auto it = std::find_if (slot.lastParams.begin(), slot.lastParams.end(), [key] (const auto& x) { return x.first == key; });
+                        if (it != slot.lastParams.end() && std::abs (it->second - v) < 1.0e-4f) continue;
+                        params[al.param]->setValue (v);
+                        if (it != slot.lastParams.end()) it->second = v;
+                        else if (slot.lastParams.size() < 64) slot.lastParams.push_back ({ key, v });
+                    }
+                }
+                if (mix)
+                {
+                    const float g = vol * vol;
+                    gL = g * juce::jmin (1.0f, 1.0f - pan);
+                    gR = g * juce::jmin (1.0f, 1.0f + pan);
+                }
+            }
+
             bool any = false;
             if (slot.plugin != nullptr) { slot.plugin->processBlock (view, slot.midi); any = true; }
             if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
@@ -609,8 +644,21 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             if (! any && ! td.isAudio) continue;
 
             const int chans = view.getNumChannels();
-            juce::FloatVectorOperations::addWithMultiply (mixL, view.getReadPointer (0), td.gainL, n);
-            juce::FloatVectorOperations::addWithMultiply (mixR, view.getReadPointer (chans > 1 ? 1 : 0), td.gainR, n);
+            const float* srcL = view.getReadPointer (0);
+            const float* srcR = view.getReadPointer (chans > 1 ? 1 : 0);
+            if (slot.curL < 0 || (std::abs (slot.curL - gL) < 1.0e-5f && std::abs (slot.curR - gR) < 1.0e-5f))
+            {
+                juce::FloatVectorOperations::addWithMultiply (mixL, srcL, gL, n);
+                juce::FloatVectorOperations::addWithMultiply (mixR, srcR, gR, n);
+            }
+            else
+            {
+                // plynuly prechod hlasitosti cez blok (bez prasknutia)
+                const float dL = (gL - slot.curL) / (float) n, dR = (gR - slot.curR) / (float) n;
+                float a = slot.curL, b = slot.curR;
+                for (int i = 0; i < n; ++i) { a += dL; b += dR; mixL[i] += srcL[i] * a; mixR[i] += srcR[i] * b; }
+            }
+            slot.curL = gL; slot.curR = gR;
         }
     }
 

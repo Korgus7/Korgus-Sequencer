@@ -31,8 +31,27 @@ struct HitEv
     int lane = 0;
 };
 
+// Krivka automatizacie: type 0 = hlasitost, 1 = panorama, 2 = parameter pluginu (which 0 = nastroj, 1..4 = efekt)
+struct AutoLane
+{
+    int type = 0, which = 0, param = 0;
+    std::vector<std::pair<double, float>> pts;   // krok, hodnota 0..1 (zoradene)
+    float valueAt (double step) const
+    {
+        if (pts.empty()) return 0;
+        if (step <= pts.front().first) return pts.front().second;
+        if (step >= pts.back().first) return pts.back().second;
+        auto it = std::upper_bound (pts.begin(), pts.end(), step, [] (double v, const std::pair<double, float>& p) { return v < p.first; });
+        const auto& b = *it; const auto& a = *(it - 1);
+        const double t = (step - a.first) / juce::jmax (1.0e-9, b.first - a.first);
+        return (float) (a.second + (b.second - a.second) * t);
+    }
+};
+
 struct TrackData
 {
+    float vol = 0.8f, pan = 0;  // zakladna hlasitost a panorama (pre automatizaciu)
+    std::vector<AutoLane> autos;
     std::vector<HitEv> hits;    // zoradene podla start
     bool isAudio = false;
     bool monitor = false;       // odposluch vstupu (audio stopa)
@@ -121,6 +140,8 @@ private:
         juce::MidiBuffer midi;
         juce::AudioBuffer<float> buf;
         std::vector<std::pair<int, double>> active; // pitch, koniec
+        float curL = -1, curR = -1;                        // posledne zosilnenie (plynuly prechod)
+        std::vector<std::pair<int, float>> lastParams;     // posledne nastavene parametre z automatizacie
         struct Voice { AudioBufPtr buf; juce::int64 pos = 0; float gain = 1; int lane = 0; int fade = -1; int fadeLen = 64; };
         std::vector<Voice> voices;
         void addVoice (AudioBufPtr b, juce::int64 pos, float gain, int lane);

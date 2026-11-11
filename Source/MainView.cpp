@@ -175,6 +175,32 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 sendAiState();
                             })
         .withEventListener ("aiRequest",   [this] (const juce::var& v) { onAiRequest (v); })
+        .withEventListener ("getParams",   [this] (const juce::var& v)
+                            {
+                                const auto track = v["track"].toString();
+                                const int which = (int) v.getProperty ("w", 0);
+                                const int slot = engine.getOrCreateSlot (track);
+                                auto* p = which == 0 ? engine.getPlugin (slot) : engine.getFx (slot, which - 1);
+                                juce::Array<juce::var> arr;
+                                if (p != nullptr)
+                                {
+                                    const auto& params = p->getParameters();
+                                    for (int i = 0; i < params.size() && arr.size() < 400; ++i)
+                                    {
+                                        auto* pr = params[i];
+                                        if (! pr->isAutomatable()) continue;
+                                        const auto nm = pr->getName (60);
+                                        if (nm.isEmpty() || nm.startsWithIgnoreCase ("MIDI CC")) continue;
+                                        auto o = obj();
+                                        put (o, "i", i); put (o, "name", nm); put (o, "v", pr->getValue());
+                                        arr.add (o);
+                                    }
+                                }
+                                auto o = obj();
+                                put (o, "track", track); put (o, "w", which); put (o, "plugin", p != nullptr ? p->getName() : juce::String());
+                                put (o, "list", arr);
+                                emit ("params", o);
+                            })
         .withEventListener ("melody",      [this] (const juce::var& v)
                             {
                                 const auto req = v["req"].toString();
