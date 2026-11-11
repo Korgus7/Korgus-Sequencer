@@ -84,7 +84,7 @@ canvas{display:block}
 .trk input[type=range]{width:46px}
 .trk input.mx{width:40px}
 .trk button.plw{width:40px}
-body.native .smp,body.native #outSel,body.native #outLbl{display:none!important}
+body.native #outSel,body.native #outLbl{display:none!important}
 body:not(.native) #bAi{display:none}
 body.native #trackList{background:#232c38}
 body.native #trackList .thead{background:#232c38;border-bottom:1px solid #161d27}
@@ -261,7 +261,7 @@ function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
   return {masterVol:song.masterVol==null?1:song.masterVol,tempo:song.tempo,bars:song.bars,locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,
-    tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,parts:t.parts}))};
+    tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},parts:t.parts}))};
 }
 function pushSong(now){ if(!NATIVE) return; clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
 function curNatPos(){ if(!playing) return song.pos; return natLast.pos+(performance.now()-natLast.t)/1000*song.tempo/60*4; }
@@ -295,7 +295,12 @@ function setupNative(){
     lastStep=-1; onStep(); updTransport(); save(); };
   setPos=function(s){ s=clamp(s,0,song.bars*SPB-1); song.pos=s; playStep=s; natLast={pos:s,t:performance.now()};
     nat('transport',{cmd:'setPos',pos:s}); lastStep=-1; onStep(); save(); };
-  previewDrum=function(tr,l,v){ natNoteShort(tr,DRUMS[l][1],v===2?1:.62); };
+  smpOf=function(tr,l){ const id=tr.smp&&tr.smp[l]; return id?{id,name:(tr.smpN&&tr.smpN[l])||'Vlastný zvuk'}:null; };
+  smpButton=function(tr,l){ if(smpOf(tr,l)){ pushUndo(); delete tr.smp[l]; if(tr.smpN) delete tr.smpN[l]; save(); renderEditor(); return; } nat('importSample',{track:tr.id,lane:l}); };
+  onNat('sampleImported',e=>{ const tr=song.tracks.find(t=>t.id===e.track); if(!tr) return;
+    if(e.error){ dialog('Vlastný zvuk','<p>Tento súbor sa nedá prečítať. Použi WAV alebo MP3.</p>'); return; }
+    pushUndo(); tr.smp=tr.smp||{}; tr.smpN=tr.smpN||{}; tr.smp[e.lane]=e.id; tr.smpN[e.lane]=String(e.name).slice(0,24); save(); renderEditor(); drawArrange(); previewDrum(tr,e.lane,1); });
+  previewDrum=function(tr,l,v){ const sm=smpOf(tr,l); if(sm) nat('drumHit',{track:tr.id,id:sm.id,vel:v===2?1:.62,lane:l}); else natNoteShort(tr,DRUMS[l][1],v===2?1:.62); };
   preview=function(tr,p){ natNoteShort(tr,p,.8); };
   recOn=function(){ if(!rec||!playing||counting) return false; const ps=Math.floor(curNatPos());
     if(song.punchIn&&ps<song.locL) return false; if(song.punchOut&&ps>=song.locR) return false; return true; };
@@ -304,7 +309,9 @@ function setupNative(){
     const tr=targetTrack(); if(!tr||held[key]||tr.type==='audio') return;
     if(tr.type==='drum'&&(val<0||val>=DRUMS.length)) return;
     const pitch=tr.type==='drum'?DRUMS[val][1]:val, h={tr,val,pitch,echo:!fromNative};
-    if(!fromNative) nat('note',{track:tr.id,pitch,vel,on:true});
+    const sm=tr.type==='drum'?smpOf(tr,val):null;
+    if(sm){ nat('drumHit',{track:tr.id,id:sm.id,vel,lane:val}); h.echo=false; }
+    else if(!fromNative) nat('note',{track:tr.id,pitch,vel,on:true});
     if(stepActive()){ h.step=true; stepWrite(tr,val,vel); }
     else if(tr.type==='drum'){ if(recOn()) recDrum(tr,val,vel); }
     else if(recOn()) h.r=recStart(tr,val,vel);

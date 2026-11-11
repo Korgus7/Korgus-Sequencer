@@ -14,6 +14,41 @@ namespace
     }
 }
 
+void Engine::Slot::addVoice (AudioBufPtr b, juce::int64 pos, float gain, int lane)
+{
+    if (b == nullptr) return;
+    if (lane == 3)   // zatvoreny hi-hat zastavi otvoreny
+        for (auto& v : voices) if (v.lane == 4 && v.fade < 0) { v.fade = 64; v.fadeLen = 64; }
+    if (voices.size() >= 64) voices.erase (voices.begin());
+    voices.push_back ({ std::move (b), pos, gain, lane, -1, 64 });
+}
+
+void Engine::Slot::renderVoices (juce::AudioBuffer<float>& dst, int n)
+{
+    for (size_t k = 0; k < voices.size();)
+    {
+        auto& v = voices[k];
+        const int len = v.buf->getNumSamples();
+        const float* l = v.buf->getReadPointer (0);
+        const float* r = v.buf->getNumChannels() > 1 ? v.buf->getReadPointer (1) : l;
+        float* oL = dst.getWritePointer (0);
+        float* oR = dst.getWritePointer (1);
+        bool done = false;
+        for (int i = juce::jmax (0, (int) -v.pos); i < n; ++i)
+        {
+            const juce::int64 sp = v.pos + i;
+            if (sp >= len) { done = true; break; }
+            float g = v.gain;
+            if (v.fade >= 0) { if (v.fade == 0) { done = true; break; } g *= (float) v.fade / (float) v.fadeLen; --v.fade; }
+            oL[i] += l[sp] * g;
+            oR[i] += r[sp] * g;
+        }
+        v.pos += n;
+        if (done || v.pos >= len) { voices[k] = std::move (voices.back()); voices.pop_back(); }
+        else ++k;
+    }
+}
+
 int Engine::Slot::numChans() const
 {
     int ch = juce::jmax (2, pluginChans (plugin.get()));
@@ -33,6 +68,7 @@ void Engine::Slot::prepare (double sr, int bs)
 Engine::Engine()
 {
     cmds.reserve (64);
+    trigs.reserve (64);
     fxMidi.ensureSize (64);
     masterSlot = getOrCreateSlot ("__master");
 }
@@ -63,6 +99,7 @@ int Engine::getOrCreateSlot (const juce::String& trackId)
     s->buf.setSize (2, juce::jmax (blockSize, 16));
     s->midi.ensureSize (2048);
     s->active.reserve (128);
+    s->voices.reserve (64);
     slots.push_back (std::move (s));
     return (int) slots.size() - 1;
 }
@@ -122,6 +159,13 @@ void Engine::setTrackFx (int slot, int index, std::unique_ptr<juce::AudioPluginI
         s.buf.setSize (s.numChans(), juce::jmax (blockSize, 16), false, true, false);
     }
     if (old != nullptr) old->releaseResources();
+}
+
+void Engine::triggerSample (int slot, AudioBufPtr buf, float gain, int lane)
+{
+    if (buf == nullptr) return;
+    const juce::SpinLock::ScopedLockType l (trigLock);
+    if (trigs.size() < 64) trigs.push_back ({ slot, std::move (buf), gain, lane });
 }
 
 void Engine::setMidiFilter (const juce::String& deviceId)
@@ -369,6 +413,15 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
             s.midi.addEvent (juce::MidiMessage::noteOn (td.channel, it->pitch, it->vel), o);
             if (s.active.size() < 512) s.active.push_back ({ it->pitch, it->end });
         }
+
+        // udery zo samplov
+        auto h = std::lower_bound (td.hits.begin(), td.hits.end(), p0,
+                                   [] (const HitEv& x, double v) { return x.start < v; });
+        for (; h != td.hits.end() && h->start < p1; ++h)
+        {
+            const int o = off + juce::jmax (0, (int) ((h->start - p0) * sps));
+            s.addVoice (h->buf, -(juce::int64) o, h->gain, h->lane);
+        }
     }
 }
 
@@ -412,6 +465,18 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         take (scope.startIndex2, scope.blockSize2);
     }
 
+    // nahlad / ziva hra samplov
+    {
+        const juce::SpinLock::ScopedTryLockType l (trigLock);
+        if (l.isLocked())
+        {
+            for (auto& t : trigs)
+                if (juce::isPositiveAndBelow (t.slot, (int) slots.size()))
+                    slots[(size_t) t.slot]->addVoice (t.buf, 0, t.gain, t.lane);
+            trigs.clear();
+        }
+    }
+
     // prikazy z hlavneho vlakna
     {
         const juce::SpinLock::ScopedTryLockType l (cmdLock);
@@ -437,6 +502,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 else if (c.type == 2)
                 {
                     allNotesOff (0, true);
+                    for (auto& sl : slots) for (auto& v : sl->voices) if (v.fade < 0) { v.fade = 256; v.fadeLen = 256; }
                     state = stopped;
                 }
                 else if (c.type == 3)
@@ -537,6 +603,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
 
             bool any = false;
             if (slot.plugin != nullptr) { slot.plugin->processBlock (view, slot.midi); any = true; }
+            if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
             for (auto& f : slot.fx)
                 if (f != nullptr) { fxMidi.clear(); f->processBlock (view, fxMidi); any = true; }
             if (! any && ! td.isAudio) continue;
@@ -581,7 +648,7 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
         savedPos = pos;
         offline = true;     // realne audio odteraz len ticho
         recArmed = false;
-        for (auto& s : slots) s->active.clear();
+        for (auto& s : slots) { s->active.clear(); s->voices.clear(); }
         forEachPlugin ([] (juce::AudioPluginInstance& p) { p.setNonRealtime (true); p.reset(); });
         clickLeft = clickDelay = 0;
         state = playing;

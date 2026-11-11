@@ -22,8 +22,18 @@ struct ClipEv
     AudioBufPtr buf;
 };
 
+// Uder bicich zo samplu
+struct HitEv
+{
+    double start = 0;
+    AudioBufPtr buf;
+    float gain = 1;
+    int lane = 0;
+};
+
 struct TrackData
 {
+    std::vector<HitEv> hits;    // zoradene podla start
     bool isAudio = false;
     bool monitor = false;       // odposluch vstupu (audio stopa)
     int inA = 0, inB = -1;      // vstupne kanaly zvukovky (inB = -1 -> mono)
@@ -65,6 +75,7 @@ public:
     void setTrackFx (int slot, int index, std::unique_ptr<juce::AudioPluginInstance>);
     juce::AudioPluginInstance* getFx (int slot, int index);
     void setMidiFilter (const juce::String& deviceId);
+    void triggerSample (int slot, AudioBufPtr buf, float gain, int lane);   // ziva hra / nahlad samplu
     juce::String getSlotTrackId (int slot);
     int  getNumSlots();
 
@@ -110,6 +121,10 @@ private:
         juce::MidiBuffer midi;
         juce::AudioBuffer<float> buf;
         std::vector<std::pair<int, double>> active; // pitch, koniec
+        struct Voice { AudioBufPtr buf; juce::int64 pos = 0; float gain = 1; int lane = 0; int fade = -1; int fadeLen = 64; };
+        std::vector<Voice> voices;
+        void addVoice (AudioBufPtr b, juce::int64 pos, float gain, int lane);
+        void renderVoices (juce::AudioBuffer<float>& dst, int n);
         void prepare (double sr, int bs);
         int  numChans() const;
     };
@@ -157,7 +172,9 @@ private:
     std::vector<std::unique_ptr<Rec>> recs;
     std::atomic<int> numRecs { 0 };
     juce::MidiBuffer fxMidi;
-    juce::SpinLock filterLock;
+    juce::SpinLock filterLock, trigLock;
+    struct Trig { int slot; AudioBufPtr buf; float gain; int lane; };
+    std::vector<Trig> trigs;
     juce::String midiFilter;
     const float* const* curIn = nullptr;
     int curNumIn = 0;

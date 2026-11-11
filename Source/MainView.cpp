@@ -204,6 +204,32 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 sendAiState();
                             })
         .withEventListener ("aiRequest",   [this] (const juce::var& v) { onAiRequest (v); })
+        .withEventListener ("drumHit",     [this] (const juce::var& v)
+                            {
+                                engine.triggerSample (engine.getOrCreateSlot (v["track"].toString()), store->get (v["id"].toString()),
+                                                      (float) (double) v.getProperty ("vel", 1.0), (int) v.getProperty ("lane", 0));
+                            })
+        .withEventListener ("importSample",[this] (const juce::var& v)
+                            {
+                                const auto track = v["track"].toString();
+                                const int lane = (int) v["lane"];
+                                chooser = std::make_unique<juce::FileChooser> (sk ("Zvuk pre bicie (WAV, MP3)"),
+                                                                               juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                                               "*.wav;*.mp3;*.ogg;*.flac;*.aif;*.aiff");
+                                juce::Component::SafePointer<MainView> sp (this);
+                                chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                                      [sp, track, lane] (const juce::FileChooser& fc)
+                                                      {
+                                                          const auto f = fc.getResult();
+                                                          if (sp == nullptr || ! f.existsAsFile()) return;
+                                                          const auto id = sp->store->importFile (f);
+                                                          auto o = obj();
+                                                          put (o, "track", track); put (o, "lane", lane);
+                                                          put (o, "name", f.getFileNameWithoutExtension());
+                                                          if (id.isEmpty()) put (o, "error", true); else put (o, "id", id);
+                                                          sp->emit ("sampleImported", o);
+                                                      });
+                            })
         .withEventListener ("autosave",    [this] (const juce::var& v)
                             {
                                 const auto t = v["text"].toString();
@@ -655,10 +681,15 @@ void MainView::onSaveFile (const juce::var& v)
             auto ad = obj();
             if (const auto* tracks = j["tracks"].getArray())
                 for (const auto& t : *tracks)
+                {
+                    juce::Array<juce::var> ids;
                     if (const auto* parts = t["parts"].getArray())
-                        for (const auto& p : *parts)
+                        for (const auto& p : *parts) ids.add (p["aid"]);
+                    if (auto* sm = t["smp"].getDynamicObject())
+                        for (const auto& prop : sm->getProperties()) ids.add (prop.value);
+                        for (const auto& idv : ids)
                         {
-                            const auto id = p["aid"].toString();
+                            const auto id = idv.toString();
                             if (id.isEmpty() || ad.hasProperty (id)) continue;
                             const auto f = store->fileFor (id);
                             juce::MemoryBlock mb;
@@ -669,6 +700,7 @@ void MainView::onSaveFile (const juce::var& v)
                             put (a, "b64", juce::Base64::toBase64 (mb.getData(), mb.getSize()));
                             put (ad, id, a);
                         }
+                }
             if (auto* adObj = ad.getDynamicObject(); adObj != nullptr && ! adObj->getProperties().isEmpty())
                 d->setProperty ("audioData", ad);
         }
@@ -705,14 +737,15 @@ void MainView::onOpenSong (const juce::var&)
                               auto j = juce::JSON::parse (f.loadFileAsString());
                               if (! j.isObject()) return;
                               const auto vst = j["vst"];
-                              if (auto* ad = j["audioData"].getDynamicObject())
+                              for (auto key : { "audioData", "sampleData" })
+                              if (auto* ad = j[key].getDynamicObject())
                                   for (const auto& prop : ad->getProperties())
                                   {
                                       juce::MemoryOutputStream mos;
                                       juce::Base64::convertFromBase64 (mos, prop.value["b64"].toString());
                                       sp->store->addFromData (prop.name.toString(), prop.value["name"].toString(), mos.getMemoryBlock());
                                   }
-                              if (auto* d = j.getDynamicObject()) { d->removeProperty ("vst"); d->removeProperty ("audioData"); }
+                              if (auto* d = j.getDynamicObject()) { d->removeProperty ("vst"); d->removeProperty ("audioData"); d->removeProperty ("sampleData"); }
                               sp->sessionApplied = true;
                               auto o = obj();
                               put (o, "text", juce::JSON::toString (j, true));

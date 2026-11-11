@@ -46,6 +46,15 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             td.gainR = g * juce::jmin (1.0f, 1.0f + pan);
             td.audible = ! (bool) t.getProperty ("mute", false) && (! anySolo || (bool) t.getProperty ("solo", false));
 
+            std::array<AudioBufPtr, 10> laneBuf {};
+            if (type == "drum")
+                if (auto* sm = t["smp"].getDynamicObject())
+                    for (const auto& prop : sm->getProperties())
+                    {
+                        const int l = prop.name.toString().getIntValue();
+                        if (juce::isPositiveAndBelow (l, 10)) laneBuf[(size_t) l] = clipFor (prop.value.toString());
+                    }
+
             if (const auto* parts = t["parts"].getArray())
             {
                 for (const auto& p : *parts)
@@ -74,11 +83,18 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                                 if (row == nullptr || idx >= row->size()) continue;
                                 const int val = (int) (*row)[idx];
                                 if (val == 0) continue;
+                                const double at = a + st + ((st % 2) ? swing : 0.0);
+                                const float vel = val == 2 ? 1.0f : 0.62f;
+                                if (laneBuf[(size_t) l] != nullptr)
+                                {
+                                    td.hits.push_back ({ at, laneBuf[(size_t) l], vel, l });
+                                    continue;
+                                }
                                 NoteEv n;
-                                n.start = a + st + ((st % 2) ? swing : 0.0);
+                                n.start = at;
                                 n.end = n.start + 0.9;
                                 n.pitch = GM_DRUMS[l];
-                                n.vel = val == 2 ? 1.0f : 0.62f;
+                                n.vel = vel;
                                 td.notes.push_back (n);
                             }
                         }
@@ -101,6 +117,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                 }
             }
             std::sort (td.notes.begin(), td.notes.end(), [] (const NoteEv& x, const NoteEv& y) { return x.start < y.start; });
+            std::sort (td.hits.begin(), td.hits.end(), [] (const HitEv& x, const HitEv& y) { return x.start < y.start; });
             sd->tracks.push_back (std::move (td));
         }
     }
