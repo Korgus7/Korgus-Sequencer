@@ -181,6 +181,11 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 sendAiState();
                             })
         .withEventListener ("aiRequest",   [this] (const juce::var& v) { onAiRequest (v); })
+        .withEventListener ("autosave",    [this] (const juce::var& v)
+                            {
+                                const auto t = v["text"].toString();
+                                if (t.length() > 10) dataDir.getChildFile ("lastsong.json").replaceWithText (t);
+                            })
         .withEventListener ("copyPlugin",  [this] (const juce::var& v)
                             {
                                 const auto from = v["from"].toString(), to = v["to"].toString();
@@ -406,6 +411,14 @@ void MainView::onReady()
     sendTrackPlugins();
     sendDevices();
     sendAiState();
+    // posledna piesen z minuleho spustenia
+    const auto last = dataDir.getChildFile ("lastsong.json");
+    if (last.existsAsFile())
+    {
+        auto o = obj();
+        put (o, "text", last.loadFileAsString());
+        emit ("lastSong", o);
+    }
 }
 
 void MainView::sendAiState()

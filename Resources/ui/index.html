@@ -348,6 +348,9 @@ function setupNative(){
   onNat('busy',e=>{ dialog('Import audio','<p>'+esc(e.text)+'</p>'); });
   onNat('audioPeaks',natPeaks);
   onNat('aiState',e=>{ aiHasKey=!!e.hasKey; });
+  onNat('lastSong',e=>{ try{ const t=e.text; if(t===JSON.stringify(song)) return; const s=normalize(JSON.parse(t));
+      song=s; selT=0; selPart=null; closeEditor(); renderAll(); pushSong(true); natSel(); natNeedPeaks(); }catch(err){} });
+  $('bAddS').textContent='+ Nástroj'; $('bAddS').title='Pridať stopu pre VST nástroj';
   onNat('aiResult',aiResult);
   $('bAi').onclick=openAi;
   onNat('devices',e=>{ natMidiDevs=e.midi||[]; natIns=e.ins||[]; renderTracks(); });
@@ -468,7 +471,7 @@ function pushUndo(){undoStack.push(JSON.stringify(song)); if(undoStack.length>80
 function dropNoop(){if(undoStack.length&&undoStack[undoStack.length-1]===JSON.stringify(song)) undoStack.pop();}
 function undo(){if(!undoStack.length) return; song=JSON.parse(undoStack.pop()); selNotes.clear(); selT=clamp(selT,0,Math.max(0,song.tracks.length-1)); renderAll(); save();}
 let saveT=null;
-function save(){pushSong(); clearTimeout(saveT); saveT=setTimeout(()=>{try{localStorage.setItem(LS,JSON.stringify(song));}catch(e){}},300);}
+function save(){pushSong(); clearTimeout(saveT); saveT=setTimeout(()=>{const t=JSON.stringify(song); try{localStorage.setItem(LS,t);}catch(e){} if(NATIVE) nat('autosave',{text:t});},300);}
 
 /* ---------------- zvuk ---------------- */
 let ac=null, master=null, noiseBuf=null, openHat=null, revBus=null, dlyBus=null, dlyNode=null, tGain={}, rendering=false;
