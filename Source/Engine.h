@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <atomic>
+#include "AudioStore.h"
 
 // Jedna nota na casovej osi (v krokoch = 1/16)
 struct NoteEv
@@ -11,8 +12,19 @@ struct NoteEv
     float vel = 0.8f;
 };
 
+// Zvukovy klip na audio stope
+struct ClipEv
+{
+    double start = 0;     // krok zaciatku
+    double off = 0;       // posun v subore (s)
+    double dur = 0;       // dlzka (s)
+    AudioBufPtr buf;
+};
+
 struct TrackData
 {
+    bool isAudio = false;
+    std::vector<ClipEv> clips;
     int slot = -1;              // index slotu s pluginom v Engine
     float gainL = 1, gainR = 1; // hlasitost + panorama
     bool audible = true;        // nie je stlmena / je solo
@@ -47,6 +59,19 @@ public:
     juce::String getSlotTrackId (int slot);
     int  getNumSlots();
 
+    // nahravanie zo vstupu zvukovky
+    void   setRecording (bool on);
+    bool   isRecWriting() const      { return recWriting.load(); }
+    bool   hasRecStarted() const     { return recActive.load(); }
+    double getRecStartStep() const   { return recStartStep.load(); }
+    void   drainRecording (std::vector<float>& dst);
+
+    // export do WAV (zvukovka musi byt odpojena)
+    bool renderOffline (const SongData&, double endStep, double tailSec, juce::AudioFormatWriter&,
+                        const std::function<bool (double)>& progress);
+    double getSampleRate() const     { return sampleRate; }
+    int    getBlockSize() const      { return blockSize; }
+
     double getPosition() const       { return publicPos.load(); }
     bool   isPlaying() const         { return state.load() == playing; }
     bool   isCounting() const        { return state.load() == counting; }
@@ -79,7 +104,10 @@ private:
     struct Live { int slot; juce::MidiMessage msg; };
     struct Cmd  { int type; double a; int b; };   // 1=play 2=stop 3=setPos
 
-    void renderSegment (const SongData&, double p0, double p1, int off, double samplesPerStep);
+    void process (const float* const* in, int numIn, float* const* out, int numOut, int n, const SongData* forced);
+    void renderSegment (const SongData&, double p0, double p1, int off, int len, double samplesPerStep);
+    void mixClips (const TrackData&, double p0, int off, int len, double samplesPerStep);
+    void captureInput (int off, int len, double p0);
     void allNotesOff (int sampleOffset, bool hard);
     void addClick (int offset, bool accent);
     void renderClicks (float* const* out, int numOut, int n);
@@ -101,6 +129,17 @@ private:
     int blockSize = 512;
     double countSamples = 0, beatSamples = 0;
     int countBeatsLeft = 0;
+
+    // nahravanie
+    std::atomic<bool> recArmed { false }, recActive { false }, recStopped { false }, recWriting { false };
+    std::atomic<double> recStartStep { 0 };
+    juce::AbstractFifo recFifo { 48000 * 10 };
+    std::vector<float> recRing = std::vector<float> (48000 * 10);
+    const float* const* curIn = nullptr;
+    int curNumIn = 0;
+    float* const* curOut = nullptr;
+    int curNumOut = 0;
+    std::atomic<bool> offline { false };
 
     // metronom
     int clickLeft = 0, clickLen = 0, clickDelay = 0;

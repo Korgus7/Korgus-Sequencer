@@ -43,6 +43,14 @@ private:
     void onSaveFile (const juce::var&);
     void onOpenSong (const juce::var&);
     void onReady();
+    void onImportAudio (const juce::var&);
+    void onAudioChunk (const juce::var&);
+    void onNeedPeaks (const juce::var&);
+    void onRecAudio (const juce::var&);
+    void onExportWav (const juce::var&);
+    void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);
+    void finishRecording();
+    std::unique_ptr<SongData> parseCurrent (const juce::var&);
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
@@ -65,6 +73,14 @@ private:
     juce::AudioPluginFormatManager formatManager;
     juce::KnownPluginList knownPlugins;
     juce::File dataDir;
+    std::unique_ptr<AudioStore> store;
+    juce::var lastSong;
+    std::map<juce::String, juce::MemoryBlock> uploads;
+    juce::String recTrack;
+    std::vector<float> recData;
+    bool recOn = false, recFinishing = false;
+    juce::uint32 recStopTime = 0;
+    std::atomic<bool> exporting { false };
 
     std::unique_ptr<juce::WebBrowserComponent> web;
     std::map<juce::String, std::unique_ptr<PluginWindow>> pluginWindows;

@@ -3,4 +3,5 @@
 #include <functional>
 
 // Prevedie piesen z rozhrania (JSON) na udaje pre zvukovy motor
-std::unique_ptr<SongData> parseSong (const juce::var& songJson, const std::function<int (const juce::String&)>& slotFor);
+std::unique_ptr<SongData> parseSong (const juce::var& songJson, const std::function<int (const juce::String&)>& slotFor,
+                                     const std::function<AudioBufPtr (const juce::String&)>& clipFor);

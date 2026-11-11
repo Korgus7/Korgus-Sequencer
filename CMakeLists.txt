@@ -26,6 +26,7 @@ target_sources(KorgusSequencer PRIVATE
     Source/Main.cpp
     Source/Engine.cpp
     Source/SongParse.cpp
+    Source/AudioStore.cpp
     Source/UiCommon.cpp
     Source/MainView.cpp)
 
@@ -34,6 +35,7 @@ target_compile_definitions(KorgusSequencer PRIVATE
     JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
     JUCE_USE_CURL=0
     JUCE_PLUGINHOST_VST3=1
+    JUCE_USE_MP3AUDIOFORMAT=1
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:KorgusSequencer,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:KorgusSequencer,JUCE_VERSION>")
 

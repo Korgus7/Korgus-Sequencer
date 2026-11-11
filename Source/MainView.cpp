@@ -99,6 +99,9 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     deviceManager.addAudioCallback (&engine);
     deviceManager.addMidiInputDeviceCallback ({}, &engine);
 
+    store = std::make_unique<AudioStore> (dataDir.getChildFile ("audio"));
+    if (auto* dev = deviceManager.getCurrentAudioDevice()) store->setSampleRate (dev->getCurrentSampleRate());
+
     engine.onMidiIn = [this] (int pitch, float vel, bool on, double pos)
     {
         auto o = obj();
@@ -164,6 +167,11 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("showPlugins", [this] (const juce::var&)   { showPluginManager(); })
         .withEventListener ("saveFile",    [this] (const juce::var& v) { onSaveFile (v); })
         .withEventListener ("openSong",    [this] (const juce::var& v) { onOpenSong (v); })
+        .withEventListener ("importAudio", [this] (const juce::var& v) { onImportAudio (v); })
+        .withEventListener ("audioChunk",  [this] (const juce::var& v) { onAudioChunk (v); })
+        .withEventListener ("needPeaks",   [this] (const juce::var& v) { onNeedPeaks (v); })
+        .withEventListener ("recAudio",    [this] (const juce::var& v) { onRecAudio (v); })
+        .withEventListener ("exportWav",   [this] (const juce::var& v) { onExportWav (v); })
         .withEventListener ("ready",       [this] (const juce::var&)   { onReady(); });
    #if JUCE_WINDOWS
     o = o.withBackend (O::Backend::webview2)
@@ -193,9 +201,16 @@ void MainView::emit (const juce::String& id, const juce::var& v)
 }
 
 //==============================================================================
+std::unique_ptr<SongData> MainView::parseCurrent (const juce::var& v)
+{
+    return parseSong (v, [this] (const juce::String& id) { return engine.getOrCreateSlot (id); },
+                         [this] (const juce::String& id) { return store->get (id); });
+}
+
 void MainView::onSong (const juce::var& v)
 {
-    auto sd = parseSong (v, [this] (const juce::String& id) { return engine.getOrCreateSlot (id); });
+    lastSong = v;
+    auto sd = parseCurrent (v);
     if (sd == nullptr) return;
     engine.setSong (std::move (sd));
 
@@ -381,6 +396,13 @@ void MainView::saveSettings()
 void MainView::changeListenerCallback (juce::ChangeBroadcaster* src)
 {
     if (src == &knownPlugins) sendPluginList();
+    if (src == &deviceManager)
+        if (auto* dev = deviceManager.getCurrentAudioDevice())
+            if (std::abs (dev->getCurrentSampleRate() - store->getSampleRate()) > 0.5)
+            {
+                store->setSampleRate (dev->getCurrentSampleRate());
+                if (! lastSong.isVoid()) onSong (lastSong);
+            }
     saveSettings();
 }
 
@@ -392,11 +414,37 @@ void MainView::onSaveFile (const juce::var& v)
     if (kind == "s92")
     {
         auto j = juce::JSON::parse (v["text"].toString());
-        if (auto* d = j.getDynamicObject()) d->setProperty ("vst", collectPluginStates());
+        if (auto* d = j.getDynamicObject())
+        {
+            d->setProperty ("vst", collectPluginStates());
+            auto ad = obj();
+            if (const auto* tracks = j["tracks"].getArray())
+                for (const auto& t : *tracks)
+                    if (const auto* parts = t["parts"].getArray())
+                        for (const auto& p : *parts)
+                        {
+                            const auto id = p["aid"].toString();
+                            if (id.isEmpty() || ad.hasProperty (id)) continue;
+                            const auto f = store->fileFor (id);
+                            juce::MemoryBlock mb;
+                            if (! f.loadFileAsData (mb)) continue;
+                            auto a = obj();
+                            put (a, "name", f.getFileName());
+                            put (a, "mime", f.hasFileExtension ("mp3") ? "audio/mpeg" : "audio/" + f.getFileExtension().substring (1));
+                            put (a, "b64", juce::Base64::toBase64 (mb.getData(), mb.getSize()));
+                            put (ad, id, a);
+                        }
+            if (auto* adObj = ad.getDynamicObject(); adObj != nullptr && ! adObj->getProperties().isEmpty())
+                d->setProperty ("audioData", ad);
+        }
         const auto txt = juce::JSON::toString (j, true);
         data.append (txt.toRawUTF8(), txt.getNumBytesAsUTF8());
     }
-    else if (v.hasProperty ("b64")) data.fromBase64Encoding (v["b64"].toString());
+    else if (v.hasProperty ("b64"))
+    {
+        juce::MemoryOutputStream mos (data, false);
+        juce::Base64::convertFromBase64 (mos, v["b64"].toString());
+    }
     else { const auto t = v["text"].toString(); data.append (t.toRawUTF8(), t.getNumBytesAsUTF8()); }
 
     const auto ext = name.fromLastOccurrenceOf (".", false, false);
@@ -422,7 +470,14 @@ void MainView::onOpenSong (const juce::var&)
                               auto j = juce::JSON::parse (f.loadFileAsString());
                               if (! j.isObject()) return;
                               const auto vst = j["vst"];
-                              if (auto* d = j.getDynamicObject()) d->removeProperty ("vst");
+                              if (auto* ad = j["audioData"].getDynamicObject())
+                                  for (const auto& prop : ad->getProperties())
+                                  {
+                                      juce::MemoryOutputStream mos;
+                                      juce::Base64::convertFromBase64 (mos, prop.value["b64"].toString());
+                                      sp->store->addFromData (prop.name.toString(), prop.value["name"].toString(), mos.getMemoryBlock());
+                                  }
+                              if (auto* d = j.getDynamicObject()) { d->removeProperty ("vst"); d->removeProperty ("audioData"); }
                               sp->sessionApplied = true;
                               auto o = obj();
                               put (o, "text", juce::JSON::toString (j, true));
@@ -453,6 +508,10 @@ void MainView::showPluginManager()
 
 void MainView::timerCallback()
 {
+    if (recOn || recFinishing) engine.drainRecording (recData);
+    if (recFinishing && juce::Time::getMillisecondCounter() - recStopTime > 250) finishRecording();
+    if (exporting.load()) return;
+
     const double p = engine.getPosition();
     const bool pl = engine.isPlaying(), cn = engine.isCounting();
     if (std::abs (p - lastSentPos) > 0.001 || pl != lastPlaying || cn != lastCounting || cn)
@@ -463,4 +522,191 @@ void MainView::timerCallback()
         emit ("pos", o);
         lastSentPos = p; lastPlaying = pl; lastCounting = cn;
     }
+}
+
+//==============================================================================
+// audio stopy: import, nahravanie, export
+
+void MainView::onImportAudio (const juce::var& v)
+{
+    const auto track = v["track"].toString();
+    const double bar = (double) v.getProperty ("bar", 0);
+    chooser = std::make_unique<juce::FileChooser> (sk ("Import audio (WAV, MP3)"), juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                   "*.wav;*.mp3;*.ogg;*.flac;*.aif;*.aiff");
+    juce::Component::SafePointer<MainView> sp (this);
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [sp, track, bar] (const juce::FileChooser& fc)
+                          {
+                              const auto f = fc.getResult();
+                              if (sp != nullptr && f.existsAsFile()) sp->finishImport (f, track, bar, false);
+                          });
+}
+
+void MainView::onAudioChunk (const juce::var& v)
+{
+    const auto up = v["up"].toString();
+    auto& mb = uploads[up];
+    {
+        juce::MemoryOutputStream mos (mb, true);
+        juce::Base64::convertFromBase64 (mos, v["b64"].toString());
+    }
+    if (! (bool) v["last"]) return;
+    auto tmp = dataDir.getChildFile ("tmp");
+    tmp.createDirectory();
+    auto f = tmp.getChildFile (juce::File::createLegalFileName (v["name"].toString()));
+    f.replaceWithData (mb.getData(), mb.getSize());
+    uploads.erase (up);
+    finishImport (f, v["track"].toString(), (double) v.getProperty ("bar", 0), true);
+}
+
+void MainView::finishImport (const juce::File& f, const juce::String& track, double bar, bool deleteAfter)
+{
+    auto msg = obj();
+    put (msg, "text", sk ("Načítavam ") + f.getFileName() + sk (" a zisťujem tempo…"));
+    emit ("busy", msg);
+    juce::Component::SafePointer<MainView> sp (this);
+    juce::Timer::callAfterDelay (60, [sp, f, track, bar, deleteAfter]
+    {
+        if (sp == nullptr) return;
+        const auto id = sp->store->importFile (f);
+        auto o = obj();
+        put (o, "track", track); put (o, "bar", bar); put (o, "name", f.getFileNameWithoutExtension());
+        if (id.isEmpty()) put (o, "error", true);
+        else
+        {
+            auto b = sp->store->get (id);
+            put (o, "id", id);
+            put (o, "dur", b != nullptr ? b->getNumSamples() / sp->store->getSampleRate() : 0.0);
+            double bpm = 0, ph = 0;
+            if (sp->store->detectTempo (id, bpm, ph)) { put (o, "bpm", bpm); put (o, "phase", ph); }
+            sp->emit ("audioPeaks", sp->store->peaksFor (id));
+        }
+        if (deleteAfter) f.deleteFile();
+        sp->emit ("audioImported", o);
+    });
+}
+
+void MainView::onNeedPeaks (const juce::var& v)
+{
+    if (const auto* ids = v["ids"].getArray())
+        for (const auto& id : *ids)
+        {
+            const auto pk = store->peaksFor (id.toString());
+            if (pk.isObject()) emit ("audioPeaks", pk);
+        }
+}
+
+void MainView::onRecAudio (const juce::var& v)
+{
+    if ((bool) v["on"])
+    {
+        if (recFinishing) finishRecording();
+        std::vector<float> junk;
+        engine.drainRecording (junk);
+        recData.clear();
+        recTrack = v["track"].toString();
+        recOn = true;
+        engine.setRecording (true);
+    }
+    else if (recOn)
+    {
+        engine.setRecording (false);
+        recOn = false;
+        recFinishing = true;
+        recStopTime = juce::Time::getMillisecondCounter();
+    }
+}
+
+void MainView::finishRecording()
+{
+    recFinishing = false;
+    engine.drainRecording (recData);
+    const double sr = engine.getSampleRate();
+    int lat = 0;
+    if (auto* dev = deviceManager.getCurrentAudioDevice())
+        lat = juce::jmax (0, dev->getInputLatencyInSamples() + dev->getOutputLatencyInSamples());
+    if (engine.hasRecStarted() && (double) recData.size() > lat + sr * 0.1)
+    {
+        const int n = (int) recData.size() - lat;
+        const auto id = store->addRecording (recData.data() + lat, n, sr);
+        if (id.isNotEmpty())
+        {
+            emit ("audioPeaks", store->peaksFor (id));
+            auto o = obj();
+            put (o, "track", recTrack); put (o, "id", id);
+            put (o, "start", engine.getRecStartStep()); put (o, "dur", n / sr);
+            emit ("audioRec", o);
+        }
+    }
+    recData.clear();
+    recData.shrink_to_fit();
+}
+
+namespace
+{
+    struct ExportJob : juce::ThreadWithProgressWindow
+    {
+        ExportJob (Engine& e, std::unique_ptr<SongData> s, double endStep, std::unique_ptr<juce::AudioFormatWriter> w,
+                   juce::File f, std::function<void (bool)> onDone)
+            : ThreadWithProgressWindow (sk ("Export WAV – ") + f.getFileName(), true, true),
+              engine (e), sd (std::move (s)), end (endStep), writer (std::move (w)), file (f), done (std::move (onDone)) {}
+
+        void run() override
+        {
+            ok = engine.renderOffline (*sd, end, 3.0, *writer, [this] (double p) { setProgress (p); return ! threadShouldExit(); });
+        }
+        void threadComplete (bool cancelled) override
+        {
+            writer.reset();
+            const bool good = ok && ! cancelled;
+            if (! good) file.deleteFile();
+            if (done) done (good);
+            delete this;
+        }
+
+        Engine& engine;
+        std::unique_ptr<SongData> sd;
+        double end;
+        std::unique_ptr<juce::AudioFormatWriter> writer;
+        juce::File file;
+        std::function<void (bool)> done;
+        bool ok = false;
+    };
+}
+
+void MainView::onExportWav (const juce::var& v)
+{
+    if (exporting.load() || lastSong.isVoid()) return;
+    const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
+    chooser = std::make_unique<juce::FileChooser> (sk ("Export WAV"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("piesen.wav"), "*.wav");
+    juce::Component::SafePointer<MainView> sp (this);
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [sp, end] (const juce::FileChooser& fc)
+                          {
+                              auto f = fc.getResult();
+                              if (sp == nullptr || f == juce::File()) return;
+                              f = f.withFileExtension ("wav");
+                              auto sd = sp->parseCurrent (sp->lastSong);
+                              if (sd == nullptr) return;
+                              f.deleteFile();
+                              std::unique_ptr<juce::OutputStream> os (f.createOutputStream().release());
+                              if (os == nullptr) return;
+                              juce::WavAudioFormat wav;
+                              auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}
+                                                                   .withSampleRate (sp->engine.getSampleRate())
+                                                                   .withNumChannels (2).withBitsPerSample (24));
+                              if (w == nullptr) return;
+                              sp->engine.stop();
+                              sp->exporting = true;
+                              auto* job = new ExportJob (sp->engine, std::move (sd), end, std::move (w), f, [sp, f] (bool good)
+                              {
+                                  if (sp == nullptr) return;
+                                  sp->exporting = false;
+                                  sp->lastSentPos = -1;
+                                  auto o = obj();
+                                  put (o, "ok", good); put (o, "name", f.getFullPathName());
+                                  sp->emit ("exported", o);
+                              });
+                              job->launchThread();
+                          });
 }

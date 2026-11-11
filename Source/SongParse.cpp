@@ -2,7 +2,8 @@
 
 static const int GM_DRUMS[] = { 36, 38, 39, 42, 46, 45, 50, 37, 49, 56 };
 
-std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int (const juce::String&)>& slotFor)
+std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int (const juce::String&)>& slotFor,
+                                     const std::function<AudioBufPtr (const juce::String&)>& clipFor)
 {
     const juce::var j = v.isString() ? juce::JSON::parse (v.toString()) : v;
     if (! j.isObject()) return nullptr;
@@ -26,9 +27,9 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
         for (const auto& t : *tracks)
         {
             const auto type = t["type"].toString();
-            if (type == "audio") continue;
             TrackData td;
-            td.slot = slotFor (t["id"].toString());
+            td.isAudio = type == "audio";
+            td.slot = td.isAudio ? -1 : slotFor (t["id"].toString());
             const float vol = (float) (double) t.getProperty ("vol", 0.8);
             const float pan = juce::jlimit (-1.0f, 1.0f, (float) (double) t.getProperty ("pan", 0.0));
             const float g = vol * vol;
@@ -41,7 +42,16 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                 for (const auto& p : *parts)
                 {
                     const double a = (double) p["start"] * 16.0, steps = (double) p["len"] * 16.0;
-                    if (type == "drum")
+                    if (td.isAudio)
+                    {
+                        ClipEv c;
+                        c.start = a;
+                        c.off = juce::jmax (0.0, (double) p.getProperty ("off", 0.0));
+                        c.dur = (double) p.getProperty ("dur", 0.0);
+                        c.buf = clipFor (p["aid"].toString());
+                        if (c.buf != nullptr && c.dur > 0) td.clips.push_back (c);
+                    }
+                    else if (type == "drum")
                     {
                         const int plen = juce::jmax (1, (int) p.getProperty ("plen", 16));
                         const auto* grid = p["grid"].getArray();

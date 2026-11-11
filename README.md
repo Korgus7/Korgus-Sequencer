@@ -8,6 +8,8 @@ key editor, audio stopy – postavený na C++ a JUCE, s ASIO a VST3 pluginmi.
 - **Krok 1 – zvukový motor:** ASIO / Windows Audio, MIDI vstupy, VST3 nástroje, latencia.
 - **Krok 2 – rozhranie:** aranžmán, krokový sekvencer, key editor (HTML v okne programu, WebView2);
   každá stopa hrá cez vlastný VST3 nástroj, presné časovanie v C++ motore, metronóm, odpočet, cyklus.
+- **Krok 2b – audio:** audio stopy (WAV, MP3, OGG, FLAC) s tvarom vlny a zistením tempa,
+  nahrávanie zo vstupu zvukovky s kompenzáciou latencie, export piesne do WAV (24 bit).
 
 ## Preklad
 

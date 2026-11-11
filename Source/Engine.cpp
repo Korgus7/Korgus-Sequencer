@@ -191,15 +191,85 @@ void Engine::allNotesOff (int off, bool hard)
     }
 }
 
-void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, double sps)
+void Engine::mixClips (const TrackData& td, double p0, int off, int len, double sps)
+{
+    if (curOut == nullptr || curNumOut < 1) return;
+    for (const auto& c : td.clips)
+    {
+        if (c.buf == nullptr) continue;
+        const double into = (p0 - c.start) * sps;            // vzoriek od zaciatku klipu
+        const double durS = c.dur * sampleRate;
+        const int i0 = juce::jmax (0, (int) std::ceil (-into));
+        const int i1 = juce::jmin (len, (int) std::floor (durS - into));
+        if (i1 <= i0) continue;
+        const juce::int64 src0 = (juce::int64) std::llround (c.off * sampleRate + into + i0);
+        const int bufLen = c.buf->getNumSamples();
+        if (src0 >= bufLen) continue;
+        int a = i0;
+        juce::int64 sp = src0;
+        if (sp < 0) { a += (int) -sp; sp = 0; }
+        const int cnt = juce::jmin (i1 - a, (int) (bufLen - sp));
+        if (cnt <= 0) continue;
+        const float* l = c.buf->getReadPointer (0) + sp;
+        const float* r = c.buf->getNumChannels() > 1 ? c.buf->getReadPointer (1) + sp : l;
+        if (curOut[0] != nullptr) juce::FloatVectorOperations::addWithMultiply (curOut[0] + off + a, l, td.gainL, cnt);
+        if (curNumOut > 1 && curOut[1] != nullptr) juce::FloatVectorOperations::addWithMultiply (curOut[1] + off + a, r, td.gainR, cnt);
+    }
+}
+
+void Engine::captureInput (int off, int len, double p0)
+{
+    if (! recArmed.load() || recStopped.load() || curIn == nullptr || curNumIn <= 0 || len <= 0) return;
+    if (! recActive.load()) { recStartStep = p0; recActive = true; }
+    const int chans = juce::jmin (2, curNumIn);
+    const auto scope = recFifo.write (len);
+    auto put = [&] (int start, int size, int from)
+    {
+        for (int i = 0; i < size; ++i)
+        {
+            float v = 0;
+            for (int c = 0; c < chans; ++c)
+                if (curIn[c] != nullptr) v += curIn[c][off + from + i];
+            recRing[(size_t) (start + i)] = v;
+        }
+    };
+    put (scope.startIndex1, scope.blockSize1, 0);
+    put (scope.startIndex2, scope.blockSize2, scope.blockSize1);
+}
+
+void Engine::setRecording (bool on)
+{
+    if (on)
+    {
+        recStopped = false;
+        recActive = false;
+        recArmed = true;
+    }
+    else recArmed = false;
+}
+
+void Engine::drainRecording (std::vector<float>& dst)
+{
+    const int ready = recFifo.getNumReady();
+    const auto scope = recFifo.read (ready);
+    dst.insert (dst.end(), recRing.begin() + scope.startIndex1, recRing.begin() + scope.startIndex1 + scope.blockSize1);
+    dst.insert (dst.end(), recRing.begin() + scope.startIndex2, recRing.begin() + scope.startIndex2 + scope.blockSize2);
+}
+
+void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, int len, double sps)
 {
     // metronom na dobach
-    if (sd.click)
+    if (sd.click && ! offline)
         for (double b = std::ceil (p0 / 4.0) * 4.0; b < p1; b += 4.0)
             addClick (off + (int) ((b - p0) * sps), std::fmod (b, 16.0) < 0.5);
 
     for (const auto& td : sd.tracks)
     {
+        if (td.isAudio)
+        {
+            if (td.audible) mixClips (td, p0, off, len, sps);
+            continue;
+        }
         if (! juce::isPositiveAndBelow (td.slot, (int) slots.size())) continue;
         auto& s = *slots[(size_t) td.slot];
 
@@ -229,14 +299,22 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, d
     }
 }
 
-void Engine::audioDeviceIOCallbackWithContext (const float* const*, int, float* const* out, int numOut, int n,
+void Engine::audioDeviceIOCallbackWithContext (const float* const* in, int numIn, float* const* out, int numOut, int n,
                                                const juce::AudioIODeviceCallbackContext&)
 {
+    process (in, numIn, out, numOut, n, nullptr);
+}
+
+void Engine::process (const float* const* in, int numIn, float* const* out, int numOut, int n, const SongData* forced)
+{
+    recWriting = recArmed.load();
+
     for (int c = 0; c < numOut; ++c)
         if (out[c] != nullptr) juce::FloatVectorOperations::clear (out[c], n);
 
     const juce::ScopedTryLock sl (slotLock);
-    if (! sl.isLocked()) return;
+    if (! sl.isLocked() || (offline.load() && forced == nullptr)) { recWriting = false; return; }   // pocas exportu ticho
+    curIn = in; curNumIn = numIn; curOut = out; curNumOut = juce::jmin (2, numOut);
 
     for (auto& s : slots) s->midi.clear();
 
@@ -294,7 +372,7 @@ void Engine::audioDeviceIOCallbackWithContext (const float* const*, int, float* 
         }
     }
 
-    auto* sd = song.load();
+    auto* sd = forced != nullptr ? forced : song.load();
     int startOffset = 0;
 
     if (state == counting && sd != nullptr)
@@ -322,24 +400,27 @@ void Engine::audioDeviceIOCallbackWithContext (const float* const*, int, float* 
         while (s < n && ++guard < 8)
         {
             const double segEnd = pos + (n - s) / sps;
-            const bool loop = sd->loopOn && sd->locR > sd->locL && pos < sd->locR;
-            const double limit = loop ? sd->locR : sd->endStep;
+            const bool loop = ! offline && sd->loopOn && sd->locR > sd->locL && pos < sd->locR;
+            const double limit = offline ? 1.0e12 : (loop ? sd->locR : sd->endStep);
             if (segEnd >= limit)
             {
                 const int len = juce::jlimit (0, n - s, (int) std::ceil ((limit - pos) * sps));
-                renderSegment (*sd, pos, limit, s, sps);
+                renderSegment (*sd, pos, limit, s, len, sps);
+                captureInput (s, len, pos);
+                if (recActive.load()) recStopped = true;   // nahravanie konci pri skoku spat
                 allNotesOff (s + len > 0 ? s + len - 1 : 0, false);
                 s += len;
                 pos = loop ? sd->locL : 0.0;
             }
             else
             {
-                renderSegment (*sd, pos, segEnd, s, sps);
+                renderSegment (*sd, pos, segEnd, s, n - s, sps);
+                captureInput (s, n - s, pos);
                 pos = segEnd;
                 s = n;
             }
         }
-        publicPos = pos;
+        if (! offline) publicPos = pos;
     }
 
     // zvuk z pluginov
@@ -365,4 +446,60 @@ void Engine::audioDeviceIOCallbackWithContext (const float* const*, int, float* 
     }
 
     renderClicks (out, juce::jmin (numOut, 2), n);
+    recWriting = false;
+}
+
+//==============================================================================
+bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, juce::AudioFormatWriter& w,
+                            const std::function<bool (double)>& progress)
+{
+    double savedPos = 0;
+    {
+        const juce::ScopedLock sl (slotLock);
+        {
+            const juce::SpinLock::ScopedLockType l (cmdLock);
+            cmds.clear();
+        }
+        savedPos = pos;
+        offline = true;     // realne audio odteraz len ticho
+        recArmed = false;
+        for (auto& s : slots)
+        {
+            s->active.clear();
+            if (s->plugin != nullptr) { s->plugin->setNonRealtime (true); s->plugin->reset(); }
+        }
+        clickLeft = clickDelay = 0;
+        state = playing;
+        pos = 0;
+    }
+
+    const int bs = juce::jmax (64, blockSize);
+    juce::AudioBuffer<float> buf (2, bs);
+    const double sps = sampleRate * 60.0 / (sd.tempo * 4.0);
+    const juce::int64 total = (juce::int64) (endStep * sps + tailSec * sampleRate);
+    bool ok = true;
+    for (juce::int64 done = 0; done < total; done += bs)
+    {
+        const int n = (int) juce::jmin ((juce::int64) bs, total - done);
+        buf.clear();
+        {
+            const juce::ScopedLock sl (slotLock);
+            process (nullptr, 0, buf.getArrayOfWritePointers(), 2, n, &sd);
+        }
+        w.writeFromAudioSampleBuffer (buf, 0, n);
+        if (progress && ! progress ((double) done / (double) total)) { ok = false; break; }
+    }
+
+    {
+        const juce::ScopedLock sl (slotLock);
+        state = stopped;
+        pos = savedPos;
+        for (auto& s : slots)
+        {
+            s->active.clear();
+            if (s->plugin != nullptr) { s->plugin->setNonRealtime (false); s->plugin->reset(); }
+        }
+        offline = false;
+    }
+    return ok;
 }

@@ -54,7 +54,8 @@ canvas{display:block}
 .trk input[type=range]{width:46px}
 .trk input.mx{width:40px}
 .trk button.plw{width:40px}
-body.native .smp,body.native #bAddA,body.native #bImpA,body.native #bWav,body.native #outSel,body.native #outLbl{display:none!important}
+body.native .smp,body.native #outSel,body.native #outLbl{display:none!important}
+.trk button.plw svg{display:block;margin:auto}
 .w22{width:22px;text-align:center}.w84{width:84px}.w82{width:82px}.w40{width:40px}
 #edBody{flex:1;overflow:auto;background:#b8b8b8;border-top:1px solid #808080;position:relative}
 #keyWrap{display:flex;width:max-content}
@@ -190,10 +191,24 @@ function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
   return {tempo:song.tempo,bars:song.bars,locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,
-    tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,parts:t.type==='audio'?[]:t.parts}))};
+    tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,parts:t.parts}))};
 }
 function pushSong(now){ if(!NATIVE) return; clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
 function curNatPos(){ if(!playing) return song.pos; return natLast.pos+(performance.now()-natLast.t)/1000*song.tempo/60*4; }
+let natRec=null;
+function natNeedPeaks(){ const ids=[...usedAudioIds()].filter(id=>!audioPeaks[id]); if(ids.length) nat('needPeaks',{ids}); }
+function natPeaks(e){ const dec=b=>{const t=atob(b), a=new Float32Array(t.length); for(let i=0;i<t.length;i++){let v=t.charCodeAt(i); if(v>127) v-=256; a[i]=v/127;} return a;};
+  audioPeaks[e.id]={mn:dec(e.mn),mx:dec(e.mx),B:e.B,sr:e.sr}; audioBufs[e.id]={duration:e.full,sampleRate:e.sr}; drawArrange(); }
+function natRecStop(){ if(!natRec) return; nat('recAudio',{on:false}); natRec=null; drawArrange(); }
+function natUpload(f,trId,bar){
+  if(f.size>300*1024*1024){dialog('Import audio','<p>Súbor je príliš veľký (max. 300 MB).</p>'); return;}
+  dialog('Import audio','<p>Načítavam '+esc(f.name)+'…</p>');
+  const up=uid(), CH=768*1024; let o=0;
+  const next=()=>{ const end=Math.min(f.size,o+CH); const rd=new FileReader();
+    rd.onload=()=>{ const u=new Uint8Array(rd.result); let bin=''; for(let i=0;i<u.length;i+=32768) bin+=String.fromCharCode.apply(null,u.subarray(i,i+32768));
+      const last=end>=f.size; nat('audioChunk',{up,b64:btoa(bin),last,name:f.name,track:trId||'',bar:bar||0}); o=end; if(!last) setTimeout(next,0); };
+    rd.readAsArrayBuffer(f.slice(o,end)); };
+  next(); }
 function natNoteShort(tr,pitch,vel){ nat('note',{track:tr.id,pitch,vel,on:true}); setTimeout(()=>nat('note',{track:tr.id,pitch,vel:0,on:false}),250); }
 function setupNative(){
   document.body.classList.add('native');
@@ -202,6 +217,7 @@ function setupNative(){
   play=function(cnt){ if(playing) return; nat('transport',{cmd:'play',pos:song.pos,countIn:cnt||0}); playing=true; counting=!!cnt;
     playStep=song.pos; natLast={pos:song.pos,t:performance.now()+(cnt?cnt*4*60000/song.tempo:0)}; updTransport(); };
   stop=function(){
+    natRecStop();
     if(playing){ Object.keys(held).forEach(noteOff); nat('transport',{cmd:'stop'}); playing=false; counting=false; rec=false; song.pos=playStep; }
     else { song.pos=(song.loopOn&&song.pos!==song.locL)?song.locL:0; playStep=song.pos; nat('transport',{cmd:'setPos',pos:song.pos}); }
     lastStep=-1; onStep(); updTransport(); save(); };
@@ -227,9 +243,11 @@ function setupNative(){
     if(h.r) recEnd(h.r);
     if(h.step&&!Object.values(held).some(x=>x.step)) stepMove(stepSize()); };
   toggleRec=function(){
-    const tr=song.tracks[selT]; if(!rec&&tr&&tr.type==='audio'){ toast('Nahrávanie zvuku pribudne v ďalšom kroku.'); return; }
+    const tr=song.tracks[selT];
+    if(!rec&&tr&&tr.type==='audio'){ rec=true; pushUndo(); natRec={trId:tr.id,startStep:song.pos}; nat('recAudio',{on:true,track:tr.id});
+      if(!playing) play(COUNT_BARS); else natRec.startStep=Math.floor(curNatPos()); updTransport(); return; }
     rec=!rec; if(rec){ pushUndo(); if(!playing) play(COUNT_BARS); }
-    else Object.keys(held).forEach(k=>{const h=held[k]; if(h.r){recEnd(h.r); h.r=null;}});
+    else { Object.keys(held).forEach(k=>{const h=held[k]; if(h.r){recEnd(h.r); h.r=null;}}); natRecStop(); }
     updTransport(); };
   $('bStop').onclick=stop; $('bRec').onclick=toggleRec;
   $('bAudio').onclick=()=>nat('showSettings'); showLat=function(){ $('latV').textContent=''; };
@@ -241,7 +259,7 @@ function setupNative(){
     if(e.counting){ counting=true; const b=e.beat|0, tot=e.total|0, bars=Math.ceil(tot/4); $('lcd').textContent=`−${bars-Math.floor(b/4)}.${b%4+1}  ●`; return; }
     if(counting&&e.playing) counting=false;
     if(playing&&!e.playing&&!e.counting){ playing=false; updTransport(); }
-    if(playing){ const st=Math.floor(e.pos); if(st!==playStep){ playStep=st; } if(playStep!==lastStep){ lastStep=playStep; onStep(); } }
+    if(playing){ const st=Math.floor(e.pos); if(natRec&&st<natRec.startStep){ natRecStop(); rec=false; updTransport(); } if(st!==playStep){ playStep=st; } if(playStep!==lastStep){ lastStep=playStep; onStep(); } }
   });
   onNat('midiIn',e=>{
     if(e.pitch===-64){ if(e.on&&stepActive()) stepMove(stepSize()); return; }
@@ -251,7 +269,37 @@ function setupNative(){
   });
   onNat('plugins',list=>{ natPlugins=Array.isArray(list)?list:[]; renderTracks(); });
   onNat('trackPlugins',m=>{ natTrackPlugins=m||{}; renderTracks(); });
-  onNat('songLoaded',e=>{ try{ const s=normalize(JSON.parse(e.text)); pushUndo(); if(playing) stop(); song=s; selT=0; selPart=null; closeEditor(); renderAll(); save(); natSel(); }
+  pickAudio=function(){ nat('importAudio',{track:audTarget&&audTarget.trId||'',bar:audTarget?audTarget.bar:0}); };
+  importAudioFile=function(f,trId,bar){ natUpload(f,trId,bar); };
+  $('bWav').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
+    stopIfPlaying(); nat('exportWav',{end}); };
+  onNat('busy',e=>{ dialog('Import audio','<p>'+esc(e.text)+'</p>'); });
+  onNat('audioPeaks',natPeaks);
+  onNat('audioImported',e=>{
+    if(e.error){ dialog('Import audio','<p>Tento súbor sa nedá prečítať. Použi WAV alebo MP3.</p>'); return; }
+    pushUndo();
+    let tr=song.tracks.find(t=>t.id===e.track&&t.type==='audio');
+    if(!tr){tr=mkTrack('audio'); tr.name=String(e.name).slice(0,24); song.tracks.push(tr);}
+    const tp=e.bpm?{bpm:e.bpm,phase:e.phase||0}:null;
+    if(tp){ song.tempo=clamp(tp.bpm,30,300); updateAudioLens(); }
+    const B=clamp(e.bar||0,0,song.bars-1);
+    const part={id:uid(),start:B,len:e.dur/barDur(),aid:e.id,off:0,dur:e.dur,name:e.name};
+    if(tp&&tp.phase>.01){ if(B>=1) part.start=B-tp.phase/barDur(); else {part.off=tp.phase; part.dur=e.dur-tp.phase;} part.len=part.dur/barDur(); }
+    tr.parts.push(part); selT=song.tracks.indexOf(tr); selParts.clear(); selParts.add(part.id);
+    const end=Math.ceil(part.start+part.len); if(end>song.bars) song.bars=Math.min(256,end);
+    $('dlgBack').hidden=true; renderAll(); save(); natSel();
+    toast(tp?`Tempo nastavené na <b>${song.tempo} BPM</b> podľa nahrávky a klip zarovnaný na dobu. Ctrl+Z vráti späť.`:'Tempo nahrávky sa nepodarilo spoľahlivo zistiť – nastav ho ručne.');
+  });
+  onNat('audioRec',e=>{
+    const tr=song.tracks.find(t=>t.id===e.track); if(!tr) return;
+    const n=song.tracks.reduce((a,t)=>a+(t.type==='audio'?t.parts.length:0),0)+1;
+    const part={id:uid(),start:e.start/SPB,len:e.dur/barDur(),aid:e.id,off:0,dur:e.dur,name:'Nahrávka '+n};
+    tr.parts.push(part); selParts.clear(); selParts.add(part.id);
+    const end=Math.ceil(part.start+part.len); if(end>song.bars) song.bars=Math.min(256,end);
+    renderAll(); save();
+  });
+  onNat('exported',e=>{ toast(e.ok?'WAV uložený: <b>'+esc(e.name)+'</b>':'Export sa nepodaril alebo bol zrušený.'); });
+  onNat('songLoaded',e=>{ try{ const s=normalize(JSON.parse(e.text)); pushUndo(); if(playing) stop(); song=s; selT=0; selPart=null; closeEditor(); renderAll(); save(); natSel(); natNeedPeaks(); }
     catch(err){ dialog('Chyba','<p>Tento súbor sa nedá otvoriť.</p>'); } });
 }
 const $=id=>document.getElementById(id);
@@ -270,6 +318,7 @@ const PRESETS={
   'Zvon':   {osc:[['sine',0,1,.7],['sine',0,3.5,.3]],cut:8000,fenv:0,fdec:.1,q:.5,a:.002,d:1.2,s:0,r:.6},
   'Struny': {osc:[['sawtooth',-5,1,.4],['sawtooth',5,1,.4]],cut:2600,fenv:400,fdec:.6,q:.7,a:.25,d:.5,s:.85,r:.6}
 };
+const ICO_KEYS='<svg width="20" height="12" viewBox="0 0 20 12"><rect x=".5" y=".5" width="19" height="11" rx="1" fill="#fff" stroke="currentColor"/><path d="M4.5 1v10M8.5 1v10M12 1v10M15.5 1v10" stroke="currentColor"/><path d="M3 1h3v6H3zM7 1h3v6H7zM13.8 1h3v6h-3z" fill="currentColor"/></svg>';
 const ICO_ARROW='<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg>';
 const ICO_PEN='<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/><path d="M9 4l3 3"/></svg>';
 const KEYS=['KeyA','KeyW','KeyS','KeyE','KeyD','KeyF','KeyT','KeyG','KeyY','KeyH','KeyU','KeyJ','KeyK','KeyO','KeyL','KeyP','Semicolon'];
@@ -836,7 +885,7 @@ function renderTracks(){
     else{sel.innerHTML=Object.keys(PRESETS).map(k=>`<option ${k===tr.preset?'selected':''}>${k}</option>`).join('');
       sel.onchange=()=>{pushUndo(); tr.preset=sel.value; save(); sel.blur(); initAudio(); voice(tr.preset,60,ac.currentTime,.8,trackOut(tr)).release(ac.currentTime+.3);};}
     let ch;
-    if(NATIVE){ ch=document.createElement('button'); ch.textContent='▣'; ch.title='Otvoriť okno pluginu'; ch.className='plw'; ch.disabled=!natTrackPlugins[tr.id];
+    if(NATIVE){ ch=document.createElement('button'); ch.innerHTML=ICO_KEYS; ch.title='Otvoriť okno pluginu'; ch.className='plw'; ch.disabled=!natTrackPlugins[tr.id];
       ch.onclick=()=>nat('openPlugin',{track:tr.id,name:tr.name}); }
     else { ch=document.createElement('input'); ch.type='number'; ch.min=1; ch.max=16; ch.value=tr.ch; ch.title='MIDI kanál';
       if(tr.type!=='synth') ch.disabled=true; ch.onchange=()=>{tr.ch=clamp(+ch.value||1,1,16); ch.value=tr.ch; save();}; }
@@ -908,6 +957,8 @@ function drawArrange(){
     c.fillStyle='rgba(45,67,98,.12)'; c.fillRect(bx,by,Math.abs(drag.x1-drag.x0),Math.abs(drag.y1-drag.y0));
     c.strokeStyle='#2d4362'; c.setLineDash([4,3]); c.strokeRect(bx+.5,by+.5,Math.abs(drag.x1-drag.x0),Math.abs(drag.y1-drag.y0)); c.setLineDash([]);}
   if(arrTool==='cut'&&cutHover){c.strokeStyle='#8e3a2c'; c.lineWidth=2; c.setLineDash([3,2]); c.beginPath(); c.moveTo(cutHover.x+.5,RULH+cutHover.ti*ROWH+1); c.lineTo(cutHover.x+.5,RULH+cutHover.ti*ROWH+ROWH-2); c.stroke(); c.setLineDash([]); c.lineWidth=1;}
+  if(natRec&&playing&&!counting&&playStep>=natRec.startStep){const ti=song.tracks.findIndex(t=>t.id===natRec.trId);
+    if(ti>=0){c.fillStyle='rgba(142,58,44,.55)'; c.fillRect(natRec.startStep/SPB*bw,RULH+ti*ROWH+3,(playStep-natRec.startStep+1)/SPB*bw,ROWH-7);}}
   if(recAudio&&playing&&ac.currentTime>=recAudio.t0&&playStep>=recAudio.startStep){const ti=song.tracks.findIndex(t=>t.id===recAudio.tr.id);
     if(ti>=0){c.fillStyle='rgba(142,58,44,.55)'; c.fillRect(recAudio.startStep/SPB*bw,RULH+ti*ROWH+3,(playStep-recAudio.startStep+1)/SPB*bw,ROWH-7);}}
   const ph=(playing?playStep:song.pos)/SPB*bw;
@@ -962,7 +1013,7 @@ arrCv.addEventListener('mousedown',e=>{
 });
 arrCv.addEventListener('dblclick',e=>{
   const {x,y}=arrXY(e); const ti=Math.floor((y-RULH)/ROWH); const tr=song.tracks[ti]; if(!tr||y<RULH) return;
-  if(tr.type==='audio'){ const hit=tr.parts.find(p=>x/zoomA>=p.start&&x/zoomA<p.start+p.len); if(!hit){audTarget={trId:tr.id,bar:Math.floor(x/zoomA)}; $('audIn').click();} return; }
+  if(tr.type==='audio'){ const hit=tr.parts.find(p=>x/zoomA>=p.start&&x/zoomA<p.start+p.len); if(!hit){audTarget={trId:tr.id,bar:Math.floor(x/zoomA)}; pickAudio();} return; }
   const p=tr.parts.find(p=>x/zoomA>=p.start&&x/zoomA<p.start+p.len); if(p) openEditor(tr,p);
 });
 arrCv.addEventListener('contextmenu',e=>{
@@ -1361,7 +1412,8 @@ $('bNew').onclick=()=>{pushUndo(); stopIfPlaying(); emptySong(); selT=0; selPart
 $('bAddD').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('drum')); selT=song.tracks.length-1; renderAll(); save();};
 $('bAddS').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('synth')); selT=song.tracks.length-1; renderAll(); save();};
 $('bAddA').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('audio')); selT=song.tracks.length-1; renderAll(); save();};
-$('bImpA').onclick=()=>{const tr=song.tracks[selT]; audTarget={trId:tr&&tr.type==='audio'?tr.id:null,bar:Math.floor(curPos()/SPB)}; $('audIn').click();};
+$('bImpA').onclick=()=>{const tr=song.tracks[selT]; audTarget={trId:tr&&tr.type==='audio'?tr.id:null,bar:Math.floor(curPos()/SPB)}; pickAudio();};
+function pickAudio(){ $('audIn').click(); }
 $('audIn').onchange=e=>{const f=e.target.files[0]; e.target.value=''; if(f&&audTarget) importAudioFile(f,audTarget.trId,audTarget.bar);};
 $('bDelT').onclick=()=>{ if(!song.tracks[selT]) return; pushUndo(); const tr=song.tracks.splice(selT,1)[0];
   if(ed&&tr.parts.some(p=>p.id===ed.pId)) closeEditor(); selT=clamp(selT,0,Math.max(0,song.tracks.length-1)); renderAll(); save();};
@@ -1664,7 +1716,7 @@ try{const s=localStorage.getItem(LS); if(s) song=normalize(JSON.parse(s));}catch
 try{const x=localStorage.getItem(LSS); if(x) sampleStore=JSON.parse(x)||{};}catch(e){sampleStore={};}
 try{const v=JSON.parse(localStorage.getItem(LSV)||'null'); if(v){if(['low','normal','safe'].includes(v.latMode)) latMode=v.latMode; sinkId=v.sinkId||''; inId=v.inId||''; zoomA=clamp(+v.zoomA||28,8,160); ROWH=clamp(+v.ROWH||28,28,140); zoomK=clamp(+v.zoomK||20,6,80); KH=clamp(+v.KH||12,8,28);}}catch(e){}
 if(!song) song=demoSong();
-if(NATIVE){ setupNative(); renderAll(); requestAnimationFrame(frame); pushSong(true); natSel(); nat('ready'); }
+if(NATIVE){ setupNative(); renderAll(); requestAnimationFrame(frame); pushSong(true); natSel(); nat('ready'); natNeedPeaks(); }
 else { renderAll(); initMidi(); requestAnimationFrame(frame);
   if(Object.keys(sampleStore).length) decodeSamples();
   if(usedAudioIds().size) loadAudioStore(); }
