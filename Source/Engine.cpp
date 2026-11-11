@@ -34,6 +34,7 @@ Engine::Engine()
 {
     cmds.reserve (64);
     fxMidi.ensureSize (64);
+    masterSlot = getOrCreateSlot ("__master");
 }
 
 Engine::~Engine()
@@ -510,6 +511,13 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         if (! offline) publicPos = pos;
     }
 
+    // master: stopy sa scitaju sem, potom efekty mastra
+    auto& ms = *slots[(size_t) masterSlot];
+    if (ms.buf.getNumSamples() < n || ms.buf.getNumChannels() < 2) ms.buf.setSize (juce::jmax (2, ms.buf.getNumChannels()), n, false, true, true);
+    for (int c = 0; c < ms.buf.getNumChannels(); ++c) juce::FloatVectorOperations::clear (ms.buf.getWritePointer (c), n);
+    float* mixL = ms.buf.getWritePointer (0);
+    float* mixR = ms.buf.getWritePointer (1);
+
     // stopy: odposluch vstupu, nastroj, efekty, hlasitost a panorama
     if (sd != nullptr)
     {
@@ -534,10 +542,25 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             if (! any && ! td.isAudio) continue;
 
             const int chans = view.getNumChannels();
-            if (curNumOut > 0 && out[0] != nullptr)
-                juce::FloatVectorOperations::addWithMultiply (out[0], view.getReadPointer (0), td.gainL, n);
-            if (curNumOut > 1 && out[1] != nullptr)
-                juce::FloatVectorOperations::addWithMultiply (out[1], view.getReadPointer (chans > 1 ? 1 : 0), td.gainR, n);
+            juce::FloatVectorOperations::addWithMultiply (mixL, view.getReadPointer (0), td.gainL, n);
+            juce::FloatVectorOperations::addWithMultiply (mixR, view.getReadPointer (chans > 1 ? 1 : 0), td.gainR, n);
+        }
+    }
+
+    {
+        juce::AudioBuffer<float> view (ms.buf.getArrayOfWritePointers(), ms.buf.getNumChannels(), n);
+        for (auto& f : ms.fx)
+            if (f != nullptr) { fxMidi.clear(); f->processBlock (view, fxMidi); }
+        const float mg = sd != nullptr ? sd->masterGain : 1.0f;
+        if (curNumOut == 1 && out[0] != nullptr)
+        {
+            juce::FloatVectorOperations::addWithMultiply (out[0], mixL, mg * 0.5f, n);
+            juce::FloatVectorOperations::addWithMultiply (out[0], mixR, mg * 0.5f, n);
+        }
+        else
+        {
+            if (curNumOut > 0 && out[0] != nullptr) juce::FloatVectorOperations::addWithMultiply (out[0], mixL, mg, n);
+            if (curNumOut > 1 && out[1] != nullptr) juce::FloatVectorOperations::addWithMultiply (out[1], mixR, mg, n);
         }
     }
 

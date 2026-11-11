@@ -15,6 +15,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
     sd->locR    = (double) j.getProperty ("locR", 64);
     sd->loopOn  = (bool) j.getProperty ("loopOn", false);
     sd->click   = (bool) j.getProperty ("click", false);
+    { const float mv = (float) (double) j.getProperty ("masterVol", 1.0); sd->masterGain = mv * mv; }
     const double swing = (double) j.getProperty ("swing", 0) / 100.0 * 0.6;
 
     const auto* tracks = j["tracks"].getArray();

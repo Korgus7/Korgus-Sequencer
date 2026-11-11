@@ -38,6 +38,7 @@ struct TrackData
 struct SongData
 {
     double tempo = 120, endStep = 512, locL = 0, locR = 64;
+    float masterGain = 1;
     bool loopOn = false, click = false;
     std::vector<TrackData> tracks;
 };
@@ -163,6 +164,7 @@ private:
     float* const* curOut = nullptr;
     int curNumOut = 0;
     std::atomic<bool> offline { false };
+    int masterSlot = -1;   // slot "__master" s efektmi celej piesne
 
     // metronom
     int clickLeft = 0, clickLen = 0, clickDelay = 0;

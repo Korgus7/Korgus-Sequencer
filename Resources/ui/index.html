@@ -32,6 +32,36 @@ input[type=range]{accent-color:#2d4362}
 #topWin{flex:none}
 #arrWin{flex:1 1 0;min-height:140px}
 #edWin{flex:1.25 1 0;min-height:180px}
+#mixWin{flex:none;height:360px}
+#mixBody{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;background:#232c38;border-top:1px solid #161d27}
+#mixStrips{display:flex;flex:none}
+.ms{width:92px;flex:none;display:flex;flex-direction:column;gap:5px;padding:6px 5px 5px;background:#2a3442;border-right:1px solid #161d27;color:#e4e9ef;box-sizing:border-box;cursor:default}
+.ms.sel{background:#55657a}
+.ms.mst{background:#2d4362;border-left:2px solid #161d27;position:sticky;right:0;margin-left:auto}
+.ms .dd{position:relative;height:20px;background:#3a4757;border-radius:3px;flex:none}
+.ms.sel .dd{background:#6b7b90}
+.ms .dd.on{background:#4f6f91}
+.ms .dd::after{content:'';position:absolute;right:5px;top:8px;border:4px solid transparent;border-top-color:#e4e9ef;pointer-events:none}
+.ms .dd select{appearance:none;-webkit-appearance:none;width:100%;height:20px;border:0;background:transparent;color:#e4e9ef;font-size:11px;padding:0 14px 0 5px;outline:none;box-shadow:none!important;cursor:pointer}
+.ms .dd select option{background:#2a3442;color:#e4e9ef}
+.ms .pan{height:14px;position:relative;flex:none;cursor:ew-resize}
+.ms .pan::before{content:'';position:absolute;left:0;right:0;top:5px;height:4px;background:#161d27;border-radius:2px}
+.ms .pan::after{content:'';position:absolute;left:50%;top:2px;width:1px;height:10px;background:#8a96a6}
+.ms .pan i{position:absolute;top:5px;height:4px;background:#c9d2dc;border-radius:2px}
+.ms .pv{font-size:10px;text-align:center;color:#c9d2dc;height:12px;line-height:12px;flex:none}
+.ms .grp{display:flex;border:1px solid #161d27;border-radius:3px;overflow:hidden;flex:none}
+.ms .grp button{flex:1;height:20px;padding:0;margin:0;border:0;border-right:1px solid #6d7886;border-radius:0;background:#b9c1cb;color:#1b2533;font:bold 11px Tahoma,Arial,sans-serif;box-shadow:none!important;min-height:0}
+.ms .grp button:last-child{border-right:0}
+.ms .grp button:hover{background:#c9d0d8}
+.ms .grp .m.on,.ms .grp .m.on:hover{background:#9a7c34;color:#fff}
+.ms .grp .s.on,.ms .grp .s.on:hover{background:#5c7a54;color:#fff}
+.ms .fd{flex:1;position:relative;min-height:60px;cursor:ns-resize}
+.ms .fd::before{content:'';position:absolute;left:50%;margin-left:-2px;top:6px;bottom:6px;width:4px;background:#161d27;border-radius:2px}
+.ms .fd b{position:absolute;left:50%;margin-left:-15px;width:30px;height:12px;background:#c9d2dc;border-radius:3px}
+.ms .fd b::after{content:'';position:absolute;left:4px;right:4px;top:5px;height:2px;background:#2a3442}
+.ms .db{font-size:11px;text-align:center;color:#e4e9ef;flex:none;height:14px}
+.ms .nm{font-size:12px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none;padding:3px 0;border-top:1px solid #161d27}
+.ms .nm span{color:#8fa9c6;margin-right:4px}
 #trWin{flex:none}
 #trWin button{padding:1px 6px}
 #trWin .sep{margin:0 1px}
@@ -167,8 +197,13 @@ button.ico svg{display:block}
 </div>
 
 <div class="win" id="arrWin">
-  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><span class="sp"></span><button id="bMix" title="Prepnúť stopy na mixpult (panoráma, dozvuk, ozvena)">Mix</button><span style="width:6px"></span><span class="zl">↔</span><button id="azOut" title="Zúžiť (Ctrl + koliesko)">−</button><button id="azIn" title="Rozšíriť (Ctrl + koliesko)">+</button><span class="zl">↕</span><button id="avOut" title="Znížiť stopy (Alt + koliesko)">−</button><button id="avIn" title="Zväčšiť stopy (Alt + koliesko)">+</button></div>
+  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><span class="sp"></span><button id="bMix" title="Mixpult (F3)">Mix</button><span style="width:6px"></span><span class="zl">↔</span><button id="azOut" title="Zúžiť (Ctrl + koliesko)">−</button><button id="azIn" title="Rozšíriť (Ctrl + koliesko)">+</button><span class="zl">↕</span><button id="avOut" title="Znížiť stopy (Alt + koliesko)">−</button><button id="avIn" title="Zväčšiť stopy (Alt + koliesko)">+</button></div>
   <div id="arrScroll"><div id="arrInner"><div id="trackList"></div><canvas id="arrCv"></canvas></div></div>
+</div>
+
+<div class="win" id="mixWin" hidden>
+  <div class="tb">Mixpult<span class="sp"></span><button id="mixClose" title="Zavrieť (F3)">×</button></div>
+  <div id="mixBody"><div id="mixStrips"></div></div>
 </div>
 
 <div class="win" id="edWin" hidden>
@@ -224,7 +259,7 @@ function nat(ev,o){ if(NATIVE) window.__JUCE__.backend.emitEvent(ev,o||{}); }
 function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn); }
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
-  return {tempo:song.tempo,bars:song.bars,locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,
+  return {masterVol:song.masterVol==null?1:song.masterVol,tempo:song.tempo,bars:song.bars,locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,
     tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,parts:t.parts}))};
 }
 function pushSong(now){ if(!NATIVE) return; clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
@@ -969,8 +1004,58 @@ function renderTracksNative(L){
     L.appendChild(r);
   });
 }
+/* ---------------- mixpult ---------------- */
+function mixOpen(){ return !$('mixWin').hidden; }
+function toggleMixer(){ const w=$('mixWin'); w.hidden=!w.hidden; if(!w.hidden&&ed) closeEditor(); $('bMix').classList.toggle('on',!w.hidden); if(!w.hidden) renderMixer(); drawArrange(); }
+function dragV(e,el,fn,up){ e.preventDefault(); e.stopPropagation(); const rc=el.getBoundingClientRect(); fn(e,rc);
+  const mv=ev=>fn(ev,rc), u=()=>{removeEventListener('mousemove',mv); removeEventListener('mouseup',u); if(up) up();}; addEventListener('mousemove',mv); addEventListener('mouseup',u); }
+const dbTxt=v=>v>0?(40*Math.log10(v)).toFixed(1):'−∞';
+function renderMixer(){
+  if(!mixOpen()) return;
+  const box=$('mixStrips'); box.innerHTML='';
+  const el=(tag,cls,html)=>{const d=document.createElement(tag); if(cls) d.className=cls; if(html!=null) d.innerHTML=html; return d;};
+  const fxList=natPlugins.filter(p=>!p.inst);
+  const strip=(o)=>{ // o: {id,name,num,sel,vol(get/set),pan,mute,solo,onSel,master}
+    const st=el('div','ms'+(o.master?' mst':'')+(o.sel?' sel':''));
+    const fx=(natTrackPlugins[o.id]||{}).fx||[];
+    for(let k=0;k<4;k++){ const f=fx[k], d=el('div','dd'+(f?' on':'')), sl=el('select');
+      sl.innerHTML='<option value="">–</option>'+fxList.map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
+      sl.value=f?f.uid:''; sl.title=f?f.name+' (dvojklik = okno efektu)':'Efekt '+(k+1);
+      sl.onmousedown=e=>e.stopPropagation();
+      sl.onchange=()=>{ if(sl.value==='__scan'){ sl.value=f?f.uid:''; nat('showPlugins'); sl.blur(); return; } nat('trackFx',{track:o.id,idx:k,uid:sl.value,name:o.name}); sl.blur(); };
+      d.ondblclick=()=>{ if(f) nat('openFx',{track:o.id,idx:k,name:o.name}); };
+      d.appendChild(sl); st.appendChild(d); }
+    if(!o.master){
+      const pn=el('div','pan'), pi=el('i'), pv=el('div','pv'); pn.appendChild(pi);
+      const showP=()=>{ const p=o.pan(); const a=50, b=50+p*50; pi.style.left=Math.min(a,b)+'%'; pi.style.width=Math.max(1,Math.abs(b-a))+'%';
+        pv.textContent=Math.abs(p)<.005?'C':(p<0?'L':'R')+Math.round(Math.abs(p)*100); pn.title='Panoráma (dvojklik = stred)'; }; showP();
+      pn.onmousedown=e=>dragV(e,pn,(ev,rc)=>{ o.pan(clamp(((ev.clientX-rc.left)/rc.width)*2-1,-1,1)); showP(); save(); },renderTracks);
+      pn.ondblclick=()=>{ o.pan(0); showP(); save(); };
+      st.append(pn,pv);
+      const g=el('div','grp'), bm=el('button','m'+(o.mute()?' on':''),'M'), bs=el('button','s'+(o.solo()?' on':''),'S');
+      bm.onclick=()=>{o.mute(!o.mute()); save(); renderTracks(); drawArrange();}; bs.onclick=()=>{o.solo(!o.solo()); save(); renderTracks();};
+      g.append(bm,bs); st.appendChild(g);
+    }
+    const fd=el('div','fd'), th=el('b'), db=el('div','db');
+    const showF=()=>{ const h=fd.clientHeight||200; th.style.top=(6+(1-o.vol())*(h-24))+'px'; db.textContent=dbTxt(o.vol())+' dB'; };
+    fd.appendChild(th); fd.title='Hlasitosť (dvojklik = 0 dB)';
+    fd.onmousedown=e=>dragV(e,fd,(ev,rc)=>{ o.vol(clamp(1-(ev.clientY-rc.top-12)/(rc.height-24),0,1)); showF(); save(); },renderTracks);
+    fd.ondblclick=()=>{ o.vol(1); showF(); save(); renderTracks(); };
+    const nm=el('div','nm',(o.num?'<span>'+o.num+'</span>':'')+esc(o.name)); nm.title=o.name;
+    st.append(fd,db,nm);
+    if(o.onSel) st.addEventListener('mousedown',o.onSel);
+    box.appendChild(st); requestAnimationFrame(showF);
+  };
+  song.tracks.forEach((tr,i)=>strip({id:tr.id,name:tr.name,num:i+1,sel:i===selT,
+    vol:v=>v==null?tr.vol:(tr.vol=v), pan:v=>v==null?(tr.pan||0):(tr.pan=v), mute:v=>v==null?tr.mute:(tr.mute=v), solo:v=>v==null?tr.solo:(tr.solo=v),
+    onSel:()=>{ if(selT!==i){ selectTrack(i); renderMixer(); } }}));
+  const mb=$('mixBody'); [...mb.querySelectorAll('.mst')].forEach(x=>x.remove());
+  strip({id:'__master',name:'Master',master:true,vol:v=>v==null?(song.masterVol==null?1:song.masterVol):(song.masterVol=v)});
+  const m=box.lastChild; mb.appendChild(m);
+}
 function renderTracks(){
   const L=$('trackList'); L.innerHTML='';
+  if(NATIVE) renderMixer();
   if(NATIVE){ renderTracksNative(L); return; }
   const h=document.createElement('div'); h.className='thead';
   h.innerHTML='<span class="w22">M</span><span class="w22">S</span><span class="w84">Stopa</span>'+(mixMode?(NATIVE?'<span class="w82">Pan</span><span class="w40"></span>':'<span class="w40">Pan</span><span class="w40">Dozvuk</span><span class="w40">Ozvena</span>'):(NATIVE?'<span class="w82">VST nástroj</span><span class="w40">Okno</span>':'<span class="w82">Zvuk</span><span class="w40">Kan.</span>'))+'<span>Hlasitosť</span>';
@@ -1017,7 +1102,7 @@ function renderTracks(){
 }
 function natSel(){ const tr=targetTrack(); if(tr) nat('selTrack',{track:tr.id,midiIn:tr.midiIn||''}); }
 function selectTrack(i){
-  if(NATIVE) setTimeout(natSel,0);
+  if(NATIVE){ setTimeout(natSel,0); if(i!==selT) setTimeout(renderMixer,0); }
   if(i===selT) return; selT=i;
   [...document.querySelectorAll('.trk,.ntr')].forEach(r=>r.classList.toggle('sel',+r.dataset.i===i)); drawArrange();
 }
@@ -1260,7 +1345,7 @@ function arrMove(e){
 
 /* ---------------- editor ---------------- */
 let cols=[], curCol=-1;
-function openEditor(tr,p){const isNew=!ed||ed.pId!==p.id; ed={trId:tr.id,pId:p.id,scrolled:false}; selPart=p.id; if(isNew){stepCur=0; stepChord=false; selNotes.clear();} const ti=song.tracks.indexOf(tr); if(ti>=0) selectTrack(ti); $('edWin').hidden=false; renderEditor();}
+function openEditor(tr,p){ if(NATIVE&&mixOpen()){ $('mixWin').hidden=true; $('bMix').classList.remove('on'); }const isNew=!ed||ed.pId!==p.id; ed={trId:tr.id,pId:p.id,scrolled:false}; selPart=p.id; if(isNew){stepCur=0; stepChord=false; selNotes.clear();} const ti=song.tracks.indexOf(tr); if(ti>=0) selectTrack(ti); $('edWin').hidden=false; renderEditor();}
 function closeEditor(){ed=null; $('edWin').hidden=true; $('edBody').innerHTML=''; $('velWrap').hidden=true;}
 function edGet(){
   if(!ed) return null;
@@ -1622,7 +1707,8 @@ $('fileIn').onchange=e=>{
 };
 $('bMidi').onclick=()=>download('piesen.mid',buildMidi(),'audio/midi');
 let mixMode=false;
-$('bMix').onclick=()=>{mixMode=!mixMode; $('bMix').classList.toggle('on',mixMode); renderTracks();};
+$('bMix').onclick=()=>{ if(NATIVE){ toggleMixer(); return; } mixMode=!mixMode; $('bMix').classList.toggle('on',mixMode); renderTracks();};
+$('mixClose').onclick=toggleMixer;
 $('bWav').onclick=exportWav;
 async function exportWav(){
   const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
@@ -1751,6 +1837,7 @@ $('bHelp').onclick=()=>dialog('Pomoc – Korgus Sequencer',`
 /* ---------------- klavesnica ---------------- */
 document.addEventListener('click',e=>{const b=e.target.closest('button'); if(b) b.blur();});
 document.addEventListener('keydown',e=>{
+  if(e.key==='F3'&&NATIVE){ e.preventDefault(); toggleMixer(); return; }
   if(e.target.matches('input[type=text],input[type=number],textarea')) return;
   if(!$('dlgBack').hidden){ if(e.code==='Escape') $('dlgBack').hidden=true; return; }
   if(!$('setBack').hidden){ if(e.code==='Escape') $('setBack').hidden=true; return; }
