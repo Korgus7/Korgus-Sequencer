@@ -34,6 +34,7 @@ input[type=range]{accent-color:#2d4362}
 #edWin{flex:1.25 1 0;min-height:180px}
 #mixWin{flex:none;height:360px}
 #autoWin{flex:none;height:230px}
+button.qb{font:bold 11px Tahoma,Arial,sans-serif;min-width:26px;padding:0 4px}
 #autoWin .tb select{height:20px;font-size:11px;max-width:260px}
 #autoBody{flex:1;overflow-x:auto;overflow-y:hidden;background:#232c38;border-top:1px solid #161d27}
 #autoInner{display:flex;height:100%;width:max-content;min-width:100%}
@@ -214,7 +215,7 @@ button.ico svg{display:block}
 </div>
 
 <div class="win" id="arrWin">
-  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><span class="sp"></span><button id="bAuto" title="Automatizácia vybranej stopy (hlasitosť, panoráma, parametre pluginov)">Auto</button><span style="width:4px"></span><button id="bAi" title="AI asistent pre vybranú stopu (Ctrl+I)">AI</button><span style="width:4px"></span><button id="bMix" title="Mixpult (F3)">Mix</button><span style="width:6px"></span><span class="zl">↔</span><button id="azOut" title="Zúžiť (Ctrl + koliesko)">−</button><button id="azIn" title="Rozšíriť (Ctrl + koliesko)">+</button><span class="zl">↕</span><button id="avOut" title="Znížiť stopy (Alt + koliesko)">−</button><button id="avIn" title="Zväčšiť stopy (Alt + koliesko)">+</button></div>
+  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><span class="sp"></span><button id="bAuto" title="Automatizácia vybranej stopy (hlasitosť, panoráma, parametre pluginov)">Auto</button><span style="width:4px"></span><button id="bAi" title="AI asistent pre vybranú stopu (Ctrl+I)">AI</button><span style="width:4px"></span><button id="bMix" title="Mixpult (F3)">Mix</button></div>
   <div id="arrScroll"><div id="arrInner"><div id="trackList"></div><canvas id="arrCv"></canvas></div></div>
 </div>
 
@@ -931,7 +932,8 @@ function showStepCur(){
   if(r.tr.type==='drum'){ document.querySelectorAll('#dgrid .scur').forEach(x=>x.classList.remove('scur')); if(stepOn&&cols[stepCur]) cols[stepCur].forEach(x=>x.classList.add('scur')); }
   else drawKey();
 }
-function stepBtnHtml(){return `<button id="bStepIn" class="${stepOn?'on':''}" title="Krokový vstup z MIDI / klávesnice">Krokový vstup</button>`;}
+const ICO_STEP='<svg width="18" height="14" viewBox="0 0 18 14" fill="currentColor"><rect x="0" y="9" width="4" height="5" rx="1"/><rect x="4.7" y="6" width="4" height="8" rx="1"/><rect x="9.4" y="3" width="4" height="11" rx="1"/><rect x="14" y="0" width="4" height="14" rx="1"/></svg>';
+function stepBtnHtml(){return `<button id="bStepIn" class="ico${stepOn?' on':''}" title="Krokový vstup – noty z MIDI kláves alebo klávesnice po krokoch">${ICO_STEP}</button>`;}
 function bindStepBtn(){ $('bStepIn').onclick=()=>{stepOn=!stepOn; if(stepOn){stepCur=0; stepChord=false; if(playing) stop();} renderEditor();}; }
 function stepHint(def){return stepOn?'Krokový vstup: hraj noty (akord = naraz) · → alebo pedál = pauza · ← späť · Backspace = zmazať krok':def;}
 function recOn(){
@@ -954,6 +956,7 @@ function recStart(tr,p,vel){
 }
 function recEnd(r){
   let l=recPos()-r.abs; if(l<.25) l=.25; r.n.l=clamp(l,.25,Math.max(.25,r.part.len*SPB-r.n.s));
+  if(autoQ){ const max=r.part.len*SPB, t=Math.round(r.n.s/qGrid)*qGrid; r.n.s=clamp(Math.round((r.n.s+(t-r.n.s)*qStr)*1000)/1000,0,max-.25); r.n.l=Math.min(r.n.l,max-r.n.s); }
   drawArrange(); edRefresh(r.part); save();
 }
 function recDrum(tr,l,vel){
@@ -1698,7 +1701,7 @@ function edStep(){
   } else drawKey();
 }
 const QGRIDS=[[4,'1/4'],[2,'1/8'],[1,'1/16'],[.5,'1/32'],[4/3,'1/8 triola'],[2/3,'1/16 triola']];
-let qGrid=1, qStr=1;
+let qGrid=1, qStr=1, autoQ=false; try{ autoQ=localStorage.getItem('korgus.autoQ')==='1'; }catch(e){}
 function quantize(){
   const r=edGet(); if(!r||r.tr.type==='drum') return;
   const notes=selNotes.size?[...selNotes]:r.p.notes; if(!notes.length) return;
@@ -1713,21 +1716,19 @@ function renderKey({tr,p}){
   $('edBar').innerHTML=`<button id="tSel" class="ico${tool==='sel'?' on':''}" title="Výber – ťahaním označíš viac nôt">${ICO_ARROW}</button><button id="tDraw" class="ico${tool==='draw'?' on':''}" title="Kreslenie – klik = nová nota">${ICO_PEN}</button><span class="sep"></span>${stepBtnHtml()} Dĺžka noty <select id="nlSel">${[[1,'1/16'],[2,'1/8'],[4,'1/4'],[8,'1/2'],[16,'1/1']].map(([v,t])=>`<option value="${v}" ${v===curLen?'selected':''}>${t}</option>`).join('')}</select>
     Sila <input type="range" id="velIn" min="1" max="127" value="${curVel}" style="width:80px">
     <button id="trD">Transp. −1</button><button id="trU">Transp. +1</button><button id="kClr">Vymazať</button>
-    <span class="sep"></span><button id="qBtn" title="Kvantizovať (Q) – zarovná označené noty, alebo všetky v časti">Kvantizovať</button><select id="qGrid" title="Mriežka">${QGRIDS.map(([v,t])=>`<option value="${v}"${v===qGrid?' selected':''}>${t}</option>`).join('')}</select><select id="qStr" title="Sila kvantizácie">${[1,.75,.5,.25].map(v=>`<option value="${v}"${v===qStr?' selected':''}>${v*100} %</option>`).join('')}</select>
-    <span class="sep"></span>${partLenCtl(p)}<span class="sep"></span>Zoom ↔ <button id="kzO" title="Ctrl + koliesko">−</button><button id="kzI" title="Ctrl + koliesko">+</button> ↕ <button id="kvO" title="Alt + koliesko">−</button><button id="kvI" title="Alt + koliesko">+</button>
+    <span class="sep"></span><button id="qBtn" class="ico qb" title="Kvantizovať (Q) – zarovná označené noty, alebo všetky v časti">Q</button><button id="aqBtn" class="ico qb${autoQ?' on':''}" title="Automatická kvantizácia pri nahrávaní (podľa mriežky a sily vedľa)">AQ</button><select id="qGrid" title="Mriežka">${QGRIDS.map(([v,t])=>`<option value="${v}"${v===qGrid?' selected':''}>${t}</option>`).join('')}</select><select id="qStr" title="Sila kvantizácie">${[1,.75,.5,.25].map(v=>`<option value="${v}"${v===qStr?' selected':''}>${v*100} %</option>`).join('')}</select>
+    <span class="sep"></span>${partLenCtl(p)}
     <span class="hint">${stepHint('Pravé tlačidlo + ťahanie = výber · Alt+ťahanie = kópia · Ctrl+C/V/D · šípky, Shift+↑↓ = oktáva')}</span>`;
   $('edBody').innerHTML='<div id="keyWrap"><canvas id="pianoCv"></canvas><canvas id="keyCv"></canvas></div>';
   $('velWrap').hidden=false;
   $('nlSel').onchange=e=>{curLen=+e.target.value; e.target.blur();};
-  $('qBtn').onclick=quantize; $('qGrid').onchange=e=>{qGrid=+e.target.value; e.target.blur();}; $('qStr').onchange=e=>{qStr=+e.target.value; e.target.blur();};
+  $('qBtn').onclick=quantize; $('aqBtn').onclick=()=>{ autoQ=!autoQ; try{localStorage.setItem('korgus.autoQ',autoQ?'1':'');}catch(e){} $('aqBtn').classList.toggle('on',autoQ); $('aqBtn').blur(); }; $('qGrid').onchange=e=>{qGrid=+e.target.value; e.target.blur();}; $('qStr').onchange=e=>{qStr=+e.target.value; e.target.blur();};
   $('velIn').addEventListener('pointerdown',()=>{if(selNotes.size) pushUndo();});
   $('velIn').oninput=e=>{curVel=+e.target.value; if(selNotes.size){selNotes.forEach(n=>n.v=curVel); drawKey(); save();}};
   $('tSel').onclick=()=>{tool='sel'; renderEditor();}; $('tDraw').onclick=()=>{tool='draw'; renderEditor();};
   const tp=d=>{ if(selNotes.size){selShift(0,d); return;} pushUndo(); p.notes.forEach(n=>n.p=clamp(n.p+d,LO,HI)); drawKey(); drawArrange(); save();};
   $('trD').onclick=()=>tp(-1); $('trU').onclick=()=>tp(1);
   $('kClr').onclick=()=>{pushUndo(); p.notes=[]; selNotes.clear(); drawKey(); drawArrange(); save();};
-  $('kzO').onclick=()=>zoomKey(-1,0); $('kzI').onclick=()=>zoomKey(1,0);
-  $('kvO').onclick=()=>zoomKey(0,-1); $('kvI').onclick=()=>zoomKey(0,1);
   bindPartLen(p); bindStepBtn();
   if(stepCur>=p.len*SPB) stepCur=0;
   const kc=$('keyCv'), pc=$('pianoCv');
@@ -1974,8 +1975,6 @@ function zoomKey(dh,dv,ax,ay){
   if(dv) eb.scrollTop+=pr*KH-(my-b.top);
   saveView();
 }
-$('azOut').onclick=()=>zoomArr(-1,0); $('azIn').onclick=()=>zoomArr(1,0);
-$('avOut').onclick=()=>zoomArr(0,-1); $('avIn').onclick=()=>zoomArr(0,1);
 $('arrScroll').addEventListener('wheel',e=>{
   if(e.ctrlKey&&!e.shiftKey){e.preventDefault(); zoomArr(e.deltaY<0?1:-1,0,e.clientX,e.clientY);}
   else if(e.altKey||(e.ctrlKey&&e.shiftKey)){e.preventDefault(); zoomArr(0,e.deltaY<0?1:-1,e.clientX,e.clientY);}
@@ -2113,7 +2112,7 @@ $('bHelp').onclick=()=>dialog('Pomoc – Korgus Sequencer',`
 <li>Výber MIDI dole posiela iba noty syntezátorov a bicích do externého MIDI nástroja. WAV / MP3 stopy idú vždy na zvukovú kartu.</li>
 <li>Bluetooth slúchadlá pridávajú veľké oneskorenie (150–250 ms) – na hranie použi slúchadlá alebo reproduktory na kábli.</li></ul>
 <h4>Zoom</h4><ul>
-<li>Ctrl + koliesko myši = zoom do šírky (okolo kurzora), Alt + koliesko (alebo Ctrl+Shift + koliesko) = výška stôp. Funguje v Aranžmáne aj v Key editore. Tlačidlá ↔ − + a ↕ − + robia to isté.</li></ul>
+<li>Ctrl + koliesko myši = zoom do šírky (okolo kurzora), Alt + koliesko (alebo Ctrl+Shift + koliesko) = výška stôp. Funguje v Aranžmáne aj v Key editore.</li></ul>
 <h4>Klávesnica</h4><ul>
 <li>Na vybranej stope hrajú klávesy A W S E D F T G Z H U J K (C až C), Y / X = oktáva dole / hore.</li>
 <li>Na stope bicích hrajú klávesy A W S E D F T G Z H jednotlivé nástroje.</li>

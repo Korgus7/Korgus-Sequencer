@@ -522,17 +522,38 @@ void MainView::onReady()
                     knownPlugins.removeType (d);
             oldDir.deleteRecursively();
     
-            const auto files = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory()
-                                   .findChildFiles (juce::File::findFilesAndDirectories, false, "*.vst3");
-            for (auto* fmt : formatManager.getFormats())
+            // pluginy vedla programu: len ak rovnaky plugin nie je uz v priecinku VST (aby nebol v zozname dvakrat)
+        const auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
+        auto inExeDir = [&exeDir] (const juce::PluginDescription& d)
+        {
+            return juce::File::isAbsolutePath (d.fileOrIdentifier) && juce::File (d.fileOrIdentifier).getParentDirectory() == exeDir;
+        };
+        auto elsewhere = [&] (const juce::PluginDescription& d)
+        {
+            for (const auto& k : knownPlugins.getTypes())
+                if (! inExeDir (k) && k.name == d.name && k.uniqueId == d.uniqueId && k.pluginFormatName == d.pluginFormatName) return true;
+            return false;
+        };
+        for (const auto& d : knownPlugins.getTypes())
+            if (inExeDir (d) && elsewhere (d)) knownPlugins.removeType (d);
+
+        const auto files = exeDir.findChildFiles (juce::File::findFilesAndDirectories, false, "*.vst3");
+        for (auto* fmt : formatManager.getFormats())
+        {
+            if (fmt->getName() != "VST3") continue;
+            for (const auto& f : files)
             {
-                if (fmt->getName() != "VST3") continue;
-                for (const auto& f : files)
-                {
-                    juce::OwnedArray<juce::PluginDescription> found;
-                    knownPlugins.scanAndAddFile (f.getFullPathName(), true, found, *fmt);
-                }
+                bool sameName = false;   // rovnaky subor uz je v priecinku VST - netreba ho ani otvarat
+                for (const auto& k : knownPlugins.getTypes())
+                    if (! inExeDir (k) && juce::File::isAbsolutePath (k.fileOrIdentifier)
+                        && juce::File (k.fileOrIdentifier).getFileName().equalsIgnoreCase (f.getFileName())) { sameName = true; break; }
+                if (sameName || knownPlugins.isListingUpToDate (f.getFullPathName(), *fmt)) continue;
+                juce::OwnedArray<juce::PluginDescription> found;
+                fmt->findAllTypesForFile (found, f.getFullPathName());
+                for (auto* d : found)
+                    if (! elsewhere (*d)) knownPlugins.addType (*d);
             }
+        }
         }
         sendPluginList(); sendDevices(); sendAiState();
     });
