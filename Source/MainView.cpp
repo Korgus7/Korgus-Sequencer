@@ -174,6 +174,24 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("needPeaks",   [this] (const juce::var& v) { onNeedPeaks (v); })
         .withEventListener ("recAudio",    [this] (const juce::var& v) { onRecAudio (v); })
         .withEventListener ("exportWav",   [this] (const juce::var& v) { onExportWav (v); })
+        .withEventListener ("aiSetKey",    [this] (const juce::var& v)
+                            {
+                                props.getUserSettings()->setValue ("openrouterKey", v["key"].toString().trim());
+                                props.saveIfNeeded();
+                                sendAiState();
+                            })
+        .withEventListener ("aiRequest",   [this] (const juce::var& v) { onAiRequest (v); })
+        .withEventListener ("copyPlugin",  [this] (const juce::var& v)
+                            {
+                                const auto from = v["from"].toString(), to = v["to"].toString();
+                                auto it = trackDesc.find (from);
+                                auto* p = engine.getPlugin (engine.getOrCreateSlot (from));
+                                if (it == trackDesc.end() || p == nullptr) return;
+                                juce::MemoryBlock mb;
+                                p->getStateInformation (mb);
+                                const auto d = it->second;
+                                loadPluginForTrack (to, d, &mb);
+                            })
         .withEventListener ("ready",       [this] (const juce::var&)   { onReady(); });
    #if JUCE_WINDOWS
     o = o.withBackend (O::Backend::webview2)
@@ -387,6 +405,50 @@ void MainView::onReady()
     sendPluginList();
     sendTrackPlugins();
     sendDevices();
+    sendAiState();
+}
+
+void MainView::sendAiState()
+{
+    auto o = obj();
+    put (o, "hasKey", props.getUserSettings()->getValue ("openrouterKey").isNotEmpty());
+    emit ("aiState", o);
+}
+
+// poziadavka na AI cez OpenRouter (kluc ostava len v nastaveniach programu)
+void MainView::onAiRequest (const juce::var& v)
+{
+    const auto id = v["id"].toString();
+    const auto payload = v["payload"].toString();
+    const auto key = props.getUserSettings()->getValue ("openrouterKey");
+    juce::Component::SafePointer<MainView> sp (this);
+    auto reply = [sp, id] (bool ok, int status, const juce::String& text)
+    {
+        juce::MessageManager::callAsync ([sp, id, ok, status, text]
+        {
+            if (sp == nullptr) return;
+            auto o = obj();
+            put (o, "id", id); put (o, "ok", ok); put (o, "status", status); put (o, "text", text);
+            sp->emit ("aiResult", o);
+        });
+    };
+    if (key.isEmpty()) { reply (false, 0, sk ("Chýba kľúč OpenRouter.")); return; }
+    juce::Thread::launch ([payload, key, reply]
+    {
+        int status = 0;
+        const juce::String headers = "Authorization: Bearer " + key + "\r\n"
+                                     "Content-Type: application/json\r\n"
+                                     "HTTP-Referer: https://github.com/Korgus7/Korgus-Sequencer\r\n"
+                                     "X-Title: Korgus Sequencer\r\n";
+        auto url = juce::URL ("https://openrouter.ai/api/v1/chat/completions").withPOSTData (payload);
+        auto stream = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
+                                                 .withExtraHeaders (headers)
+                                                 .withConnectionTimeoutMs (120000)
+                                                 .withStatusCode (&status));
+        if (stream == nullptr) { reply (false, status, sk ("Nepodarilo sa spojiť s OpenRouter. Skontroluj internet.")); return; }
+        const auto text = stream->readEntireStreamAsString();
+        reply (status >= 200 && status < 300, status, text);
+    });
 }
 
 void MainView::sendPluginList()

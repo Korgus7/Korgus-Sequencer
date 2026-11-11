@@ -85,6 +85,7 @@ canvas{display:block}
 .trk input.mx{width:40px}
 .trk button.plw{width:40px}
 body.native .smp,body.native #outSel,body.native #outLbl{display:none!important}
+body:not(.native) #bAi{display:none}
 body.native #trackList{background:#232c38}
 body.native #trackList .thead{background:#232c38;border-bottom:1px solid #161d27}
 .trk button.plw svg{display:block;margin:auto}
@@ -197,7 +198,7 @@ button.ico svg{display:block}
 </div>
 
 <div class="win" id="arrWin">
-  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><span class="sp"></span><button id="bMix" title="Mixpult (F3)">Mix</button><span style="width:6px"></span><span class="zl">↔</span><button id="azOut" title="Zúžiť (Ctrl + koliesko)">−</button><button id="azIn" title="Rozšíriť (Ctrl + koliesko)">+</button><span class="zl">↕</span><button id="avOut" title="Znížiť stopy (Alt + koliesko)">−</button><button id="avIn" title="Zväčšiť stopy (Alt + koliesko)">+</button></div>
+  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><span class="sp"></span><button id="bAi" title="AI asistent pre vybranú stopu (Ctrl+I)">AI</button><span style="width:4px"></span><button id="bMix" title="Mixpult (F3)">Mix</button><span style="width:6px"></span><span class="zl">↔</span><button id="azOut" title="Zúžiť (Ctrl + koliesko)">−</button><button id="azIn" title="Rozšíriť (Ctrl + koliesko)">+</button><span class="zl">↕</span><button id="avOut" title="Znížiť stopy (Alt + koliesko)">−</button><button id="avIn" title="Zväčšiť stopy (Alt + koliesko)">+</button></div>
   <div id="arrScroll"><div id="arrInner"><div id="trackList"></div><canvas id="arrCv"></canvas></div></div>
 </div>
 
@@ -346,6 +347,9 @@ function setupNative(){
     stopIfPlaying(); nat('exportWav',{end}); };
   onNat('busy',e=>{ dialog('Import audio','<p>'+esc(e.text)+'</p>'); });
   onNat('audioPeaks',natPeaks);
+  onNat('aiState',e=>{ aiHasKey=!!e.hasKey; });
+  onNat('aiResult',aiResult);
+  $('bAi').onclick=openAi;
   onNat('devices',e=>{ natMidiDevs=e.midi||[]; natIns=e.ins||[]; renderTracks(); });
   onNat('audioImported',e=>{
     if(e.error){ dialog('Import audio','<p>Tento súbor sa nedá prečítať. Použi WAV alebo MP3.</p>'); return; }
@@ -1004,6 +1008,116 @@ function renderTracksNative(L){
     L.appendChild(r);
   });
 }
+/* ---------------- AI asistent (OpenRouter) ---------------- */
+let aiHasKey=false, aiPending=null;
+const AI_MODEL_DEF='anthropic/claude-sonnet-5.5';
+const AI_SYS=`You are a music arranging assistant inside a simple DAW (Korgus Sequencer). Time signature 4/4. Time unit: 1 step = 1/16 note, 16 steps per bar.
+You receive JSON with the song (tempo, length in bars), the TARGET track with its notes and the other tracks.
+Part format: {"start": bar index (0-based), "len": length in bars, "notes": [...]}. Note format: {"s": start step inside the part (0 = first 16th of the part), "p": MIDI pitch 0-127, "l": length in steps (>=1), "v": velocity 1-127}.
+Answer ONLY with one JSON object, no markdown, no comments:
+{"message": "very short explanation in Slovak (1 sentence)", "name": "short Slovak track name for the result (max 20 chars)", "type": "synth" or "drum", "parts": [ {"start":0,"len":4,"notes":[...]} ]}
+Rules:
+- Analyse key, harmony, rhythm and phrasing of the existing notes and make the result fit them musically.
+- Place the result in the same bars as the material it accompanies (usually the target track's parts), unless asked otherwise. Stay inside the song length.
+- Chords: sensible voicings around MIDI 48-72; arpeggios: rhythmic broken chords following the harmony; bass: MIDI 28-52.
+- Drums ("type":"drum"): use only these General MIDI pitches: 36 kick, 38 snare, 39 clap, 42 closed hi-hat, 46 open hi-hat, 45 low tom, 50 high tom, 37 rim, 49 crash, 56 cowbell; l = 1; v >= 110 means accent.
+- If asked to modify the target track (humanize, simplify, transpose, variation...), return its complete new content.
+- Keep velocities musical (60-115).`;
+function aiModel(){ try{ return localStorage.getItem('korgus.aiModel')||AI_MODEL_DEF; }catch(e){ return AI_MODEL_DEF; } }
+function trackNotesForAi(t){
+  return t.parts.filter(p=>!('aid' in p)).map(p=>{
+    if(t.type==='drum'){ const notes=[], steps=Math.round(p.len*SPB);
+      for(let st=0;st<steps;st++){ const idx=st%p.plen; DRUMS.forEach((d,l)=>{ const v=p.grid[l][idx]; if(v) notes.push({s:st,p:d[1],l:1,v:v===2?120:85}); }); }
+      return {start:p.start,len:p.len,notes}; }
+    return {start:p.start,len:p.len,notes:(p.notes||[]).map(n=>({s:n.s,p:n.p,l:n.l,v:n.v}))};
+  });
+}
+function aiSettings(after){
+  dialog('AI asistent – nastavenie',`<p>AI beží cez <b>OpenRouter</b>. Kľúč vytvoríš na openrouter.ai v časti <b>Keys</b>. Uloží sa iba v nastaveniach programu na tvojom počítači.</p>
+    <div class="frow"><label>Kľúč OpenRouter</label><input type="password" id="aiKey" placeholder="${aiHasKey?'uložený – nechaj prázdne, ak ho nemeníš':'sk-or-…'}" style="flex:1;height:22px"></div>
+    <div class="frow"><label>Model</label><input type="text" id="aiMod" value="${esc(aiModel())}" style="flex:1"></div>
+    <div class="row"><span style="flex:1"></span><button id="aiSave">Uložiť</button></div>`);
+  $('aiSave').onclick=()=>{ const k=$('aiKey').value.trim(), m=$('aiMod').value.trim()||AI_MODEL_DEF;
+    try{ localStorage.setItem('korgus.aiModel',m); }catch(e){}
+    if(k){ nat('aiSetKey',{key:k}); aiHasKey=true; }
+    $('dlgBack').hidden=true; if(after&&aiHasKey) setTimeout(after,50); };
+  setTimeout(()=>$('aiKey').focus(),30);
+}
+function openAi(){
+  if(!NATIVE) return;
+  const tr=song.tracks[selT]; if(!tr){ toast('Najprv vyber stopu.'); return; }
+  if(!aiHasKey){ aiSettings(openAi); return; }
+  let last=''; try{ last=localStorage.getItem('korgus.aiLast')||''; }catch(e){}
+  dialog('AI asistent – '+tr.name,`<p>Čo má AI urobiť? Napríklad <i>pridaj akordy</i>, <i>arpeggio k melódii</i>, <i>basa k akordom</i>, <i>house bicie 4 takty</i>, <i>poľudšti</i>.</p>
+    <textarea id="aiTxt" style="height:64px;font-family:inherit;font-size:12px">${esc(last)}</textarea>
+    <div class="row">Výsledok <select id="aiDst"><option value="new">Nová stopa</option>${tr.type==='audio'?'':'<option value="this">Do tejto stopy (nahradí jej noty)</option>'}</select>
+      <span style="flex:1"></span><button id="aiSet">Nastavenie…</button><button id="aiGo">Poslať</button></div>
+    <p id="aiInfo" style="margin:8px 0 0;color:#2d4362"></p>`);
+  const t=$('aiTxt'); t.focus(); t.select();
+  t.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); $('aiGo').click(); } };
+  $('aiSet').onclick=()=>aiSettings(openAi);
+  $('aiGo').onclick=()=>aiSend(tr,t.value.trim(),$('aiDst').value);
+}
+function aiSend(tr,txt,dst){
+  if(!txt||aiPending) return;
+  try{ localStorage.setItem('korgus.aiLast',txt); }catch(e){}
+  const ctx={tempo:song.tempo,bars:song.bars,timeSignature:'4/4',stepsPerBar:SPB,
+    target:{name:tr.name,type:tr.type==='drum'?'drum':tr.type==='audio'?'audio':'instrument',instrument:(natTrackPlugins[tr.id]||{}).name||'',parts:tr.type==='audio'?[]:trackNotesForAi(tr)},
+    otherTracks:song.tracks.filter(t=>t!==tr&&t.type!=='audio').map(t=>({name:t.name,type:t.type==='drum'?'drum':'instrument',parts:trackNotesForAi(t)}))};
+  let js=JSON.stringify(ctx);
+  if(js.length>80000){ ctx.otherTracks=ctx.otherTracks.map(t=>({name:t.name,type:t.type})); js=JSON.stringify(ctx); }
+  const mode=dst==='new'?'The result goes to a NEW track - return only the new material.':'The result REPLACES all notes of the target track - return its complete new content.';
+  const payload={model:aiModel(),temperature:0.7,max_tokens:16000,
+    messages:[{role:'system',content:AI_SYS},{role:'user',content:'Song data:\n'+js+'\n\n'+mode+'\nRequest (in Slovak): '+txt}]};
+  aiPending={id:uid(),trId:tr.id,dst};
+  $('aiInfo').textContent='AI premýšľa… (môže to trvať pol minúty)'; $('aiGo').disabled=true;
+  nat('aiRequest',{id:aiPending.id,payload:JSON.stringify(payload)});
+}
+function aiResult(e){
+  if(!aiPending||e.id!==aiPending.id) return;
+  const job=aiPending; aiPending=null;
+  const info=$('aiInfo'), go=$('aiGo'); if(go) go.disabled=false;
+  const fail=m=>{ if(info&&!$('dlgBack').hidden) info.textContent=m; else toast(esc(m)); };
+  if(!e.ok){
+    let m='Chyba AI'+(e.status?' ('+e.status+')':'')+'.';
+    try{ const j=JSON.parse(e.text); if(j.error&&j.error.message) m+=' '+j.error.message; }catch(_){ if(e.text) m+=' '+String(e.text).slice(0,200); }
+    if(e.status===401) m='Neplatný kľúč OpenRouter – oprav ho v Nastavení.';
+    if(e.status===402) m='Na účte OpenRouter nie je kredit.';
+    fail(m); return; }
+  let res;
+  try{ const j=JSON.parse(e.text); let c=j.choices[0].message.content; if(Array.isArray(c)) c=c.map(x=>x.text||'').join('');
+    res=JSON.parse(c.slice(c.indexOf('{'),c.lastIndexOf('}')+1)); }
+  catch(err){ fail('AI vrátila nečitateľnú odpoveď, skús to znova.'); return; }
+  aiApply(job,res);
+}
+function aiApply(job,res){
+  const src=song.tracks.find(t=>t.id===job.trId), parts=Array.isArray(res.parts)?res.parts:[];
+  if(!parts.length){ toast(esc(res.message||'AI nevrátila žiadne noty.')); return; }
+  pushUndo();
+  const into=job.dst==='this'&&src&&src.type!=='audio';
+  const drum=into?src.type==='drum':res.type==='drum';
+  let tr;
+  if(into){ tr=src; tr.parts=[]; }
+  else { tr=mkTrack(drum?'drum':'synth'); tr.name=String(res.name||'AI').slice(0,24); song.tracks.splice(src?song.tracks.indexOf(src)+1:song.tracks.length,0,tr); }
+  let maxEnd=0;
+  parts.forEach(p=>{
+    const start=Math.max(0,Math.floor(+p.start||0)), len=Math.max(1,Math.round(+p.len||1));
+    const notes=(p.notes||[]).filter(n=>n&&isFinite(n.s)&&isFinite(n.p))
+      .map(n=>({s:Math.max(0,Math.round(n.s)),p:clamp(Math.round(n.p),0,127),l:Math.max(1,Math.round(n.l||1)),v:clamp(Math.round(n.v||100),1,127)}))
+      .filter(n=>n.s<len*SPB);
+    maxEnd=Math.max(maxEnd,start+len);
+    if(drum){ for(let b0=0;b0<len;b0+=4){ const pl=Math.min(4,len-b0), plen=pl*SPB, grid=emptyGrid(plen);
+        notes.forEach(n=>{ const st=n.s-b0*SPB; if(st<0||st>=plen) return; const l=DRUMS.findIndex(d=>d[1]===n.p); if(l>=0) grid[l][st]=n.v>=110?2:1; });
+        tr.parts.push({id:uid(),start:start+b0,len:pl,plen,grid}); } }
+    else tr.parts.push({id:uid(),start,len,notes});
+  });
+  if(maxEnd>song.bars) song.bars=Math.min(256,maxEnd);
+  // nova nastrojova stopa dostane ten isty VST (aj s nastavenim) ako zdrojova stopa
+  if(!into&&!drum&&src&&natTrackPlugins[src.id]&&natTrackPlugins[src.id].uid) nat('copyPlugin',{from:src.id,to:tr.id});
+  selT=song.tracks.indexOf(tr); $('dlgBack').hidden=true; closeEditor(); renderAll(); save(); natSel();
+  toast((res.message?esc(res.message)+' ':'')+'Ctrl+Z vráti späť.');
+}
+
 /* ---------------- mixpult ---------------- */
 function mixOpen(){ return !$('mixWin').hidden; }
 function toggleMixer(){ const w=$('mixWin'); w.hidden=!w.hidden; if(!w.hidden&&ed) closeEditor(); $('bMix').classList.toggle('on',!w.hidden); if(!w.hidden) renderMixer(); drawArrange(); }
@@ -1838,7 +1952,8 @@ $('bHelp').onclick=()=>dialog('Pomoc – Korgus Sequencer',`
 document.addEventListener('click',e=>{const b=e.target.closest('button'); if(b) b.blur();});
 document.addEventListener('keydown',e=>{
   if(e.key==='F3'&&NATIVE){ e.preventDefault(); toggleMixer(); return; }
-  if(e.target.matches('input[type=text],input[type=number],textarea')) return;
+  if(e.ctrlKey&&e.code==='KeyI'&&NATIVE&&$('dlgBack').hidden){ e.preventDefault(); openAi(); return; }
+  if(e.target.matches('input[type=text],input[type=number],input[type=password],textarea')) return;
   if(!$('dlgBack').hidden){ if(e.code==='Escape') $('dlgBack').hidden=true; return; }
   if(!$('setBack').hidden){ if(e.code==='Escape') $('setBack').hidden=true; return; }
   if(e.code==='Space'){e.preventDefault(); if(!e.repeat) playing?stop():play(); return;}

@@ -50,6 +50,8 @@ private:
     void onSaveFile (const juce::var&);
     void onOpenSong (const juce::var&);
     void onReady();
+    void onAiRequest (const juce::var&);
+    void sendAiState();
     void onImportAudio (const juce::var&);
     void onAudioChunk (const juce::var&);
     void onNeedPeaks (const juce::var&);
