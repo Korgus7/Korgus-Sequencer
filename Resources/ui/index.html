@@ -102,9 +102,9 @@ canvas{display:block}
 .trk input.mx{width:40px}
 .trk button.plw{width:40px}
 body.native #outSel,body.native #outLbl{display:none!important}
-body:not(.native) #bAi,body:not(.native) #bAuto{display:none}
+body:not(.native) #bAi,body:not(.native) #bAuto,body:not(.native) #bImpMidi,body:not(.native) #bStems{display:none}
 body.native #trackList{background:#232c38}
-body.native #trackList .thead{background:#232c38;border-bottom:1px solid #161d27}
+body.native #trackList .thead{background:#232c38;border-bottom:1px solid #161d27;height:42px;box-sizing:border-box}
 .trk button.plw svg{display:block;margin:auto}
 .ntr{position:relative;display:flex;gap:6px;padding:5px 8px 0 4px;background:#2a3442;border-bottom:1px solid #161d27;box-sizing:border-box;overflow:hidden;cursor:default;color:#e4e9ef}
 .ntr.sel{background:#55657a}
@@ -194,8 +194,10 @@ button.ico svg{display:block}
     <button id="bNew">Nový</button>
     <button id="bOpen">Otvoriť…</button>
     <button id="bSave">Uložiť…</button>
+    <button id="bImpMidi" title="Import MIDI súboru (.mid) – vytvorí stopy aj s notami">Import MIDI</button>
     <button id="bMidi">Export MIDI</button>
     <button id="bWav">Export WAV</button>
+    <button id="bStems" title="Každá stopa zvlášť do WAV (bez efektov mastra)">Export stôp</button>
     <input type="file" id="fileIn" accept=".json,.s92" hidden>
     <input type="file" id="smpIn" accept="audio/*,.wav,.mp3,.ogg,.flac" hidden>
     <span class="sep"></span>
@@ -204,7 +206,7 @@ button.ico svg{display:block}
     <button id="bAddA">+ Audio</button>
     <button id="bImpA" title="Načítať WAV / MP3 do audio stopy (alebo súbor pretiahni myšou do Aranžmánu)">Import audio…</button>
     <input type="file" id="audIn" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a" hidden>
-    <button id="bDelT">Odstrániť stopu</button>
+    <button id="bDelT" class="ico" title="Odstrániť vybranú stopu"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9.5 1.5l5 5-6.5 6.5H4.5L1.5 10z"/><path d="M5.5 5.5l5 5"/><path d="M4.5 13h10"/></svg></button>
     <span class="sep"></span>
     <button id="bUndo">Späť</button>
     <span class="sep"></span>
@@ -284,7 +286,7 @@ function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
   return {masterVol:song.masterVol==null?1:song.masterVol,tempo:song.tempo,bars:song.bars,locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,
-    tracks:song.tracks.map(t=>({id:t.id,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},auto:(t.auto||[]).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.parts}))};
+    tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},auto:(t.auto||[]).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.parts}))};
 }
 function pushSong(now){ if(!NATIVE) return; clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
 function curNatPos(){ if(!playing) return song.pos; return natLast.pos+(performance.now()-natLast.t)/1000*song.tempo/60*4; }
@@ -388,6 +390,9 @@ function setupNative(){
   onNat('aiResult',aiResult);
   onNat('melodyNotes',melodyResult);
   onNat('params',autoParams);
+  onNat('midiImported',midiImported);
+  $('bImpMidi').onclick=()=>nat('importMidi');
+  $('bStems').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB); stopIfPlaying(); nat('exportStems',{end}); };
   initAuto();
   $('bAi').onclick=openAi;
   onNat('devices',e=>{ natMidiDevs=e.midi||[]; natIns=e.ins||[]; renderTracks(); });
@@ -419,7 +424,7 @@ function setupNative(){
     catch(err){ dialog('Chyba','<p>Tento súbor sa nedá otvoriť.</p>'); } });
 }
 const $=id=>document.getElementById(id);
-const SPB=16, RULH=26, LO=24, HI=96, LS='sekvencer92.song', LSV='sekvencer92.view';
+let SECH=0, RULH=26; const SPB=16, LO=24, HI=96, LS='sekvencer92.song', LSV='sekvencer92.view';
 let ROWH=28, KH=12;
 const BLACK=new Set([1,3,6,8,10]);
 const DRUMS=[['Kick',36],['Snare',38],['Clap',39],['HH zatvorený',42],['HH otvorený',46],['Tom nízky',45],['Tom vysoký',50],['Rim',37],['Činel',49],['Cowbell',56]];
@@ -883,7 +888,7 @@ function frame(){
   }
   requestAnimationFrame(frame);
 }
-function onStep(){updLcd(); drawArrange(); edStep(); if(NATIVE&&autoOpen()) drawAuto();}
+function onStep(){updLcd(); drawArrange(); edStep(); if(NATIVE){ if(autoOpen()) drawAuto(); mixFollow(); }}
 
 /* ---------------- hranie z klavesnice / nahravanie ---------------- */
 const held={};
@@ -1196,6 +1201,122 @@ function aiApply(job,res){
   toast((res.message?esc(res.message)+' ':'')+'Ctrl+Z vráti späť.');
 }
 
+/* ---------------- sekcie piesne ---------------- */
+let secSel=null, secDrag=null;
+const SEC_COL={'intro':'#5f8288','sloha':'#5c6f88','refrén':'#885f6b','refren':'#885f6b','bridge':'#6b5f88','outro':'#5f8870','sólo':'#88745f','solo':'#88745f'};
+function secColor(s,i){ return SEC_COL[String(s.name).toLowerCase().replace(/\s*\d+$/,'')]||['#5c6f88','#6b5f88','#5f8870','#88745f','#885f6b','#5f8288'][i%6]; }
+function secs(){ song.sections=song.sections||[]; return song.sections; }
+function secAt(bar){ return secs().find(s=>bar>=s.start&&bar<s.start+s.len); }
+function drawSections(c,W){
+  const bw=zoomA; c.fillStyle='#2a3442'; c.fillRect(0,0,W,SECH);
+  c.font='bold 10px Tahoma,Arial,sans-serif'; c.textBaseline='middle';
+  secs().forEach((s,i)=>{ const x0=s.start*bw, w=s.len*bw;
+    c.fillStyle=secColor(s,i); c.fillRect(x0+1,1,w-2,SECH-2);
+    if(s===secSel){ c.strokeStyle='#e4e9ef'; c.lineWidth=1; c.strokeRect(x0+1.5,1.5,w-3,SECH-3); }
+    c.save(); c.beginPath(); c.rect(x0+1,0,w-2,SECH); c.clip(); c.fillStyle='#fff'; c.fillText(s.name,x0+5,SECH/2+.5); c.restore(); });
+  if(!secs().length){ c.fillStyle='#8a96a6'; c.font='10px Tahoma,Arial,sans-serif'; c.fillText('Dvojklik sem = nová sekcia (Intro, Sloha, Refrén…)',6,SECH/2+.5); }
+  if(secDrag&&secDrag.moved){ const s=secDrag.s;
+    if(secDrag.mode==='resize'){ c.fillStyle='rgba(228,233,239,.35)'; c.fillRect(s.start*bw,0,secDrag.len*bw,SECH); }
+    else if(secDrag.t!=null){ const tx=secDrag.t*bw; c.fillStyle=secDrag.copy?'#9ccf8a':'#e4e9ef'; c.fillRect(tx-1,0,3,RULH);
+      c.fillStyle='rgba(228,233,239,.25)'; c.fillRect(tx,0,s.len*bw,SECH); } }
+  c.font='10px Tahoma,Arial,sans-serif';
+}
+function secMouseDown(e,x){
+  lastArea='sec'; const bw=zoomA, s=secAt(x/bw);
+  secSel=s||null; drawArrange(); if(!s) return;
+  const mode=Math.abs(x-(s.start+s.len)*bw)<=6?'resize':'move';
+  secDrag={s,mode,x0:x,moved:false,copy:e.altKey,len:s.len,t:null};
+  const mv=ev=>{ const q=arrXY(ev); if(Math.abs(q.x-secDrag.x0)>3) secDrag.moved=true; if(!secDrag.moved) return;
+    if(mode==='resize'){ const nx=secs().filter(o=>o!==s&&o.start>=s.start+s.len-1e-6).map(o=>o.start).sort((a,b)=>a-b)[0];
+      secDrag.len=clamp(Math.round(q.x/bw)-s.start,1,(nx!=null?nx:song.bars)-s.start); }
+    else { secDrag.copy=ev.altKey; secDrag.t=clamp(Math.round(q.x/bw),0,song.bars); }
+    drawArrange(); };
+  const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); const d=secDrag; secDrag=null;
+    if(d.moved){ if(d.mode==='resize'){ if(d.len!==s.len){ pushUndo(); s.len=d.len; save(); } }
+      else if(d.t!=null&&(d.copy||d.t<s.start||d.t>s.start+s.len)) arrMoveBlock(s,d.t,d.copy); }
+    drawArrange(); };
+  addEventListener('mousemove',mv); addEventListener('mouseup',up);
+}
+function secDialog(s,startBar){
+  const names=['Intro','Sloha','Refrén','Bridge','Sólo','Outro'];
+  dialog(s?'Sekcia':'Nová sekcia',`<div class="frow"><label>Názov</label><input type="text" id="secNm" value="${esc(s?s.name:'Sloha')}" style="flex:1"></div>
+    <div class="row">${names.map(n=>`<button class="secQ">${n}</button>`).join('')}</div>
+    <div class="row">${s?'<button id="secDelB">Zmazať sekciu</button>':''}<span style="flex:1"></span><button id="secOk">OK</button></div>
+    <p style="color:#55606e;margin:8px 0 0">Ťahaním sekcie ju presunieš aj so všetkými stopami, s Alt ju skopíruješ. Ťahaním pravého okraja zmeníš dĺžku.</p>`);
+  const inp=$('secNm'); inp.focus(); inp.select();
+  document.querySelectorAll('.secQ').forEach(b=>b.onclick=()=>{ inp.value=b.textContent; $('secOk').click(); });
+  inp.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter') $('secOk').click(); };
+  $('secOk').onclick=()=>{ const nm=inp.value.trim()||'Sekcia'; pushUndo();
+    if(s) s.name=nm;
+    else { const nx=secs().filter(o=>o.start>startBar).map(o=>o.start).sort((a,b)=>a-b)[0];
+      const len=Math.max(1,Math.min(4,(nx!=null?nx:song.bars)-startBar)); s={id:uid(),start:startBar,len,name:nm}; secs().push(s); }
+    secSel=s; $('dlgBack').hidden=true; save(); drawArrange(); };
+  if(s) $('secDelB').onclick=()=>{ pushUndo(); song.sections=secs().filter(o=>o!==s); secSel=null; $('dlgBack').hidden=true; save(); drawArrange(); };
+}
+function secDblClick(x){ const bar=Math.floor(x/zoomA), s=secAt(x/zoomA); if(bar>=song.bars) return; secDialog(s||null,bar); }
+function secDelete(){ if(!secSel) return false; pushUndo(); song.sections=secs().filter(o=>o!==secSel); secSel=null; save(); drawArrange(); return true; }
+// presun / kopia bloku taktov so vsetkymi stopami (vlozenie, ostatne sa posunu)
+function arrMoveBlock(s,t,copy){
+  pushUndo();
+  const A=s.start, L=s.len, B=A+L, eps=1e-6;
+  song.tracks.forEach(tr=>{ [A,B,t].forEach(bar=>{ const st=bar*SPB;
+    for(const p of [...tr.parts]) if(p.start*SPB<st-eps&&(p.start+p.len)*SPB>st+eps) splitPartAt(tr,p,st); }); });
+  const inBlk=x=>x>=A-eps&&x<B-eps;
+  if(!copy){
+    const map=x=>{ if(t>=B){ if(inBlk(x)) return x+(t-B); if(x>=B-eps&&x<t-eps) return x-L; return x; }
+      if(inBlk(x)) return x-(A-t); if(x>=t-eps&&x<A-eps) return x+L; return x; };
+    song.tracks.forEach(tr=>{ tr.parts.forEach(p=>p.start=map(p.start)); (tr.auto||[]).forEach(a=>{ a.pts.forEach(q=>q[0]=map(q[0]/SPB)*SPB); a.pts.sort((m,n)=>m[0]-n[0]); }); });
+    secs().forEach(o=>o.start=map(o.start));
+  } else {
+    if(song.bars+L>256){ toast('Pieseň by bola dlhšia ako 256 taktov.'); undo(); return; }
+    song.tracks.forEach(tr=>{
+      const cp=tr.parts.filter(p=>inBlk(p.start)).map(p=>{ const q=JSON.parse(JSON.stringify(p)); q.id=uid(); q.start=p.start-A+t; return q; });
+      tr.parts.forEach(p=>{ if(p.start>=t-eps) p.start+=L; }); tr.parts.push(...cp);
+      (tr.auto||[]).forEach(a=>{ const cpp=a.pts.filter(q=>inBlk(q[0]/SPB)).map(q=>[q[0]-A*SPB+t*SPB,q[1]]);
+        a.pts.forEach(q=>{ if(q[0]>=t*SPB-eps) q[0]+=L*SPB; }); a.pts.push(...cpp); a.pts.sort((m,n)=>m[0]-n[0]); });
+    });
+    const ns={id:uid(),start:t,len:L,name:s.name}; secs().forEach(o=>{ if(o.start>=t-eps) o.start+=L; }); secs().push(ns); secSel=ns;
+    song.bars=Math.min(256,song.bars+L);
+  }
+  selParts.clear(); closeEditor(); renderAll(); save();
+  toast((copy?'Sekcia skopírovaná':'Sekcia presunutá')+' aj so všetkými stopami. Ctrl+Z vráti späť.');
+}
+
+/* ---------------- import MIDI ---------------- */
+const GM_MAP={35:36,36:36,37:37,38:38,40:38,39:39,42:42,44:42,51:42,53:42,59:42,46:46,41:45,43:45,45:45,47:50,48:50,50:50,49:49,52:49,55:49,57:49,54:56,56:56};
+function midiImported(e){
+  if(e.error){ dialog('Import MIDI','<p>'+esc(e.error)+'</p>'); return; }
+  const tracks=(e.tracks||[]).filter(t=>t.notes&&t.notes.length); if(!tracks.length){ dialog('Import MIDI','<p>V súbore nie sú žiadne noty.</p>'); return; }
+  pushUndo();
+  const empty=!song.tracks.some(t=>t.parts.length); if(empty&&e.tempo) song.tempo=clamp(Math.round(e.tempo*10)/10,30,300);
+  let maxBar=0; const added=[];
+  tracks.forEach(t=>{
+    const notes=t.notes.map(n=>({s:n[0],l:Math.max(.25,n[1]),p:n[2],v:n[3]}));
+    const first=Math.floor(Math.min(...notes.map(n=>n.s))/SPB), last=Math.ceil(Math.max(...notes.map(n=>n.s+n.l))/SPB);
+    if(t.drum){ const tr=mkTrack('drum'); tr.name=String(t.name||'Bicie').slice(0,24);
+      for(let b0=first;b0<Math.max(last,first+1);b0+=4){ const pl=Math.min(4,Math.max(1,last-b0)), plen=pl*SPB, grid=emptyGrid(plen); let any=false;
+        notes.forEach(n=>{ const st=Math.round(n.s-b0*SPB); if(st<0||st>=plen) return; const l=DRUMS.findIndex(d=>d[1]===GM_MAP[n.p]); if(l<0) return; grid[l][st]=n.v>=110?2:1; any=true; });
+        if(any) tr.parts.push({id:uid(),start:b0,len:pl,plen,grid}); }
+      if(tr.parts.length){ song.tracks.push(tr); added.push(tr); } }
+    else { const tr=mkTrack('synth'); tr.name=String(t.name||'MIDI').slice(0,24);
+      tr.parts=[{id:uid(),start:first,len:Math.max(1,last-first),notes:notes.map(n=>({...n,s:n.s-first*SPB}))}];
+      song.tracks.push(tr); added.push(tr); natDefaultInst(tr); }
+    maxBar=Math.max(maxBar,last);
+  });
+  if(maxBar>song.bars) song.bars=Math.min(256,maxBar);
+  selT=song.tracks.length-1; closeEditor(); renderAll(); save(); natSel();
+  toast(`Import MIDI: ${added.length} ${added.length===1?'stopa':added.length<5?'stopy':'stôp'}${empty&&e.tempo?', tempo '+song.tempo+' BPM':''}. Ctrl+Z vráti späť.`);
+}
+
+/* posuvniky v mixpulte podla automatizacie */
+const mixShow={};
+function mixFollow(){
+  if(!mixOpen()) return; const st=playing?playStep:song.pos;
+  song.tracks.forEach(tr=>{ const f=mixShow[tr.id]; if(!f||!tr.auto||!tr.auto.length) return;
+    const va=tr.auto.find(a=>a.t==='vol'&&a.pts.length), pa=tr.auto.find(a=>a.t==='pan'&&a.pts.length);
+    if(va||pa) f(va?autoValAt(va,st):null, pa?autoValAt(pa,st)*2-1:null); });
+}
+
 /* ---------------- automatizacia ---------------- */
 let autoSel={}, autoDrag=null, autoHover=null;
 function autoOpen(){ return !$('autoWin').hidden; }
@@ -1332,6 +1453,9 @@ function renderMixer(){
     fd.ondblclick=()=>{ o.vol(1); showF(); save(); renderTracks(); };
     const nm=el('div','nm',(o.num?'<span>'+o.num+'</span>':'')+esc(o.name)); nm.title=o.name;
     st.append(fd,db,nm);
+    if(!o.master) mixShow[o.id]=(v,p)=>{ const h=fd.clientHeight||200;
+      if(v!=null){ th.style.top=(6+(1-v)*(h-24))+'px'; db.textContent=dbTxt(v)+' dB'; }
+      if(p!=null){ const pi=st.querySelector('.pan i'), pv=st.querySelector('.pv'); const a=50,b=50+p*50; if(pi){ pi.style.left=Math.min(a,b)+'%'; pi.style.width=Math.max(1,Math.abs(b-a))+'%'; } if(pv) pv.textContent=Math.abs(p)<.005?'C':(p<0?'L':'R')+Math.round(Math.abs(p)*100); } };
     if(o.onSel) st.addEventListener('mousedown',o.onSel);
     box.appendChild(st); requestAnimationFrame(showF);
   };
@@ -1404,7 +1528,7 @@ function drawArrange(){
   c.fillStyle='#cfcfcf'; c.fillRect(0,0,W,H);
   c.fillStyle='#c0c0c0'; c.fillRect(0,0,W,RULH);
   const lx=song.locL/SPB*bw, rx=song.locR/SPB*bw;
-  if(song.locR>song.locL){c.fillStyle=song.loopOn?'#7f93ad':'#b0b0b0'; c.fillRect(lx,3,rx-lx,RULH-6);
+  if(song.locR>song.locL){c.fillStyle=song.loopOn?'#7f93ad':'#b0b0b0'; c.fillRect(lx,SECH+3,rx-lx,RULH-SECH-6);
     if(song.loopOn){c.fillStyle='rgba(45,67,98,.07)'; c.fillRect(lx,RULH,rx-lx,H-RULH);}}
   song.tracks.forEach((tr,i)=>{const y=RULH+i*ROWH; c.fillStyle=i===selT?'#dfe5ec':(i%2?'#d2d2d2':'#d9d9d9'); c.fillRect(0,y,W,ROWH); c.fillStyle='#a8a8a8'; c.fillRect(0,y+ROWH-1,W,1);});
   c.font='10px Tahoma,Arial,sans-serif'; c.textBaseline='middle';
@@ -1412,13 +1536,14 @@ function drawArrange(){
   for(let b=0;b<=song.bars;b++){
     const x=b*bw;
     c.fillStyle=b%4===0?'#8a8a8a':'#b4b4b4'; c.fillRect(x,RULH,1,H-RULH);
-    c.fillStyle='#404040'; c.fillRect(x,b%4===0?2:RULH-8,1,b%4===0?RULH-2:8);
-    if(b<song.bars&&b%every===0){c.fillStyle='#111'; c.fillText(String(b+1),x+3,7);}
+    c.fillStyle='#404040'; c.fillRect(x,b%4===0?SECH+2:RULH-8,1,b%4===0?RULH-SECH-2:8);
+    if(b<song.bars&&b%every===0){c.fillStyle='#111'; c.fillText(String(b+1),x+3,SECH+7);}
   }
   c.fillStyle='#808080'; c.fillRect(0,RULH-1,W,1);
   const flag=(x,t,col,dir)=>{c.fillStyle=col; c.beginPath(); c.moveTo(x,RULH); c.lineTo(x,RULH-12); c.lineTo(x+dir*12,RULH-12); c.lineTo(x+dir*12,RULH-4); c.lineTo(x+dir*3,RULH-5); c.lineTo(x,RULH); c.fill();
     c.fillStyle='#fff'; c.font='bold 9px Tahoma,Arial,sans-serif'; c.fillText(t,x+(dir>0?3:-10),RULH-8); c.font='10px Tahoma,Arial,sans-serif';};
   flag(lx,'L',song.punchIn?'#8e3a2c':'#2d4362',1); flag(rx,'R',song.punchOut?'#8e3a2c':'#2d4362',-1);
+  if(SECH) drawSections(c,W,H);
   song.tracks.forEach((tr,i)=>{
     const y0=RULH+i*ROWH+3, h=ROWH-7;
     for(const p of tr.parts){
@@ -1475,6 +1600,7 @@ arrCv.addEventListener('mousedown',e=>{
   const {x,y}=arrXY(e), bw=zoomA;
   if(arrTool!=='arrow'&&y>=RULH){ const ti0=Math.floor((y-RULH)/ROWH), tr0=song.tracks[ti0], p0=tr0&&tr0.parts.find(q=>x/bw>=q.start&&x/bw<q.start+q.len);
     if(p0){ if(arrTool==='cut') splitPart(tr0,p0,x); else gluePart(tr0,p0); } return; }
+  if(SECH&&y<SECH){ secMouseDown(e,x); return; }
   if(y<RULH){drag={src:'arr',type:'ruler',x0:x,moved:false,ctrl:e.ctrlKey,alt:e.altKey}; return;}
   const ti=Math.floor((y-RULH)/ROWH);
   if((ti<0||ti>=song.tracks.length)&&!e.ctrlKey){selParts.clear(); drawArrange(); return;}
@@ -1499,12 +1625,12 @@ arrCv.addEventListener('mousedown',e=>{
   drawArrange();
 });
 arrCv.addEventListener('dblclick',e=>{
-  const {x,y}=arrXY(e); const ti=Math.floor((y-RULH)/ROWH); const tr=song.tracks[ti]; if(!tr||y<RULH) return;
+  const {x,y}=arrXY(e); if(SECH&&y<SECH){ secDblClick(x); return; } const ti=Math.floor((y-RULH)/ROWH); const tr=song.tracks[ti]; if(!tr||y<RULH) return;
   if(tr.type==='audio'){ const hit=tr.parts.find(p=>x/zoomA>=p.start&&x/zoomA<p.start+p.len); if(!hit){audTarget={trId:tr.id,bar:Math.floor(x/zoomA)}; pickAudio();} return; }
   const p=tr.parts.find(p=>x/zoomA>=p.start&&x/zoomA<p.start+p.len); if(p) openEditor(tr,p);
 });
 arrCv.addEventListener('contextmenu',e=>{
-  e.preventDefault(); const {x,y}=arrXY(e); if(y<RULH) setLoc('R',rulerSnap(x));
+  e.preventDefault(); const {x,y}=arrXY(e); if(y<SECH) return; if(y<RULH) setLoc('R',rulerSnap(x));
 });
 function arrRightClick(d){
   const ti=Math.floor((d.y0-RULH)/ROWH), tr=song.tracks[ti]; const bf=d.x0/zoomA;
@@ -1529,14 +1655,18 @@ function cutStep(tr,p,x){
 }
 function splitPart(tr,p,x){
   const st=cutStep(tr,p,x); if(st===null) return;
-  pushUndo(); const cut=st-p.start*SPB, right=JSON.parse(JSON.stringify(p)); right.id=uid();
+  pushUndo(); splitPartAt(tr,p,st);
+  if(ed&&ed.pId===p.id) renderEditor();
+  cutHover=null; drawArrange(); save();
+}
+function splitPartAt(tr,p,st){
+  const cut=st-p.start*SPB, right=JSON.parse(JSON.stringify(p)); right.id=uid();
   right.start=st/SPB; right.len=p.len-cut/SPB; p.len=cut/SPB;
   if(tr.type==='audio'){const bd=barDur(); right.off=p.off+cut/SPB*bd; right.dur=p.dur-cut/SPB*bd; p.dur=cut/SPB*bd; right.len=right.dur/bd; p.len=p.dur/bd;}
   else if(tr.type==='drum'){const ph=cut%p.plen; if(ph) right.grid=right.grid.map(r=>r.slice(ph).concat(r.slice(0,ph)));}
   else { right.notes=p.notes.filter(n=>n.s>=cut).map(n=>({...n,s:n.s-cut})); p.notes=p.notes.filter(n=>n.s<cut); p.notes.forEach(n=>{if(n.s+n.l>cut) n.l=cut-n.s;}); }
   tr.parts.push(right); selParts.clear(); selParts.add(right.id);
-  if(ed&&ed.pId===p.id) renderEditor();
-  cutHover=null; drawArrange(); save();
+  return right;
 }
 function gluePart(tr,p){
   const end=p.start+p.len, next=tr.parts.filter(q=>q!==p&&q.start>=end-1e-6).sort((a,b)=>a.start-b.start)[0];
@@ -2186,7 +2316,7 @@ document.addEventListener('keydown',e=>{
     case 'NumpadSubtract': case 'ArrowLeft': {e.preventDefault(); const c=curPos(), b=Math.floor(c/SPB); setPos(Math.max(0,(c%SPB<(playing?4:1))?b-1:b)*SPB); return;}
     case 'NumpadDecimal': case 'Home': setPos(0); return;
   }
-  if(e.code==='Delete'){ if(lastArea==='key'&&selDelete()) return; if(lastArea==='arr'&&partsDelete()) return; if(selPart){for(const tr of song.tracks){const p=tr.parts.find(x=>x.id===selPart); if(p){deletePart(tr,p); break;}}} return;}
+  if(e.code==='Delete'){ if(lastArea==='sec'&&secDelete()) return; if(lastArea==='key'&&selDelete()) return; if(lastArea==='arr'&&partsDelete()) return; if(selPart){for(const tr of song.tracks){const p=tr.parts.find(x=>x.id===selPart); if(p){deletePart(tr,p); break;}}} return;}
   if(e.code==='KeyZ'){oct=Math.max(0,oct-1); updTransport(); return;}
   if(e.code==='KeyX'){oct=Math.min(7,oct+1); updTransport(); return;}
   if(e.repeat) return;
@@ -2216,7 +2346,7 @@ try{const s=localStorage.getItem(LS); if(s) song=normalize(JSON.parse(s));}catch
 try{const x=localStorage.getItem(LSS); if(x) sampleStore=JSON.parse(x)||{};}catch(e){sampleStore={};}
 try{const v=JSON.parse(localStorage.getItem(LSV)||'null'); if(v){if(['low','normal','safe'].includes(v.latMode)) latMode=v.latMode; sinkId=v.sinkId||''; inId=v.inId||''; zoomA=clamp(+v.zoomA||28,8,160); ROWH=clamp(+v.ROWH||28,28,140); zoomK=clamp(+v.zoomK||20,6,80); KH=clamp(+v.KH||12,8,28);}}catch(e){}
 if(!song) song=demoSong();
-if(NATIVE){ try{ if(localStorage.getItem('korgus.rows')!=='2'){ ROWH=140; localStorage.setItem('korgus.rows','2'); saveView(); } }catch(e){}
+if(NATIVE){ SECH=16; RULH=42; try{ if(localStorage.getItem('korgus.rows')!=='2'){ ROWH=140; localStorage.setItem('korgus.rows','2'); saveView(); } }catch(e){}
   setupNative(); renderAll(); requestAnimationFrame(frame); pushSong(true); natSel(); nat('ready'); natNeedPeaks(); }
 else { renderAll(); initMidi(); requestAnimationFrame(frame);
   if(Object.keys(sampleStore).length) decodeSamples();

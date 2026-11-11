@@ -664,9 +664,11 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
 
     {
         juce::AudioBuffer<float> view (ms.buf.getArrayOfWritePointers(), ms.buf.getNumChannels(), n);
-        for (auto& f : ms.fx)
-            if (f != nullptr) { fxMidi.clear(); f->processBlock (view, fxMidi); }
-        const float mg = sd != nullptr ? sd->masterGain : 1.0f;
+        const bool bypass = forced != nullptr && bypassMaster.load();
+        if (! bypass)
+            for (auto& f : ms.fx)
+                if (f != nullptr) { fxMidi.clear(); f->processBlock (view, fxMidi); }
+        const float mg = bypass ? 1.0f : (sd != nullptr ? sd->masterGain : 1.0f);
         if (curNumOut == 1 && out[0] != nullptr)
         {
             juce::FloatVectorOperations::addWithMultiply (out[0], mixL, mg * 0.5f, n);

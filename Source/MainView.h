@@ -20,6 +20,8 @@ private:
 };
 
 // Hlavne okno: rozhranie sekvencera (HTML) + prepojenie so zvukovym motorom
+juce::var readMidiFile (const juce::File&);
+
 class MainView : public juce::Component,
                  private juce::ChangeListener,
                  private juce::Timer
@@ -59,6 +61,7 @@ private:
     void onNeedPeaks (const juce::var&);
     void onRecAudio (const juce::var&);
     void onExportWav (const juce::var&);
+    void onExportStems (const juce::var&);
     void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);
     void finishRecording();
     std::unique_ptr<SongData> parseCurrent (const juce::var&);

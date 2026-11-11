@@ -201,6 +201,18 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 put (o, "list", arr);
                                 emit ("params", o);
                             })
+        .withEventListener ("importMidi",  [this] (const juce::var&)
+                            {
+                                chooser = std::make_unique<juce::FileChooser> (sk ("Import MIDI"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.mid;*.midi");
+                                juce::Component::SafePointer<MainView> sp (this);
+                                chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                                      [sp] (const juce::FileChooser& fc)
+                                                      {
+                                                          const auto f = fc.getResult();
+                                                          if (sp != nullptr && f.existsAsFile()) sp->emit ("midiImported", readMidiFile (f));
+                                                      });
+                            })
+        .withEventListener ("exportStems", [this] (const juce::var& v) { onExportStems (v); })
         .withEventListener ("melody",      [this] (const juce::var& v)
                             {
                                 const auto req = v["req"].toString();
@@ -1146,6 +1158,147 @@ void MainView::onExportWav (const juce::var& v)
                                   sp->lastSentPos = -1;
                                   auto o = obj();
                                   put (o, "ok", good); put (o, "name", f.getFullPathName());
+                                  sp->emit ("exported", o);
+                              });
+                              job->launchThread();
+                          });
+}
+
+//==============================================================================
+// import MIDI: noty po stopach a kanaloch, v krokoch (1/16)
+juce::var readMidiFile (const juce::File& f)
+{
+    auto res = obj();
+    juce::MidiFile mf;
+    juce::FileInputStream in (f);
+    if (! in.openedOk() || ! mf.readFrom (in)) { put (res, "error", sk ("Súbor sa nedá prečítať ako MIDI.")); return res; }
+    const int tpq = mf.getTimeFormat();
+    if (tpq <= 0) { put (res, "error", sk ("Tento typ MIDI súboru (SMPTE čas) nie je podporovaný.")); return res; }
+
+    double tempo = 0;
+    for (int t = 0; t < mf.getNumTracks() && tempo == 0; ++t)
+        for (const auto* ev : *mf.getTrack (t))
+            if (ev->message.isTempoMetaEvent()) { tempo = 60.0 / ev->message.getTempoSecondsPerQuarterNote(); break; }
+    if (tempo > 0) put (res, "tempo", tempo);
+
+    juce::Array<juce::var> tracks;
+    for (int t = 0; t < mf.getNumTracks(); ++t)
+    {
+        juce::MidiMessageSequence seq (*mf.getTrack (t));
+        seq.updateMatchedPairs();
+        juce::String name;
+        std::map<int, juce::Array<juce::var>> byCh;
+        for (const auto* ev : seq)
+        {
+            const auto& m = ev->message;
+            if (m.isTrackNameEvent() && name.isEmpty()) name = m.getTextFromTextMetaEvent().trim();
+            if (! m.isNoteOn()) continue;
+            const double on = m.getTimeStamp();
+            const double off = ev->noteOffObject != nullptr ? ev->noteOffObject->message.getTimeStamp() : on + tpq / 4.0;
+            juce::Array<juce::var> n;
+            n.add (std::round (on / tpq * 4.0 * 16.0) / 16.0);
+            n.add (std::round (juce::jmax (0.0, off - on) / tpq * 4.0 * 16.0) / 16.0);
+            n.add (m.getNoteNumber());
+            n.add (juce::jlimit (1, 127, (int) m.getVelocity()));
+            byCh[m.getChannel()].add (n);
+        }
+        for (auto& [ch, notes] : byCh)
+        {
+            auto o = obj();
+            put (o, "name", (name.isNotEmpty() ? name : f.getFileNameWithoutExtension()) + (byCh.size() > 1 ? " " + juce::String (ch) : juce::String()));
+            put (o, "drum", ch == 10);
+            put (o, "notes", notes);
+            tracks.add (o);
+        }
+    }
+    put (res, "tracks", tracks);
+    return res;
+}
+
+namespace
+{
+    // export stop: kazda stopa zvlast do WAV (bez efektov mastra)
+    struct StemsJob : juce::ThreadWithProgressWindow
+    {
+        StemsJob (Engine& e, std::vector<std::unique_ptr<SongData>> s, juce::StringArray n, double endStep, juce::File d,
+                  std::function<void (int)> onDone)
+            : ThreadWithProgressWindow (sk ("Export stôp"), true, true),
+              engine (e), songs (std::move (s)), names (std::move (n)), end (endStep), dir (d), done (std::move (onDone)) {}
+
+        void run() override
+        {
+            engine.bypassMaster = true;
+            for (size_t k = 0; k < songs.size() && ! threadShouldExit(); ++k)
+            {
+                setStatusMessage (juce::String ((int) k + 1) + " / " + juce::String ((int) songs.size()) + ": " + names[(int) k]);
+                const auto f = dir.getChildFile (juce::String ((int) k + 1).paddedLeft ('0', 2) + " " + juce::File::createLegalFileName (names[(int) k]) + ".wav");
+                f.deleteFile();
+                std::unique_ptr<juce::OutputStream> os (f.createOutputStream().release());
+                if (os == nullptr) continue;
+                juce::WavAudioFormat wav;
+                auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (engine.getSampleRate()).withNumChannels (2).withBitsPerSample (24));
+                if (w == nullptr) continue;
+                const double base = (double) k / (double) songs.size(), part = 1.0 / (double) songs.size();
+                const bool ok = engine.renderOffline (*songs[k], end, 3.0, *w, [this, base, part] (double p) { setProgress (base + p * part); return ! threadShouldExit(); });
+                w.reset();
+                if (ok) ++written; else f.deleteFile();
+            }
+            engine.bypassMaster = false;
+        }
+        void threadComplete (bool) override
+        {
+            if (done) done (written);
+            delete this;
+        }
+
+        Engine& engine;
+        std::vector<std::unique_ptr<SongData>> songs;
+        juce::StringArray names;
+        double end;
+        juce::File dir;
+        std::function<void (int)> done;
+        int written = 0;
+    };
+}
+
+void MainView::onExportStems (const juce::var& v)
+{
+    if (exporting.load() || lastSong.isVoid()) return;
+    const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
+    chooser = std::make_unique<juce::FileChooser> (sk ("Export stôp – vyber priečinok"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
+    juce::Component::SafePointer<MainView> sp (this);
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                          [sp, end] (const juce::FileChooser& fc)
+                          {
+                              const auto dir = fc.getResult();
+                              if (sp == nullptr || ! dir.isDirectory()) return;
+                              std::vector<std::unique_ptr<SongData>> songs;
+                              juce::StringArray names;
+                              const auto* tracks = sp->lastSong["tracks"].getArray();
+                              const int nt = tracks != nullptr ? tracks->size() : 0;
+                              for (int i = 0; i < nt; ++i)
+                              {
+                                  const auto& t = tracks->getReference (i);
+                                  const auto* parts = t["parts"].getArray();
+                                  if ((bool) t["mute"] || parts == nullptr || parts->isEmpty()) continue;
+                                  auto sd = sp->parseCurrent (sp->lastSong);
+                                  if (sd == nullptr || i >= (int) sd->tracks.size()) continue;
+                                  for (int k = 0; k < (int) sd->tracks.size(); ++k)
+                                      if (k != i) { auto& o = sd->tracks[(size_t) k]; o.audible = false; o.gainL = o.gainR = 0; o.autos.clear(); o.monitor = false; }
+                                  sd->tracks[(size_t) i].audible = true;
+                                  songs.push_back (std::move (sd));
+                                  names.add (t["name"].toString().isNotEmpty() ? t["name"].toString() : sk ("Stopa ") + juce::String (i + 1));
+                              }
+                              if (songs.empty()) return;
+                              sp->engine.stop();
+                              sp->exporting = true;
+                              auto* job = new StemsJob (sp->engine, std::move (songs), names, end, dir, [sp, dir] (int written)
+                              {
+                                  if (sp == nullptr) return;
+                                  sp->exporting = false;
+                                  sp->lastSentPos = -1;
+                                  auto o = obj();
+                                  put (o, "ok", written > 0); put (o, "name", dir.getFullPathName() + "  (" + juce::String (written) + sk (" stôp)"));
                                   sp->emit ("exported", o);
                               });
                               job->launchThread();

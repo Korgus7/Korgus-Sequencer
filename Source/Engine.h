@@ -202,7 +202,10 @@ private:
     float* const* curOut = nullptr;
     int curNumOut = 0;
     std::atomic<bool> offline { false };
-    int masterSlot = -1;   // slot "__master" s efektmi celej piesne
+    int masterSlot = -1;
+public:
+    std::atomic<bool> bypassMaster { false };   // export stop: bez efektov a hlasitosti mastra
+private:   // slot "__master" s efektmi celej piesne
 
     // metronom
     int clickLeft = 0, clickLen = 0, clickDelay = 0;
