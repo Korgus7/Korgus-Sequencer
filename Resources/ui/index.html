@@ -371,6 +371,7 @@ function setupNative(){
       song=s; selT=0; selPart=null; closeEditor(); renderAll(); pushSong(true); natSel(); natNeedPeaks(); }catch(err){} });
   $('bAddS').textContent='+ Nástroj'; $('bAddS').title='Pridať stopu pre VST nástroj';
   onNat('aiResult',aiResult);
+  onNat('melodyNotes',melodyResult);
   $('bAi').onclick=openAi;
   onNat('devices',e=>{ natMidiDevs=e.midi||[]; natIns=e.ins||[]; renderTracks(); });
   onNat('audioImported',e=>{
@@ -1070,17 +1071,51 @@ function aiSettings(after){
 function openAi(){
   if(!NATIVE) return;
   const tr=song.tracks[selT]; if(!tr){ toast('Najprv vyber stopu.'); return; }
-  if(!aiHasKey){ aiSettings(openAi); return; }
+  if(!aiHasKey&&tr.type!=='audio'){ aiSettings(openAi); return; }
   let last=''; try{ last=localStorage.getItem('korgus.aiLast')||''; }catch(e){}
   dialog('AI asistent – '+tr.name,`<p>Čo má AI urobiť? Napríklad <i>pridaj akordy</i>, <i>arpeggio k melódii</i>, <i>basa k akordom</i>, <i>house bicie 4 takty</i>, <i>poľudšti</i>.</p>
     <textarea id="aiTxt" style="height:64px;font-family:inherit;font-size:12px">${esc(last)}</textarea>
     <div class="row">Výsledok <select id="aiDst"><option value="new">Nová stopa</option>${tr.type==='audio'?'':'<option value="this">Do tejto stopy (nahradí jej noty)</option>'}</select>
-      <span style="flex:1"></span><button id="aiSet">Nastavenie…</button><button id="aiGo">Poslať</button></div>
+      <span style="flex:1"></span>${tr.type==='audio'?'<button id="aiMel" title="Rozpozná spev alebo pískanie a spraví z neho noty (bez internetu)">Melódia z hlasu → noty</button>':''}<button id="aiSet">Nastavenie…</button><button id="aiGo">Poslať</button></div>
     <p id="aiInfo" style="margin:8px 0 0;color:#2d4362"></p>`);
   const t=$('aiTxt'); t.focus(); t.select();
   t.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); $('aiGo').click(); } };
   $('aiSet').onclick=()=>aiSettings(openAi);
   $('aiGo').onclick=()=>aiSend(tr,t.value.trim(),$('aiDst').value);
+  if($('aiMel')) $('aiMel').onclick=()=>melodyToNotes(tr);
+}
+/* melodia z hlasu -> noty (rozpoznanie v programe, bez internetu) */
+let melJob=null;
+function melodyToNotes(tr){
+  if(melJob) return;
+  const clips=tr.parts.filter(p=>'aid' in p), sel=clips.filter(p=>selParts.has(p.id)), use=sel.length?sel:clips;
+  if(!use.length){ $('aiInfo').textContent='Audio stopa nemá žiadny klip – najprv nahraj spev alebo pískanie.'; return; }
+  melJob={id:uid(),trId:tr.id,clips:use,left:use.length,res:[]};
+  $('aiInfo').textContent='Rozpoznávam melódiu…';
+  use.forEach((p,i)=>nat('melody',{req:melJob.id+':'+i,id:p.aid,off:p.off||0,dur:p.dur||0}));
+}
+function melodyResult(e){
+  if(!melJob) return; const [jid,i]=String(e.req).split(':'); if(jid!==melJob.id) return;
+  melJob.res[+i]=e.notes||[]; if(--melJob.left>0) return;
+  const job=melJob; melJob=null;
+  const src=song.tracks.find(t=>t.id===job.trId), sps=song.tempo/60*4;
+  const parts=[]; let total=0;
+  job.clips.forEach((c,k)=>{
+    const ps=Math.max(0,Math.floor(c.start)), len=Math.max(1,Math.ceil(c.start+c.len)-ps), base=c.start*SPB-ps*SPB, notes=[];
+    (job.res[k]||[]).forEach(n=>{ const s=Math.round(base+n.t*sps), e=Math.round(base+n.e*sps); if(s<0||s>=len*SPB) return;
+      const prev=notes[notes.length-1];
+      if(prev&&s<=prev.s){ if(e-s>prev.l){ prev.p=n.p; prev.l=Math.max(1,e-prev.s); } return; }
+      if(prev&&prev.s+prev.l>s) prev.l=Math.max(1,s-prev.s);
+      notes.push({s,p:n.p,l:Math.max(1,Math.min(e-s,len*SPB-s)),v:clamp(Math.round(n.v*127),1,127)}); });
+    total+=notes.length; if(notes.length) parts.push({id:uid(),start:ps,len,notes});
+  });
+  if(!total){ const info=$('aiInfo'); if(info&&!$('dlgBack').hidden) info.textContent='Melódiu sa nepodarilo rozpoznať. Spievaj alebo píšťaj čistejšie a hlasnejšie.'; else toast('Melódiu sa nepodarilo rozpoznať.'); return; }
+  pushUndo();
+  const tr=mkTrack('synth'); tr.name='Melódia z hlasu'; tr.parts=parts;
+  song.tracks.splice(src?song.tracks.indexOf(src)+1:song.tracks.length,0,tr);
+  natDefaultInst(tr);
+  selT=song.tracks.indexOf(tr); $('dlgBack').hidden=true; closeEditor(); renderAll(); save(); natSel();
+  toast(`Rozpoznaných ${total} nôt. Ak je melódia o oktávu vyššie (pískanie), v editore ju posuň <b>Shift + ↓</b>. Ctrl+Z vráti späť.`);
 }
 function aiSend(tr,txt,dst){
   if(!txt||aiPending) return;

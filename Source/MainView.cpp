@@ -1,6 +1,7 @@
 #include "MainView.h"
 #include "BinaryData.h"
 #include "SongParse.h"
+#include "Melody.h"
 
 //==============================================================================
 SettingsComponent::SettingsComponent (juce::AudioDeviceManager& d, std::function<void()> onPlugins)
@@ -174,6 +175,31 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 sendAiState();
                             })
         .withEventListener ("aiRequest",   [this] (const juce::var& v) { onAiRequest (v); })
+        .withEventListener ("melody",      [this] (const juce::var& v)
+                            {
+                                const auto req = v["req"].toString();
+                                auto buf = store->get (v["id"].toString());
+                                const double sr = store->getSampleRate(), off = (double) v.getProperty ("off", 0.0), dur = (double) v.getProperty ("dur", 0.0);
+                                juce::Component::SafePointer<MainView> sp (this);
+                                juce::Thread::launch ([sp, buf, sr, off, dur, req]
+                                {
+                                    juce::Array<juce::var> arr;
+                                    if (buf != nullptr)
+                                        for (const auto& m : detectMelody (*buf, sr, off, dur))
+                                        {
+                                            auto o = obj();
+                                            put (o, "t", m.start); put (o, "e", m.end); put (o, "p", m.pitch); put (o, "v", m.vel);
+                                            arr.add (o);
+                                        }
+                                    juce::MessageManager::callAsync ([sp, arr, req]
+                                    {
+                                        if (sp == nullptr) return;
+                                        auto o = obj();
+                                        put (o, "req", req); put (o, "notes", arr);
+                                        sp->emit ("melodyNotes", o);
+                                    });
+                                });
+                            })
         .withEventListener ("drumHit",     [this] (const juce::var& v)
                             {
                                 engine.triggerSample (engine.getOrCreateSlot (v["track"].toString()), store->get (v["id"].toString()),
