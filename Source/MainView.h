@@ -105,7 +105,8 @@ private:
     std::unique_ptr<AudioStore> store;
     juce::var lastSong;
     std::map<juce::String, juce::MemoryBlock> uploads;
-    struct RecTrack { juce::String id; int a = 0, b = -1; std::vector<float> l, r; };
+    struct RecTrack { juce::String id; int a = 0, b = -1; std::vector<float> l, r; size_t pkDone = 0; };
+    void sendLivePeaks();
     std::vector<RecTrack> recTracks;
     bool recOn = false, recFinishing = false;
     juce::uint32 recStopTime = 0;

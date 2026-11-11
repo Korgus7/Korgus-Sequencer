@@ -970,6 +970,7 @@ void MainView::timerCallback()
 {
     if (recOn || recFinishing)
         for (size_t i = 0; i < recTracks.size(); ++i) engine.drainRecording ((int) i, recTracks[i].l, recTracks[i].r);
+    if (recOn) sendLivePeaks();
     if (recFinishing && juce::Time::getMillisecondCounter() - recStopTime > 250) finishRecording();
     if (exporting.load()) return;
 
@@ -1360,4 +1361,33 @@ void MainView::paramTouched (const juce::String& track, int which, int index, fl
         put (o, "name", pr->getName (60)); put (o, "plugin", p->getName());
         sp->emit ("paramTouched", o);
     });
+}
+
+// tvar vlny prave nahravaneho zvuku (priebezne pre rozhranie)
+void MainView::sendLivePeaks()
+{
+    if (! engine.hasRecStarted()) return;
+    const int B = 512;
+    for (auto& rt : recTracks)
+    {
+        juce::Array<juce::var> mn, mx;
+        while (rt.pkDone + B <= rt.l.size())
+        {
+            float a = 1, z = -1;
+            const bool st = rt.r.size() >= rt.pkDone + B;
+            for (size_t j = rt.pkDone; j < rt.pkDone + B; ++j)
+            {
+                const float v = st ? 0.5f * (rt.l[j] + rt.r[j]) : rt.l[j];
+                a = juce::jmin (a, v); z = juce::jmax (z, v);
+            }
+            mn.add (juce::jlimit (-127, 127, (int) std::floor (a * 127.0f)));
+            mx.add (juce::jlimit (-127, 127, (int) std::ceil (z * 127.0f)));
+            rt.pkDone += B;
+        }
+        if (mn.isEmpty()) continue;
+        auto o = obj();
+        put (o, "track", rt.id); put (o, "B", B); put (o, "sr", engine.getSampleRate());
+        put (o, "start", engine.getRecStartStep()); put (o, "mn", mn); put (o, "mx", mx);
+        emit ("recPeaks", o);
+    }
 }
