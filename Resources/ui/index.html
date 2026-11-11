@@ -34,7 +34,12 @@ input[type=range]{accent-color:#2d4362}
 #edWin{flex:1.25 1 0;min-height:180px}
 #mixWin{flex:none;height:360px}
 #autoWin{flex:none;height:230px}
-#autoRecB.on{background:#a14a3e;color:#fff;border-color:#5e2419}
+button.rw{font:bold 11px Tahoma,Arial,sans-serif;min-width:24px;padding:0 4px}
+button.rw.r.on{background:#4f7a6a;color:#fff;border-color:#2f4c41}
+button.rw.w.on{background:#a14a3e;color:#fff;border-color:#5e2419}
+.ntr .grp .r.on,.ntr .grp .r.on:hover{background:#4f7a6a;color:#fff}
+.ntr .grp .w.on,.ntr .grp .w.on:hover{background:#a14a3e;color:#fff}
+.ntr .grp button{width:24px}
 #ctxMenu{position:fixed;z-index:90;background:#2a3442;border:1px solid #161d27;border-radius:3px;padding:3px 0;min-width:150px;color:#e4e9ef;font-size:12px}
 #ctxMenu div{padding:5px 14px;cursor:default}
 #ctxMenu div:hover{background:#4f6f91}
@@ -235,7 +240,7 @@ button.ico svg{display:block}
 </div>
 
 <div class="win" id="autoWin" hidden>
-  <div class="tb"><span id="autoTitle">Automatizácia</span><span style="width:10px"></span><select id="autoLane" title="Krivka"></select><button id="autoAdd">+ Parameter</button><button id="autoDel">Zmazať krivku</button><span style="width:10px"></span><button id="autoRecB" title="Nahrávať pohyby: počas prehrávania sa zapisuje, čím hýbeš v plugine (napr. filter) alebo v mixpulte">● Nahrávať pohyby</button><span class="sp"></span><button id="autoClose" title="Zavrieť">×</button></div>
+  <div class="tb"><span id="autoTitle">Automatizácia</span><span style="width:10px"></span><select id="autoLane" title="Krivka"></select><button id="autoAdd">+ Parameter</button><button id="autoDel">Zmazať krivku</button><span style="width:10px"></span><button id="autoRB" class="rw r" title="R – čítať: stopa prehráva svoju automatizáciu">R</button><button id="autoWB" class="rw w" title="W – zapisovať: počas prehrávania sa zapisuje, čím hýbeš v plugine stopy (napr. filter) alebo v mixpulte">W</button><span class="sp"></span><button id="autoClose" title="Zavrieť">×</button></div>
   <div id="autoBody"><div id="autoInner"><div id="autoGut"></div><canvas id="autoCv"></canvas><div id="autoPH" class="ph"></div></div></div>
 </div>
 
@@ -294,7 +299,7 @@ function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
   return {masterVol:song.masterVol==null?1:song.masterVol,tempo:song.tempo,bars:song.bars,locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,
-    tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},auto:(t.auto||[]).filter(a=>!a.rec).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.parts}))};
+    tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},auto:(t.autoR===false?[]:(t.auto||[])).filter(a=>!a.rec).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.parts}))};
 }
 function pushSong(now){ if(!NATIVE) return; clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
 let keyPHinfo=null;
@@ -1023,6 +1028,7 @@ function ctxMenu(x,y,items){
   setTimeout(()=>{ addEventListener('mousedown',close); addEventListener('keydown',close); },0);
 }
 function renderTracksNative(L){
+  syncAutoRec();
   const h=document.createElement('div'); h.className='thead'; L.appendChild(h);
   const el=(tag,cls,html)=>{const d=document.createElement(tag); if(cls) d.className=cls; if(html!=null) d.innerHTML=html; return d;};
   const dd=(ico,opts,val,title,fn)=>{const d=el('div','dd'+(ico?'':' noic'),ico||''); const sl=el('select'); sl.innerHTML=opts; sl.value=val; sl.title=title;
@@ -1041,7 +1047,9 @@ function renderTracksNative(L){
     g.append(b('m','M','Stlmiť',tr.mute,x=>{tr.mute=!tr.mute; x.classList.toggle('on',tr.mute); drawArrange(); save();}),
              b('s','S','Sólo',tr.solo,x=>{tr.solo=!tr.solo; x.classList.toggle('on',tr.solo); save();}),
              b('a','●','Pripraviť na nahrávanie',tr.arm,x=>{ if(audio){ tr.arm=!tr.arm; x.classList.toggle('on',tr.arm); save(); } else solo('arm',x); }),
-             b('o',ICO_MON,'Odposluch',tr.mon,x=>{ if(audio){ tr.mon=!tr.mon; x.classList.toggle('on',tr.mon); save(); } else solo('mon',x); }));
+             b('o',ICO_MON,'Odposluch',tr.mon,x=>{ if(audio){ tr.mon=!tr.mon; x.classList.toggle('on',tr.mon); save(); } else solo('mon',x); }),
+             b('r','R','R – čítať automatizáciu stopy',tr.autoR!==false,()=>autoRW(tr,'r')),
+             b('w','W','W – zapisovať automatizáciu (pohyby v plugine stopy a v mixpulte)',!!tr.autoW,()=>autoRW(tr,'w')));
     const nm=el('div','nm'); nm.textContent=tr.name; nm.title='Dvojklik = premenovať';
     nm.ondblclick=()=>{ const inp=el('input'); inp.type='text'; inp.value=tr.name; nm.innerHTML=''; nm.appendChild(inp); inp.focus(); inp.select();
       const done=ok=>{ if(ok&&inp.value.trim()&&inp.value!==tr.name){ pushUndo(); tr.name=inp.value.trim(); save(); if(ed) renderEditor(); } renderTracks(); };
@@ -1365,6 +1373,7 @@ function renderAuto(){
   const lanes=(tr&&tr.auto)||[], cur=autoLane();
   $('autoLane').innerHTML=lanes.length?lanes.map(a=>`<option value="${a.id}"${cur&&a.id===cur.id?' selected':''}>${esc(a.name)}</option>`).join(''):'<option value="">– žiadna krivka –</option>';
   $('autoLane').disabled=!lanes.length; $('autoDel').disabled=!cur;
+  $('autoRB').classList.toggle('on',!!tr&&tr.autoR!==false); $('autoWB').classList.toggle('on',!!tr&&!!tr.autoW);
   drawAuto();
 }
 function drawAuto(){
@@ -1392,10 +1401,15 @@ function drawAuto(){
   else $('autoPH').style.height=H+'px';
 }
 /* nahravanie automatizacie */
-let autoRec=false, autoPass=0, autoUndoPass=-1, autoRecSt={};
-function setAutoRec(on){ autoRec=on; $('autoRecB').classList.toggle('on',on); nat('autoRec',{on}); }
+let autoPass=0, autoUndoPass=-1, autoRecSt={}, autoRecSent=null;
+function syncAutoRec(){ const on=song.tracks.some(t=>t.autoW); if(on!==autoRecSent){ autoRecSent=on; nat('autoRec',{on}); } }
+function autoRW(tr,which){ if(!tr) return;
+  if(which==='r'){ tr.autoR=tr.autoR===false; if(tr.autoR===false) tr.autoW=false; }
+  else { tr.autoW=!tr.autoW; if(tr.autoW) tr.autoR=true; }
+  if(tr.autoR===true) delete tr.autoR;
+  syncAutoRec(); save(); renderTracks(); }
 function autoRecPoint(tr,t,w,i,name,v){
-  if(!autoRec||!playing||counting||!tr) return;
+  if(!tr||!tr.autoW||!playing||counting) return;
   if(autoUndoPass!==autoPass){ pushUndo(); autoUndoPass=autoPass; }
   tr.auto=tr.auto||[];
   let a=tr.auto.find(x=>x.t===t&&(x.w||0)===w&&(x.i||0)===i);
@@ -1442,7 +1456,7 @@ function initAuto(){
   $('autoLane').onchange=e=>{ const tr=autoTrack(); if(tr) autoSel[tr.id]=e.target.value; e.target.blur(); drawAuto(); };
   $('autoDel').onclick=()=>{ const tr=autoTrack(), a=autoLane(); if(!tr||!a) return; pushUndo(); tr.auto=tr.auto.filter(x=>x!==a); save(); renderAuto(); };
   $('autoClose').onclick=closeAuto; $('bAuto').onclick=toggleAuto;
-  $('autoRecB').onclick=e=>{ setAutoRec(!autoRec); e.target.blur(); };
+  $('autoRB').onclick=e=>{ autoRW(autoTrack(),'r'); e.target.blur(); }; $('autoWB').onclick=e=>{ autoRW(autoTrack(),'w'); e.target.blur(); };
   $('autoAdd').onclick=autoAddDialog;
   let sync=false; const as=$('autoBody'), ar=$('arrScroll');
   ar.addEventListener('scroll',()=>{ if(sync){ sync=false; return; } if(autoOpen()){ sync=true; as.scrollLeft=ar.scrollLeft; } });
