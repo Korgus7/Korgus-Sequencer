@@ -20,6 +20,8 @@ void Engine::Slot::addVoice (AudioBufPtr b, juce::int64 pos, float gain, int lan
     if (b == nullptr) return;
     if (lane == 3)   // zatvoreny hi-hat zastavi otvoreny
         for (auto& v : voices) if (v.lane == 4 && v.fade < 0) { v.fade = 64; v.fadeLen = 64; }
+    if (lane == 99)  // nahlad v prehliadaci zvukov: predosly nahlad stichne
+        for (auto& v : voices) if (v.lane == 99 && v.fade < 0) { v.fade = 256; v.fadeLen = 256; }
     if (voices.size() >= 64) voices.erase (voices.begin());
     voices.push_back ({ std::move (b), pos, gain, lane, -1, 64 });
 }

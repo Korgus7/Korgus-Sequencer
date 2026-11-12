@@ -86,12 +86,13 @@ void AudioStore::addFromData (const juce::String& id, const juce::String& name, 
     dir.getChildFile (id + ext).replaceWithData (data.getData(), data.getSize());
 }
 
-AudioBufPtr AudioStore::decode (const juce::File& f)
+AudioBufPtr AudioStore::decode (const juce::File& f, double maxSec)
 {
     std::unique_ptr<juce::AudioFormatReader> r (formats.createReaderFor (f));
-    if (r == nullptr || r->lengthInSamples <= 0 || r->lengthInSamples > (juce::int64) 48000 * 60 * 30) return nullptr;
+    if (r == nullptr || r->lengthInSamples <= 0 || (maxSec <= 0 && r->lengthInSamples > (juce::int64) 48000 * 60 * 30)) return nullptr;
     const int ch = juce::jlimit (1, 2, (int) r->numChannels);
-    const int len = (int) r->lengthInSamples;
+    int len = (int) juce::jmin (r->lengthInSamples, (juce::int64) 48000 * 60 * 30);
+    if (maxSec > 0) len = (int) juce::jmin ((juce::int64) len, (juce::int64) (maxSec * r->sampleRate));
     juce::AudioBuffer<float> src (ch, len + 64);
     src.clear();
     r->read (&src, 0, len, 0, true, ch > 1);

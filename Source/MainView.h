@@ -103,6 +103,7 @@ private:
     void onSeparate (const juce::var&);
     void onAutotune (const juce::var&);
     void onDenoise (const juce::var&);
+    void onFsList (const juce::var&);
     void onPackProject (const juce::var&);
     void sendMidiCc();
     void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);

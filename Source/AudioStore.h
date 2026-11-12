@@ -29,6 +29,8 @@ public:
     void addFromData (const juce::String& id, const juce::String& name, const juce::MemoryBlock& data);
 
     AudioBufPtr get (const juce::String& id);      // dekoduje pri prvom pouziti
+    // nahlad suboru mimo skladu (najviac maxSec sekund, na frekvenciu zvukovky)
+    AudioBufPtr decodePreview (const juce::File& f, double maxSec) { return decode (f, maxSec); }
     AudioBufPtr peek (const juce::String& id) const { auto it = cache.find (id); return it != cache.end() ? it->second : nullptr; }
     juce::File fileFor (const juce::String& id);
     juce::var peaksFor (const juce::String& id);   // tvar vlny pre rozhranie
@@ -42,7 +44,7 @@ public:
 
 private:
     juce::String newId() const;
-    AudioBufPtr decode (const juce::File&);
+    AudioBufPtr decode (const juce::File&, double maxSec = 0);
 
     juce::File dir;
     juce::AudioFormatManager formats;

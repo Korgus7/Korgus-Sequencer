@@ -219,6 +219,17 @@ button.ico svg{display:block}
 #bRec.on{background:#8e3a2c;border-color:#5e2419;color:#fff}
 #setBack,#dlgBack{position:fixed;inset:0;background:rgba(20,28,40,.45);display:flex;align-items:center;justify-content:center;z-index:50}
 .dlg{width:min(620px,94vw);max-height:90vh}
+.dlg.wide{width:min(900px,96vw)}
+#sbBox{display:flex;gap:8px;height:min(420px,58vh)}
+#sbPl{width:150px;overflow:auto;border:1px solid #9aa8b8;border-radius:3px;background:#eef1f5}
+#sbList{flex:1;overflow:auto;border:1px solid #9aa8b8;border-radius:3px;background:#f6f8fa;outline:none}
+#sbPl div,#sbList div{padding:3px 8px;cursor:default;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;color:#1c2633}
+#sbPl div:hover,#sbList div:hover{background:#dde3ea}
+#sbList div.sel{background:#2d4362;color:#fff}
+#sbList div.d::before{content:'▸ ';color:#2d4362}
+#sbList div.sel.d::before{color:#fff}
+#sbList div i{float:right;font-style:normal;opacity:.6;margin-left:10px}
+#sbPath{flex:1;font-size:12px;color:#2d4362;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
 .dlgb{padding:10px 12px;overflow:auto;line-height:1.5}
 .dlgb p{margin:0 0 8px}
 .frow{display:flex;align-items:center;gap:8px;margin:8px 0}
@@ -376,10 +387,10 @@ function setupNative(){
   setPos=function(s){ s=clamp(s,0,song.bars*SPB-1); song.pos=s; playStep=s; natLast={pos:s,t:performance.now()};
     nat('transport',{cmd:'setPos',pos:s}); lastStep=-1; onStep(); save(); };
   smpOf=function(tr,l){ const id=tr.smp&&tr.smp[l]; return id?{id,name:(tr.smpN&&tr.smpN[l])||'Vlastný zvuk'}:null; };
-  smpButton=function(tr,l){ if(smpOf(tr,l)){ pushUndo(); delete tr.smp[l]; if(tr.smpN) delete tr.smpN[l]; save(); renderEditor(); return; } nat('importSample',{track:tr.id,lane:l}); };
+  smpButton=function(tr,l){ if(smpOf(tr,l)){ pushUndo(); delete tr.smp[l]; if(tr.smpN) delete tr.smpN[l]; save(); renderEditor(); return; } smpBrowser(tr,l); };
   onNat('sampleImported',e=>{ const tr=song.tracks.find(t=>t.id===e.track); if(!tr) return;
     if(e.error){ dialog('Vlastný zvuk','<p>Tento súbor sa nedá prečítať. Použi WAV alebo MP3.</p>'); return; }
-    pushUndo(); tr.smp=tr.smp||{}; tr.smpN=tr.smpN||{}; tr.smp[e.lane]=e.id; tr.smpN[e.lane]=String(e.name).slice(0,24); save(); renderEditor(); drawArrange(); previewDrum(tr,e.lane,1); });
+    pushUndo(); tr.smp=tr.smp||{}; tr.smpN=tr.smpN||{}; tr.smp[e.lane]=e.id; tr.smpN[e.lane]=String(e.name).slice(0,24); delete tr.nkit; save(); renderEditor(); drawArrange(); if(e.keep) sbAfterPick(tr,e.lane); else previewDrum(tr,e.lane,1); });
   previewDrum=function(tr,l,v){ const sm=smpOf(tr,l); if(sm) nat('drumHit',{track:tr.id,id:sm.id,vel:v===2?1:.62,lane:l}); else natNoteShort(tr,DRUMS[l][1],v===2?1:.62); };
   preview=function(tr,p){ natNoteShort(tr,p,.8); };
   recOn=function(){ if(!rec||!playing||counting) return false; const ps=Math.floor(curNatPos());
@@ -460,6 +471,7 @@ function setupNative(){
   onNat('meters',meterIn);
   onNat('midiCC',midiCcIn);
   onNat('drumKitLoaded',drumKitLoaded);
+  onNat('fsList',sbListIn);
   // bez systemoveho menu WebView2 (prekryvalo nase menu, napr. na audio klipe)
   document.addEventListener('contextmenu',e=>{ if(!(e.target.closest&&e.target.closest('input[type=text],input[type=number],textarea'))) e.preventDefault(); },true);
   onNat('hostKey',e=>{ if(e&&e.code==='Space') playing?stop():play(); });
@@ -2919,6 +2931,80 @@ function midiParamsIn(e){
   const g=$('mlPar'); if(!g||!e.list) return;
   e.list.forEach(p=>{ const o=document.createElement('option'); o.value='p:'+e.w+':'+p.i; o.textContent=(e.w===0?'Nástroj':'Efekt '+e.w)+' '+e.plugin+': '+p.name; o.dataset.n=e.plugin+': '+p.name; g.appendChild(o); });
 }
+/* ---------------- prehliadac zvukov (vzorky bicich) ---------------- */
+const LSSB='korgusSmpBrowser';
+let sb={dir:'',auto:true,fav:[]}; try{ Object.assign(sb,JSON.parse(localStorage.getItem(LSSB)||'{}')); }catch(e){}
+let sbCur=null;   // {tr,lane,list,sel,req}
+function sbSave(){ try{ localStorage.setItem(LSSB,JSON.stringify({dir:sb.dir,auto:sb.auto,fav:sb.fav})); }catch(e){} }
+function sbLaneOpts(tr,l){ return DRUMS.map((d,i)=>`<option value="${i}"${i===l?' selected':''}>${i+1}. ${esc((tr.smpN&&tr.smp&&tr.smp[i]&&tr.smpN[i])?d[0]+' – '+tr.smpN[i]:d[0])}</option>`).join(''); }
+function smpBrowser(tr,l){
+  sbCur={tr,lane:l,list:[],sel:-1,req:0};
+  dialog('Zvuky pre bicie – '+tr.name,`<div class="row" style="gap:6px;margin-bottom:6px"><button id="sbUp" title="O priečinok vyššie">▲</button><span id="sbPath"></span><button id="sbFav" title="Pridať / odobrať priečinok z obľúbených">★</button></div>
+    <div class="row" style="gap:6px;margin-bottom:6px"><input id="sbQ" type="text" placeholder="Hľadať v tomto priečinku a podpriečinkoch (napr. kick 808)…" style="flex:1"><label style="white-space:nowrap"><input id="sbAuto" type="checkbox"${sb.auto?' checked':''}> Prehrať pri výbere</label></div>
+    <div id="sbBox"><div id="sbPl"></div><div id="sbList" tabindex="0"></div></div>
+    <p id="sbInfo" style="color:#2d4362;margin:6px 0">Klik = vypočuť · dvojklik alebo Enter = použiť · šípky hore/dole = ďalší zvuk</p>
+    <div class="row" style="gap:6px"><label>Riadok</label><select id="sbLane">${sbLaneOpts(tr,l)}</select><span style="flex:1"></span><button id="sbSys" title="Klasické okno Windows na výber súboru">Iné okno…</button><button id="sbOk">Použiť</button><button id="sbClose">Zavrieť</button></div>`,true);
+  $('sbUp').onclick=()=>{ if(sbCur.parent) sbGo(sbCur.parent); };
+  $('sbFav').onclick=()=>{ const d=sbCur.path; if(!d) return; const k=sb.fav.indexOf(d); if(k>=0) sb.fav.splice(k,1); else sb.fav.push(d); sbSave(); sbPlaces(); };
+  $('sbAuto').onchange=e=>{ sb.auto=e.target.checked; sbSave(); if(!sb.auto) nat('fsPreview',{track:tr.id,path:''}); };
+  let qt=null; $('sbQ').oninput=()=>{ clearTimeout(qt); qt=setTimeout(()=>sbGo(sbCur.path,$('sbQ').value),450); };
+  $('sbQ').onkeydown=e=>{ if(e.key==='Enter'){ clearTimeout(qt); sbGo(sbCur.path,$('sbQ').value); } else if(e.key==='ArrowDown'){ e.preventDefault(); $('sbList').focus(); sbMove(1); } e.stopPropagation(); };
+  $('sbLane').onchange=e=>{ sbCur.lane=+e.target.value; };
+  $('sbOk').onclick=()=>sbPick();
+  $('sbSys').onclick=()=>{ sbStop(); $('dlgBack').hidden=true; nat('importSample',{track:tr.id,lane:sbCur.lane}); };
+  $('sbClose').onclick=()=>{ sbStop(); $('dlgBack').hidden=true; };
+  const L=$('sbList');
+  L.onkeydown=e=>{ if(e.key==='ArrowDown'){ e.preventDefault(); sbMove(1); } else if(e.key==='ArrowUp'){ e.preventDefault(); sbMove(-1); }
+    else if(e.key==='Enter'){ e.preventDefault(); const it=sbCur.list[sbCur.sel]; if(it&&it.d) sbGo(it.p); else sbPick(); }
+    else if(e.key==='Backspace'){ e.preventDefault(); if(sbCur.parent) sbGo(sbCur.parent); }
+    else if(e.key===' '){ e.preventDefault(); sbPreview(true); } e.stopPropagation(); };
+  L.onclick=e=>{ const r=e.target.closest('[data-i]'); if(!r) return; sbSelect(+r.dataset.i,true); };
+  L.ondblclick=e=>{ const r=e.target.closest('[data-i]'); if(!r) return; const it=sbCur.list[+r.dataset.i]; if(it.d) sbGo(it.p); else sbPick(); };
+  sbGo(sb.dir||'');
+}
+function sbStop(){ if(sbCur) nat('fsPreview',{track:sbCur.tr.id,path:''}); }
+function sbGo(path,q){ if(!sbCur) return; sbCur.req++; $('sbList').innerHTML='<div style="opacity:.6">Načítavam…</div>'; nat('fsList',{req:sbCur.req,path:path||'',q:q||''}); }
+function sbPlaces(){
+  const pl=$('sbPl'); if(!pl||!sbCur) return;
+  const fav=sb.fav.map(p=>({n:'★ '+(p.split(/[\\/]/).filter(Boolean).pop()||p),p,t:p}));
+  const all=[...fav,...(sbCur.places||[]).map(x=>({n:x.n,p:x.p,t:x.p}))];
+  pl.innerHTML=all.map((x,i)=>`<div data-p="${esc(x.p)}" title="${esc(x.t)}">${esc(x.n)}</div>`).join('');
+  pl.querySelectorAll('[data-p]').forEach(d=>d.onclick=()=>{ $('sbQ').value=''; sbGo(d.dataset.p); });
+  $('sbFav').style.color=sb.fav.includes(sbCur.path)?'#c9a227':'';
+}
+function sbListIn(e){
+  if(!sbCur||e.req!==sbCur.req||!$('sbList')) return;
+  sbCur.path=e.path; sbCur.parent=e.parent; sbCur.places=e.places||[];
+  if(!e.q){ sb.dir=e.path; sbSave(); }
+  const kb=b=>b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' kB';
+  sbCur.list=[...(e.dirs||[]).map(d=>({d:1,n:d.n,p:d.p})),...(e.files||[]).map(f=>({n:f.n,p:f.p,sz:f.sz}))];
+  sbCur.sel=-1;
+  $('sbPath').textContent='\u200e'+e.path+(e.q?'  –  hľadám: '+e.q:'')+'\u200e'; $('sbPath').title=e.path;
+  $('sbList').innerHTML=sbCur.list.length?sbCur.list.map((it,i)=>`<div data-i="${i}" class="${it.d?'d':''}" title="${esc(it.p)}">${esc(it.n)}${it.d?'':'<i>'+kb(it.sz)+'</i>'}</div>`).join('')
+    +(e.more?'<div style="opacity:.6">… zobrazené sú len prvé výsledky, spresni hľadanie</div>':'')
+    :`<div style="opacity:.6">${e.q?'Nič sa nenašlo.':'Žiadne zvuky ani priečinky.'}</div>`;
+  $('sbUp').disabled=!e.parent;
+  sbPlaces(); $('sbList').focus();
+}
+function sbSelect(i,play){
+  const L=$('sbList'); if(!L) return; sbCur.sel=i;
+  L.querySelectorAll('.sel').forEach(x=>x.classList.remove('sel'));
+  const r=L.querySelector(`[data-i="${i}"]`); if(r){ r.classList.add('sel'); r.scrollIntoView({block:'nearest'}); }
+  if(play) sbPreview(false);
+}
+function sbMove(d){ if(!sbCur.list.length) return; sbSelect(clamp(sbCur.sel+d,0,sbCur.list.length-1),true); }
+function sbPreview(force){ const it=sbCur.list[sbCur.sel]; if(!it||it.d) return; if(sb.auto||force) nat('fsPreview',{track:sbCur.tr.id,path:it.p}); }
+function sbPick(){
+  const it=sbCur&&sbCur.list[sbCur.sel]; if(!it||it.d){ toast('Vyber zvuk (WAV, MP3…).'); return; }
+  nat('pickSample',{track:sbCur.tr.id,lane:sbCur.lane,path:it.p});
+  sbCur.picked={lane:sbCur.lane,name:it.n.split(/[\\/]/).pop()};
+}
+function sbAfterPick(tr,lane){
+  if(!sbCur||sbCur.tr!==tr||!$('sbLane')||$('dlgBack').hidden) return;
+  const next=Math.min(DRUMS.length-1,lane+1);
+  $('sbInfo').textContent='Použité: '+DRUMS[lane][0]+' ← '+String((sbCur.picked||{}).name||'')+'. Teraz vyber zvuk pre riadok '+DRUMS[next][0]+'.';
+  sbCur.lane=next; $('sbLane').innerHTML=sbLaneOpts(tr,next); $('sbList').focus();
+}
 /* hlavne menu (Subor, + Stopa) */
 function menuAt(btn,items){ const r=btn.getBoundingClientRect(); btn.classList.add('on'); ctxMenu(r.left,r.bottom+2,items); const off=()=>{ btn.classList.remove('on'); removeEventListener('mousedown',off,true); }; setTimeout(()=>addEventListener('mousedown',off,true),0); }
 const clk=id=>()=>$(id).click();
@@ -3077,7 +3163,7 @@ function buildMidi(){
 }
 
 /* ---------------- dialog ---------------- */
-function dialog(title,html){$('dlgT').textContent=title; $('dlgB').innerHTML=html; $('dlgBack').hidden=false;}
+function dialog(title,html,wide){$('dlgT').textContent=title; $('dlgB').innerHTML=html; const d=$('dlgB').closest('.dlg'); if(d) d.classList.toggle('wide',!!wide); $('dlgBack').hidden=false;}
 $('dlgX').onclick=()=>$('dlgBack').hidden=true;
 $('dlgBack').addEventListener('mousedown',e=>{if(e.target.id==='dlgBack') $('dlgBack').hidden=true;});
 $('bHelp').onclick=()=>dialog('Pomoc – Korgus Sequencer',`
@@ -3174,7 +3260,7 @@ document.addEventListener('keydown',e=>{
   if(e.ctrlKey&&e.code==='KeyI'&&NATIVE&&$('dlgBack').hidden){ e.preventDefault(); openAi(); return; }
   if(e.target.matches('input[type=text],input[type=number],input[type=password],textarea')) return;
   if(midiLearn&&e.code==='Escape'){ midiLearn=null; toast('MIDI learn zrušený.'); const st=$('mlStatus'); if(st) st.innerHTML='&nbsp;'; return; }
-  if(!$('dlgBack').hidden){ if(e.code==='Escape') $('dlgBack').hidden=true; return; }
+  if(!$('dlgBack').hidden){ if(e.code==='Escape'){ $('dlgBack').hidden=true; if(sbCur) sbStop(); } return; }
   if(!$('setBack').hidden){ if(e.code==='Escape') $('setBack').hidden=true; return; }
   if(e.code==='Space'){e.preventDefault(); if(!e.repeat) playing?stop():play(); return;}
   if((e.ctrlKey||e.metaKey)&&((e.code==='KeyZ'&&e.shiftKey)||e.code==='KeyY')){e.preventDefault(); redo(); return;}

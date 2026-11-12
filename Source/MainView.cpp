@@ -352,6 +352,31 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 engine.triggerSample (engine.getOrCreateSlot (v["track"].toString()), store->get (v["id"].toString()),
                                                       (float) (double) v.getProperty ("vel", 1.0), (int) v.getProperty ("lane", 0));
                             })
+        .withEventListener ("fsList",      [this] (const juce::var& v) { onFsList (v); })
+        .withEventListener ("fsPreview",   [this] (const juce::var& v)
+                            {
+                                const int slot = engine.getOrCreateSlot (v["track"].toString());
+                                const juce::File f (v["path"].toString());
+                                AudioBufPtr b;
+                                if (juce::File::isAbsolutePath (v["path"].toString()) && f.existsAsFile()) b = store->decodePreview (f, 20.0);
+                                if (b == nullptr)   // ticho = zastavi nahlad
+                                {
+                                    auto quiet = std::make_shared<juce::AudioBuffer<float>> (1, 64);
+                                    quiet->clear();
+                                    b = quiet;
+                                }
+                                engine.triggerSample (slot, b, 0.9f, 99);
+                            })
+        .withEventListener ("pickSample",  [this] (const juce::var& v)
+                            {
+                                const juce::File f (v["path"].toString());
+                                auto o = obj();
+                                put (o, "track", v["track"].toString()); put (o, "lane", (int) v["lane"]);
+                                put (o, "name", f.getFileNameWithoutExtension()); put (o, "keep", true);
+                                const auto id = juce::File::isAbsolutePath (v["path"].toString()) && f.existsAsFile() ? store->importFile (f) : juce::String();
+                                if (id.isEmpty()) put (o, "error", true); else put (o, "id", id);
+                                emit ("sampleImported", o);
+                            })
         .withEventListener ("importSample",[this] (const juce::var& v)
                             {
                                 const auto track = v["track"].toString();
@@ -2715,6 +2740,72 @@ namespace
         bool ok = false;
         std::function<void (bool, juce::AudioBuffer<float>&)> done;
     };
+}
+
+// prehliadac zvukov: obsah priecinka alebo vyhladavanie v nom (aj v podpriecinkoch)
+void MainView::onFsList (const juce::var& v)
+{
+    static const juce::StringArray exts { "wav", "mp3", "ogg", "flac", "aif", "aiff" };
+    auto isAudio = [] (const juce::File& f) { return exts.contains (f.getFileExtension().substring (1).toLowerCase()); };
+    juce::File dir (v["path"].toString());
+    if (! juce::File::isAbsolutePath (v["path"].toString()) || ! dir.isDirectory())
+        dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    const auto q = v["q"].toString().trim();
+    auto o = obj();
+    put (o, "req", v["req"]); put (o, "path", dir.getFullPathName()); put (o, "q", q);
+    put (o, "parent", dir.getParentDirectory() != dir ? dir.getParentDirectory().getFullPathName() : juce::String());
+    juce::Array<juce::var> dirs, files;
+    auto fileObj = [&] (const juce::File& f, const juce::String& shown)
+    {
+        auto e = obj(); put (e, "n", shown); put (e, "p", f.getFullPathName()); put (e, "sz", (double) f.getSize());
+        files.add (e);
+    };
+    bool more = false;
+    if (q.isEmpty())
+    {
+        auto subs = dir.findChildFiles (juce::File::findDirectories, false);
+        subs.sort();
+        for (auto& d : subs)
+        {
+            if (d.isHidden() || d.getFileName().startsWithChar ('.') || d.getFileName().startsWithChar ('$')) continue;
+            auto e = obj(); put (e, "n", d.getFileName()); put (e, "p", d.getFullPathName()); dirs.add (e);
+        }
+        auto fs = dir.findChildFiles (juce::File::findFiles, false);
+        fs.sort();
+        for (auto& f : fs) if (isAudio (f) && ! f.isHidden()) { if (files.size() >= 2000) { more = true; break; } fileObj (f, f.getFileName()); }
+    }
+    else
+    {
+        // vsetky slova musia byt v nazve (alebo v ceste pod priecinkom)
+        juce::StringArray words; words.addTokens (q.toLowerCase(), " ", "");
+        words.removeEmptyStrings();
+        int scanned = 0;
+        for (const auto& en : juce::RangedDirectoryIterator (dir, true, "*", juce::File::findFiles | juce::File::ignoreHiddenFiles))
+        {
+            if (++scanned > 60000) { more = true; break; }
+            const auto f = en.getFile();
+            if (! isAudio (f)) continue;
+            const auto rel = f.getRelativePathFrom (dir), low = rel.toLowerCase();
+            bool okAll = true;
+            for (auto& w : words) if (! low.contains (w)) { okAll = false; break; }
+            if (! okAll) continue;
+            if (files.size() >= 500) { more = true; break; }
+            fileObj (f, rel);
+        }
+    }
+    put (o, "dirs", dirs); put (o, "files", files); put (o, "more", more);
+    // jednotky a bezne miesta
+    juce::Array<juce::var> places;
+    auto place = [&] (const juce::String& n, const juce::File& f) { if (f.isDirectory()) { auto e = obj(); put (e, "n", n); put (e, "p", f.getFullPathName()); places.add (e); } };
+    place (sk ("Hudba"), juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+    place (sk ("Dokumenty"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
+    place (sk ("Plocha"), juce::File::getSpecialLocation (juce::File::userDesktopDirectory));
+    place (sk ("Stiahnuté"), juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile ("Downloads"));
+    juce::Array<juce::File> roots;
+    juce::File::findFileSystemRoots (roots);
+    for (auto& r : roots) place (r.getFullPathName(), r);
+    put (o, "places", places);
+    emit ("fsList", o);
 }
 
 void MainView::onDenoise (const juce::var& v)
