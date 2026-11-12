@@ -78,6 +78,7 @@ private:
     void onRecAudio (const juce::var&);
     void onExportWav (const juce::var&);
     void onExportStems (const juce::var&);
+    void onSeparate (const juce::var&);
     void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);
     void finishRecording();
     std::unique_ptr<SongData> parseCurrent (const juce::var&);

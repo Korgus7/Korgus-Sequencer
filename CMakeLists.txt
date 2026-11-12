@@ -28,6 +28,7 @@ target_sources(KorgusSequencer PRIVATE
     Source/SongParse.cpp
     Source/AudioStore.cpp
     Source/Melody.cpp
+    Source/Separator.cpp
     Source/UiCommon.cpp
     Source/MainView.cpp)
 

@@ -50,7 +50,11 @@ jobs:
         run: |
           mkdir -p out
           cp "build/KorgusSequencer_artefacts/Release/Korgus Sequencer.exe" out/
-          ls -la out
+          # ONNX Runtime pre oddelenie spevu (dava sa vedla programu do priecinka AI)
+          mkdir -p out/AI
+          curl -sSL -o ort.zip https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip
+          unzip -q -j ort.zip "onnxruntime-win-x64-1.20.1/lib/onnxruntime.dll" -d out/AI
+          ls -la out out/AI
 
       - uses: actions/upload-artifact@v4
         with:

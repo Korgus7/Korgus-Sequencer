@@ -415,6 +415,7 @@ function setupNative(){
   onNat('params',autoParams);
   onNat('paramTouched',autoParamTouched);
   onNat('clipResult',clipResult);
+  onNat('separated',separated);
   onNat('recPeaks',e=>{ const p=natRecPk[e.track]||(natRecPk[e.track]={mn:[],mx:[]}); p.B=e.B; p.sr=e.sr; p.start=e.start; p.mn.push(...e.mn); p.mx.push(...e.mx); });
   onNat('midiImported',midiImported);
   $('bImpMidi').onclick=()=>nat('importMidi');
@@ -1767,6 +1768,7 @@ function clipMenu(tr,p,x,y){
     ['Normalizovať',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'norm'}; nat('clipPeak',{req,id:p.aid,off:p.off||0,dur:p.dur}); }],
     ['Otočiť (spätný chod)',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'rev'}; nat('reverseAudio',{req,id:p.aid}); }],
     ['Stíšiť úsek medzi lokátormi L – R',()=>clipMuteRange(tr,p)],
+    ['Oddeliť spev a hudbu (AI)…',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'sep'}; nat('separate',{req,id:p.aid,off:p.off||0,dur:p.dur}); }],
     [(p.bpm?'✓ ':'')+'Prispôsobovať tempu piesne',()=>{ pushUndo(); if(p.bpm) delete p.bpm; else p.bpm=song.tempo; updateAudioLens(); renderAll(); save(); }],
   ]);
 }
@@ -1784,6 +1786,19 @@ function clipMuteRange(tr,p){
   if(R<b-.01) splitPartAt(tr,mid,R);
   mid.gain=0; selParts.clear(); selParts.add(mid.id); drawArrange(); save();
   toast('Úsek L – R v klipe je stíšený. Ctrl+Z vráti späť.');
+}
+function separated(e){
+  const j=clipReq[e.req]; if(!j) return; delete clipReq[e.req];
+  if(e.error){ if(e.error!=='Zrušené.') dialog('Oddelenie spevu','<p>'+esc(e.error)+'</p>'); return; }
+  pushUndo();
+  const src=j.tr, p=j.p, i=song.tracks.indexOf(src);
+  const mk=(name,id)=>{ const t=mkTrack('audio'); t.name=name; const q={id:uid(),start:p.start,len:p.len,aid:id,off:0,dur:e.dur,name};
+    if(p.bpm) q.bpm=p.bpm; if(p.semi) q.semi=p.semi; t.parts=[q]; return t; };
+  const base=String(p.name||src.name).slice(0,14);
+  const tv=mk('Spev – '+base,e.voc), tm=mk('Hudba – '+base,e.mus);
+  song.tracks.splice(i+1,0,tv,tm); src.mute=true;
+  selT=i+1; renderAll(); save(); natSel();
+  toast('Hotovo: pribudli stopy <b>Spev</b> a <b>Hudba</b>, pôvodná stopa je stlmená. Ctrl+Z vráti späť.');
 }
 function clipResult(e){
   const j=clipReq[e.req]; if(!j) return; delete clipReq[e.req];

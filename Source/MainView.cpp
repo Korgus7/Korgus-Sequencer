@@ -2,6 +2,7 @@
 #include "BinaryData.h"
 #include "SongParse.h"
 #include "Melody.h"
+#include "Separator.h"
 
 //==============================================================================
 SettingsComponent::SettingsComponent (juce::AudioDeviceManager& d, std::function<void()> onPlugins)
@@ -216,6 +217,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                             })
         .withEventListener ("exportStems", [this] (const juce::var& v) { onExportStems (v); })
         .withEventListener ("autoRec",     [this] (const juce::var& v) { autoRecOn = (bool) v["on"]; })
+        .withEventListener ("separate",    [this] (const juce::var& v) { onSeparate (v); })
         .withEventListener ("clipPeak",    [this] (const juce::var& v)
                             {
                                 auto b = store->get (v["id"].toString());
@@ -1444,4 +1446,136 @@ AudioBufPtr MainView::clipBuffer (const juce::String& id, double alpha, int semi
         });
     });
     return nullptr;
+}
+
+//==============================================================================
+// oddelenie spevu od hudby (AI model v programe, bez internetu po prvom stiahnuti)
+namespace
+{
+    const char* modelUrl = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx";
+    const char* ortZipUrl = "https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip";
+   #if JUCE_WINDOWS
+    const char* ortName = "onnxruntime.dll";
+   #elif JUCE_MAC
+    const char* ortName = "libonnxruntime.dylib";
+   #else
+    const char* ortName = "libonnxruntime.so";
+   #endif
+
+    juce::AudioBuffer<float> resampleTo (const juce::AudioBuffer<float>& in, double fromSr, double toSr)
+    {
+        if (std::abs (fromSr - toSr) < 0.5) return in;
+        const double ratio = fromSr / toSr;
+        const int ch = in.getNumChannels(), len = in.getNumSamples(), outLen = juce::jmax (1, (int) (len / ratio));
+        juce::AudioBuffer<float> pad (ch, len + 256);
+        pad.clear();
+        for (int c = 0; c < ch; ++c) pad.copyFrom (c, 0, in, c, 0, len);
+        juce::AudioBuffer<float> out (ch, outLen);
+        for (int c = 0; c < ch; ++c) { juce::WindowedSincInterpolator ip; ip.process (ratio, pad.getReadPointer (c), out.getWritePointer (c), outLen); }
+        return out;
+    }
+
+    struct SeparateJob : juce::ThreadWithProgressWindow
+    {
+        SeparateJob (juce::AudioBuffer<float> clip, double sr, juce::File dataAi, juce::File exeAi,
+                     std::function<void (bool, juce::String, juce::AudioBuffer<float>&, juce::AudioBuffer<float>&)> onDone)
+            : ThreadWithProgressWindow (juce::String::fromUTF8 ("Oddeľujem spev a hudbu"), true, true),
+              mix (std::move (clip)), rate (sr), dataDir (dataAi), exeDir (exeAi), done (std::move (onDone)) {}
+
+        juce::File find (const juce::String& name) const
+        {
+            if (exeDir.getChildFile (name).existsAsFile()) return exeDir.getChildFile (name);
+            return dataDir.getChildFile (name);
+        }
+        void run() override
+        {
+            auto prog = [this] (double p) { setProgress (p); return ! threadShouldExit(); };
+            auto model = find ("Kim_Vocal_2.onnx");
+            if (! model.existsAsFile())
+            {
+                setStatusMessage (juce::String::fromUTF8 ("Sťahujem model (66 MB) – len prvý raz…"));
+                if (! downloadFile (modelUrl, model, error, prog)) return;
+            }
+            auto ort = find (ortName);
+            if (! ort.existsAsFile())
+            {
+               #if JUCE_WINDOWS
+                setStatusMessage (juce::String::fromUTF8 ("Sťahujem ONNX Runtime (65 MB) – len prvý raz…"));
+                const auto zip = dataDir.getChildFile ("ort.zip");
+                if (! downloadFile (ortZipUrl, zip, error, prog)) return;
+                juce::ZipFile zf (zip);
+                for (int i = 0; i < zf.getNumEntries(); ++i)
+                    if (zf.getEntry (i)->filename.endsWithIgnoreCase ("lib/onnxruntime.dll"))
+                        if (std::unique_ptr<juce::InputStream> in (zf.createStreamForEntry (i)); in != nullptr)
+                        {
+                            ort.deleteFile();
+                            juce::FileOutputStream out (ort);
+                            out.writeFromInputStream (*in, -1);
+                        }
+                zip.deleteFile();
+               #endif
+                if (! ort.existsAsFile()) { error = juce::String::fromUTF8 ("Chýba ONNX Runtime: ") + ort.getFullPathName(); return; }
+            }
+            setStatusMessage (juce::String::fromUTF8 ("Oddeľujem spev a hudbu… (pesnička 3 min ≈ 1 – 3 min)"));
+            setProgress (0.0);
+            auto in44 = resampleTo (mix, rate, 44100.0);
+            if (in44.getNumChannels() < 2) { in44.setSize (2, in44.getNumSamples(), true); in44.copyFrom (1, 0, in44, 0, 0, in44.getNumSamples()); }
+            juce::AudioBuffer<float> voc44;
+            if (! separateVocals (ort, model, in44, voc44, error, prog)) return;
+            juce::AudioBuffer<float> mus44 (2, in44.getNumSamples());
+            for (int c = 0; c < 2; ++c)
+            {
+                mus44.copyFrom (c, 0, in44, c, 0, in44.getNumSamples());
+                mus44.addFrom (c, 0, voc44, c, 0, in44.getNumSamples(), -1.0f);
+            }
+            vocals = resampleTo (voc44, 44100.0, rate);
+            music = resampleTo (mus44, 44100.0, rate);
+            ok = true;
+        }
+        void threadComplete (bool cancelled) override
+        {
+            if (done) done (ok && ! cancelled, cancelled ? juce::String::fromUTF8 ("Zrušené.") : error, vocals, music);
+            delete this;
+        }
+
+        juce::AudioBuffer<float> mix, vocals, music;
+        double rate;
+        juce::File dataDir, exeDir;
+        std::function<void (bool, juce::String, juce::AudioBuffer<float>&, juce::AudioBuffer<float>&)> done;
+        juce::String error;
+        bool ok = false;
+    };
+}
+
+void MainView::onSeparate (const juce::var& v)
+{
+    const auto req = v["req"].toString();
+    auto src = store->get (v["id"].toString());
+    auto fail = [this, req] (const juce::String& msg) { auto o = obj(); put (o, "req", req); put (o, "error", msg); emit ("separated", o); };
+    if (src == nullptr) { fail (sk ("Zvuk klipu sa nenašiel.")); return; }
+    const double sr = store->getSampleRate();
+    const int a0 = juce::jlimit (0, src->getNumSamples(), (int) ((double) v.getProperty ("off", 0.0) * sr));
+    const int len = juce::jlimit (0, src->getNumSamples() - a0, (int) ((double) v.getProperty ("dur", 0.0) * sr));
+    if (len < (int) sr) { fail (sk ("Klip je príliš krátky.")); return; }
+    juce::AudioBuffer<float> clip (juce::jmax (2, src->getNumChannels()), len);
+    for (int c = 0; c < clip.getNumChannels(); ++c) clip.copyFrom (c, 0, *src, juce::jmin (c, src->getNumChannels() - 1), a0, len);
+    const auto exeAi = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory().getChildFile ("AI");
+    const auto dataAi = dataDir.getChildFile ("AI");
+    dataAi.createDirectory();
+    juce::Component::SafePointer<MainView> sp (this);
+    auto* job = new SeparateJob (std::move (clip), sr, dataAi, exeAi,
+        [sp, req, sr] (bool ok, juce::String err, juce::AudioBuffer<float>& voc, juce::AudioBuffer<float>& mus)
+        {
+            if (sp == nullptr) return;
+            auto o = obj(); put (o, "req", req);
+            if (! ok) { put (o, "error", err); sp->emit ("separated", o); return; }
+            const auto vid = sp->store->addRecording (voc.getReadPointer (0), voc.getReadPointer (1), voc.getNumSamples(), sr);
+            const auto mid = sp->store->addRecording (mus.getReadPointer (0), mus.getReadPointer (1), mus.getNumSamples(), sr);
+            if (vid.isEmpty() || mid.isEmpty()) { put (o, "error", sk ("Výsledok sa nepodarilo uložiť.")); sp->emit ("separated", o); return; }
+            sp->emit ("audioPeaks", sp->store->peaksFor (vid));
+            sp->emit ("audioPeaks", sp->store->peaksFor (mid));
+            put (o, "voc", vid); put (o, "mus", mid); put (o, "dur", voc.getNumSamples() / sr);
+            sp->emit ("separated", o);
+        });
+    job->launchThread();
 }
