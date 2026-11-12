@@ -41,6 +41,7 @@ struct FxParam final : public AudioPluginInstance::HostedParameter
     float defNorm = 0;
     StringArray choices;                     // vyber zo zoznamu (rozbalovaci zoznam)
     bool toggle = false;                     // zap/vyp (prepinac)
+    bool inEditor = true;                    // false = ovlada sa inde (napr. ikony v grafe)
     std::function<String (float)> textFn;    // vlastny text hodnoty
     std::atomic<float> value { 0 };
 };
@@ -171,6 +172,7 @@ public:
     bool hasEditor() const override    { return true; }
     AudioProcessorEditor* createEditor() override { return new KnobEditor (*this, knobs); }
     virtual std::unique_ptr<Component> makeDisplay() { return nullptr; }
+    virtual int displayHeight() const { return 150; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -211,8 +213,9 @@ private:
     bool isInst = false;
 };
 
-KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProcessorEditor (p), params (ps)
+KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProcessorEditor (p)
 {
+    for (auto* q : ps) if (q->inEditor) params.push_back (q);
     const Colour text (0xffc9d2dc), steel (0xff2d4362), fill (0xff6f8fb3);
     for (auto* prm : params)
     {
@@ -266,7 +269,7 @@ KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProce
         comps.push_back (std::move (comp));
     }
     display = p.makeDisplay();
-    if (display != nullptr) { top = 150; addAndMakeVisible (*display); }
+    if (display != nullptr) { top = p.displayHeight(); addAndMakeVisible (*display); }
     setSize (jmax (display != nullptr ? 460 : 260, 92 * (int) comps.size() + 16), 150 + top);
     startTimerHz (20);
 }
@@ -344,7 +347,7 @@ public:
         mix  = add ("mix", "Mix", 0, 100, 100, "%", 1.0f, 0);
         key  = add ("key", "Riadenie", 0, 1, 0, "", 1.0f, 0);
         key->range.interval = 1.0f;
-        key->choices = StringArray { String::fromUTF8 ("Vlastný signál"), String::fromUTF8 ("Sidechain (kľúčová stopa)") };
+        key->choices = StringArray { String::fromUTF8 ("Vlastný"), String ("Sidechain") };
     }
 
 private:
@@ -586,9 +589,21 @@ public:
     explicit PulseDisplay (PulseFx& p) : fx (p) { startTimerHz (30); }
     ~PulseDisplay() override { stopTimer(); }
     void paint (Graphics& g) override;
+    void mouseDown (const MouseEvent& e) override;
+    void mouseMove (const MouseEvent& e) override { const int h = cellAt (e.position); if (h != hover) { hover = h; repaint(); } }
+    void mouseExit (const MouseEvent&) override { hover = -1; repaint(); }
 private:
+    static constexpr int gridH = 84;   // 2 riadky ikon tvarov
+    Rectangle<float> cellRect (int i) const
+    {
+        auto g = getLocalBounds().toFloat().removeFromBottom ((float) gridH).reduced (6, 4);
+        const float w = g.getWidth() / 8.0f, h = g.getHeight() / 2.0f;
+        return { g.getX() + (float) (i % 8) * w + 2, g.getY() + (float) (i / 8) * h + 2, w - 4, h - 4 };
+    }
+    int cellAt (Point<float> p) const { for (int i = 0; i < 16; ++i) if (cellRect (i).contains (p)) return i; return -1; }
     void timerCallback() override { repaint(); }
     PulseFx& fx;
+    int hover = -1;
 };
 
 class PulseFx final : public FxBase
@@ -601,18 +616,20 @@ public:
         rateP->choices = StringArray { "1/8", "1/4", "1/2", "1/1" };
         shp = add ("shape", "Tvar", 0, 15, 1, "", 1.0f, 0);
         shp->range.interval = 1.0f;
+        shp->inEditor = false;
         shp->choices = StringArray::fromTokens (String::fromUTF8 ("Mäkký nábeh|Klasika|Neskorý nástup|Hlboká pumpa|Rýchly nábeh|Opačne|Mäkký pokles|"
                                                                  "Vrchol|Dlhé podržanie|Plynulý nábeh|Tvrdá pumpa|Brána|Plató|Svah|Údolie|Dvojitá"), "|", "");
         mix = add ("mix", "Hĺbka", 0, 100, 100, "%", 1.0f, 0);
         out = add ("output", "Výstup", -12, 12, 0, "dB");
         mode = add ("mode", "Riadenie", 0, 1, 0, "", 1.0f, 0);
         mode->range.interval = 1.0f;
-        mode->choices = StringArray { String::fromUTF8 ("Tempo (tvar)"), String::fromUTF8 ("Sidechain (kľúč)") };
+        mode->choices = StringArray { String ("Tempo"), String ("Sidechain") };
         on  = add ("active", "Zapnuté", 0, 1, 1, "", 1.0f, 0);
         on->toggle = true;
     }
 
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<PulseDisplay> (*this); }
+    int displayHeight() const override { return 236; }
 
     std::atomic<float> phaseNow { 0 }, bpmNow { 120 };
     FxParam *rateP, *shp, *mix, *out, *mode, *on;
@@ -670,11 +687,43 @@ private:
     float gSm = 1, kEnv = 0;
 };
 
+void PulseDisplay::mouseDown (const MouseEvent& e)
+{
+    const int i = cellAt (e.position);
+    if (i < 0) return;
+    fx.shp->beginChangeGesture();
+    fx.shp->setValueNotifyingHost (fx.shp->range.convertTo0to1 ((float) i));
+    fx.shp->endChangeGesture();
+    repaint();
+}
+
 void PulseDisplay::paint (Graphics& g)
 {
     auto r = getLocalBounds().toFloat();
     g.setColour (Colour (0xff161c24));
     g.fillRoundedRectangle (r, 3.0f);
+    // ikony tvarov
+    {
+        const int cur = roundToInt (fx.shp->get());
+        for (int i = 0; i < 16; ++i)
+        {
+            auto c = cellRect (i);
+            g.setColour (i == cur ? Colour (0xff2d4362) : (i == hover ? Colour (0xff27313d) : Colour (0xff1f2630)));
+            g.fillRoundedRectangle (c, 3.0f);
+            if (i == cur) { g.setColour (Colour (0xff8fb0d0)); g.drawRoundedRectangle (c.reduced (0.5f), 3.0f, 1.0f); }
+            auto a = c.reduced (5, 6);
+            Path pth;
+            const int W = jmax (2, (int) a.getWidth());
+            for (int x = 0; x <= W; ++x)
+            {
+                const float f = (float) x / (float) W, py = a.getBottom() - Pulse::shape (i, f) * a.getHeight();
+                if (x == 0) pth.startNewSubPath (a.getX(), py); else pth.lineTo (a.getX() + (float) x, py);
+            }
+            g.setColour (i == cur ? Colour (0xffe4e9ef) : Colour (0xff8fb0d0));
+            g.strokePath (pth, PathStrokeType (1.4f));
+        }
+        r.removeFromBottom ((float) gridH);
+    }
     auto area = r.reduced (10, 22);
     const int s = roundToInt (fx.shp->get());
     const float depth = fx.on->get() > 0.5f ? fx.mix->get() * 0.01f : 0.0f;
@@ -710,7 +759,7 @@ void PulseDisplay::paint (Graphics& g)
     if (fx.keyMode.load())
         g.drawText (String::fromUTF8 ("SIDECHAIN – riadi kľúčová stopa"), r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
     else
-    g.drawText (String (fx.bpmNow.load(), 1) + " BPM  /  " + fx.rateP->choices[roundToInt (fx.rateP->get())] + "  /  " + fx.shp->choices[s],
+    g.drawText (String (fx.bpmNow.load(), 1) + " BPM  /  " + fx.rateP->choices[roundToInt (fx.rateP->get())] + "  /  " + fx.shp->choices[hover >= 0 ? hover : s],
                 r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
 }
 

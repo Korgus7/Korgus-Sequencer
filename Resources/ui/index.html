@@ -81,7 +81,9 @@ body.native #boot.done{display:none}
 .ms .dd select option{background:#2a3442;color:#e4e9ef}
 .ms .dd .pw{position:absolute;left:3px;top:3px;width:14px;height:14px;display:flex;align-items:center;justify-content:center;color:#cfe0f0;cursor:pointer;z-index:1;border-radius:3px}
 .ms .dd .pw:hover{background:#2d4362}
-.ms .dd.on select{padding-left:19px}
+.ms .dd.on select{padding-left:19px;padding-right:32px}
+.ms .dd .op{position:absolute;right:15px;top:3px;width:14px;height:14px;display:flex;align-items:center;justify-content:center;color:#cfe0f0;cursor:pointer;z-index:1;border-radius:3px}
+.ms .dd .op:hover{background:#2d4362}
 .ms .dd.off{background:#3a4757}
 .ms .dd.off select{color:#8a96a6;text-decoration:line-through}
 .ms .dd.off .pw{color:#8a96a6}
@@ -510,6 +512,7 @@ const PRESETS={
 const ICO_KEYS='<svg width="20" height="12" viewBox="0 0 20 12"><rect x=".5" y=".5" width="19" height="11" rx="1" fill="#fff" stroke="currentColor"/><path d="M4.5 1v10M8.5 1v10M12 1v10M15.5 1v10" stroke="currentColor"/><path d="M3 1h3v6H3zM7 1h3v6H7zM13.8 1h3v6h-3z" fill="currentColor"/></svg>';
 const ICO_ARROW='<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg>';
 const ICO_PEN='<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/><path d="M9 4l3 3"/></svg>';
+const ICO_WIN='<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1" y="1.5" width="10" height="9" rx="1"/><path d="M1 4h10"/><path d="M3.5 6.5h2M3.5 8.2h5"/></svg>';
 const KEYS=['KeyA','KeyW','KeyS','KeyE','KeyD','KeyF','KeyT','KeyG','KeyY','KeyH','KeyU','KeyJ','KeyK','KeyO','KeyL','KeyP','Semicolon'];
 const uid=()=>Math.random().toString(36).slice(2,10);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -1105,7 +1108,9 @@ function renderTracksNative(L){
   const fxOpts='<option value="">Žiadny</option>'+natPlugins.filter(p=>!p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
   const fxRow=tr=>{ const fx=((natTrackPlugins[tr.id]||{}).fx||[])[0], r=el('div','r');
     const d=dd(ICO_FXB,fxOpts,fx?fx.uid:'',fx?fx.name+' (dvojklik = okno efektu)':'Efekt na stope',(v,sl)=>{ if(v==='__scan'){ sl.value=fx?fx.uid:''; nat('showPlugins'); return; } nat('trackFx',{track:tr.id,idx:0,uid:v,name:tr.name}); });
-    d.ondblclick=()=>{ if(fx) nat('openFx',{track:tr.id,idx:0,name:tr.name}); }; r.appendChild(d); return r; };
+    d.ondblclick=()=>{ if(fx) nat('openFx',{track:tr.id,idx:0,name:tr.name}); }; r.appendChild(d);
+    if(fx){ const op=el('button','tg',ICO_WIN); op.title='Otvoriť okno efektu '+fx.name; op.onmousedown=e=>e.stopPropagation(); op.onclick=()=>nat('openFx',{track:tr.id,idx:0,name:tr.name}); r.appendChild(op); }
+    return r; };
   song.tracks.forEach((tr,i)=>{
     const audio=tr.type==='audio', r=el('div','ntr'+(i===selT?' sel':'')); r.dataset.i=i; r.style.height=ROWH+'px';
     const num=el('div','num',String(i+1)), col=el('div','col');
@@ -1618,7 +1623,8 @@ function renderMixer(){
     const fx=(natTrackPlugins[o.id]||{}).fx||[];
     for(let k=0;k<4;k++){ const f=fx[k], off=f&&fxIsOff(o.id,k), d=el('div','dd'+(f?' on':'')+(off?' off':'')), sl=el('select');
       if(f){ const pw=el('b','pw',ICO_PWR); pw.title=off?'Efekt je vypnutý – klik = zapnúť':'Vypnúť efekt (bypass)';
-        pw.onmousedown=e=>e.stopPropagation(); pw.onclick=e=>{ e.stopPropagation(); fxSetOff(o.id,k,!fxIsOff(o.id,k)); renderMixer(); }; d.appendChild(pw); }
+        pw.onmousedown=e=>e.stopPropagation(); pw.onclick=e=>{ e.stopPropagation(); fxSetOff(o.id,k,!fxIsOff(o.id,k)); renderMixer(); }; d.appendChild(pw);
+        const op=el('b','op',ICO_WIN); op.title='Otvoriť okno efektu'; op.onmousedown=e=>e.stopPropagation(); op.onclick=e=>{ e.stopPropagation(); nat('openFx',{track:o.id,idx:k,name:o.name}); }; d.appendChild(op); }
       sl.innerHTML='<option value="">–</option>'+fxList.map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
       sl.value=f?f.uid:''; sl.title=f?f.name+' (dvojklik = okno efektu)':'Efekt '+(k+1);
       sl.onmousedown=e=>e.stopPropagation();
