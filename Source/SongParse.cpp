@@ -75,14 +75,6 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             td.gainR = g * juce::jmin (1.0f, 1.0f + pan);
             td.vol = vol; td.pan = pan;
             td.isKey = (bool) t.getProperty ("sc", false);
-            if (const auto& ar = t["arp"]; ar.isObject())
-            {
-                td.arp.on = (bool) ar.getProperty ("on", false);
-                td.arp.rate = juce::jlimit (0, 4, (int) ar.getProperty ("rate", 3));
-                td.arp.mode = juce::jlimit (0, 4, (int) ar.getProperty ("mode", 0));
-                td.arp.oct = juce::jlimit (1, 3, (int) ar.getProperty ("oct", 1));
-                td.arp.gate = juce::jlimit (0.05f, 1.0f, (float) (double) ar.getProperty ("gate", 0.8));
-            }
             td.fxOff = offBits (t["id"].toString());
             if (const auto* snd = t["send"].getArray())
                 for (int k = 0; k < juce::jmin (2, snd->size()); ++k)

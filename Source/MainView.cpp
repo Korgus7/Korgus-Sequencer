@@ -233,6 +233,20 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("exportMp3",   [this] (const juce::var& v) { onExportMp3 (v); })
         .withEventListener ("exportVideo", [this] (const juce::var& v) { onExportVideo (v); })
         .withEventListener ("mastering",   [this] (const juce::var& v) { onMastering (v); })
+        .withEventListener ("trackArp",    [this] (const juce::var& v)
+                            {
+                                const auto id = v["track"].toString();
+                                const bool on = (bool) v.getProperty ("on", true);
+                                if (setArp (id, on, nullptr) && on)
+                                    if (auto* p = engine.getMidiFx (engine.getOrCreateSlot (id)))
+                                        openWindow (id + "#arp", p, juce::String ("Korgus Arp") + sk ("  –  ") + v["name"].toString());
+                            })
+        .withEventListener ("openArp",     [this] (const juce::var& v)
+                            {
+                                const auto id = v["track"].toString();
+                                if (auto* p = engine.getMidiFx (engine.getOrCreateSlot (id)))
+                                    openWindow (id + "#arp", p, juce::String ("Korgus Arp") + sk ("  –  ") + v["name"].toString());
+                            })
         .withEventListener ("clipPeak",    [this] (const juce::var& v)
                             {
                                 auto b = store->get (v["id"].toString());
@@ -500,6 +514,28 @@ bool MainView::loadFxForTrack (const juce::String& trackId, int idx, const juce:
     engine.setTrackFx (engine.getOrCreateSlot (trackId), idx, std::move (inst));
     watchPlugin (trackId, idx + 1, raw);
     fxDesc[trackId][idx] = d;
+    sendTrackPlugins();
+    saveSession();
+    return true;
+}
+
+bool MainView::setArp (const juce::String& trackId, bool on, const juce::MemoryBlock* state)
+{
+    pluginWindows.erase (trackId + "#arp");
+    const int slot = engine.getOrCreateSlot (trackId);
+    if (! on)
+    {
+        engine.setTrackMidiFx (slot, nullptr);
+        arpTracks.erase (trackId);
+    }
+    else
+    {
+        auto inst = BuiltinFx::create (BuiltinFx::arpDescription());
+        if (inst == nullptr) return false;
+        if (state != nullptr && state->getSize() > 0) inst->setStateInformation (state->getData(), (int) state->getSize());
+        engine.setTrackMidiFx (slot, std::move (inst));
+        arpTracks.insert (trackId);
+    }
     sendTrackPlugins();
     saveSession();
     return true;
@@ -820,6 +856,7 @@ void MainView::sendTrackPlugins()
         }
         put (t, "fx", fx);
     }
+    for (const auto& id : arpTracks) { auto t = entry (id); put (t, "arp", true); }
     emit ("trackPlugins", o);
 }
 
@@ -861,6 +898,15 @@ juce::var MainView::collectPluginStates()
             }
         if (! fx.isEmpty()) { auto t = entry (id); put (t, "fx", fx); }
     }
+    for (const auto& id : arpTracks)
+        if (auto* p = engine.getMidiFx (engine.getOrCreateSlot (id)))
+        {
+            juce::MemoryBlock mb;
+            p->getStateInformation (mb);
+            auto t = entry (id);
+            auto a = obj(); put (a, "state", mb.toBase64Encoding());
+            put (t, "arp", a);
+        }
     return o;
 }
 
@@ -885,6 +931,12 @@ void MainView::restorePluginStates (const juce::var& vst)
             juce::MemoryBlock mb;
             if (prop.value.hasProperty ("desc") && load (prop.value, desc, mb))
                 loadPluginForTrack (trackId, desc, &mb);
+            if (prop.value["arp"].isObject())
+            {
+                juce::MemoryBlock am;
+                am.fromBase64Encoding (prop.value["arp"]["state"].toString());
+                setArp (trackId, true, &am);
+            }
             if (const auto* fx = prop.value["fx"].getArray())
                 for (const auto& f : *fx)
                 {

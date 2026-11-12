@@ -233,7 +233,7 @@ KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProce
         else if (! prm->choices.isEmpty())
         {
             auto c = std::make_unique<ComboBox>();
-            for (int i = 0; i < prm->choices.size(); ++i) c->addItem (prm->choices[i], i + 1);
+            for (int i = 0; i < prm->choices.size(); ++i) if (prm->choices[i].isNotEmpty()) c->addItem (prm->choices[i], i + 1);
             c->setSelectedId (roundToInt (prm->get()) + 1, dontSendNotification);
             c->setColour (ComboBox::backgroundColourId, steel);
             c->setColour (ComboBox::textColourId, text);
@@ -1020,6 +1020,469 @@ void SamplerDisplay::paint (Graphics& g)
     }
 }
 
+
+//==============================================================================
+// Korgus Arp - MIDI arpeggiator so 16-krokovym vzorom (sila, pauzy, oktava na krok)
+class ArpFx;
+
+class ArpGrid final : public Component, private Timer
+{
+public:
+    explicit ArpGrid (ArpFx& a) : arp (a) { startTimerHz (30); }
+    ~ArpGrid() override { stopTimer(); }
+    void paint (Graphics& g) override;
+    void mouseDown (const MouseEvent& e) override;
+    void mouseDrag (const MouseEvent& e) override;
+private:
+    void timerCallback() override { repaint(); }
+    Rectangle<float> velArea() const { return getLocalBounds().toFloat().reduced (8, 0).withTrimmedTop (22).withTrimmedBottom (34); }
+    Rectangle<float> octArea() const { return getLocalBounds().toFloat().reduced (8, 0).removeFromBottom (28).withTrimmedBottom (4); }
+    int stepAt (float x) const { const auto a = velArea(); return jlimit (0, 15, (int) ((x - a.getX()) / (a.getWidth() / 16.0f))); }
+    ArpFx& arp;
+    int dragMode = 0;   // 1 = sila, 2 = vypnut, 3 = zapnut
+};
+
+class ArpFx final : public FxBase
+{
+public:
+    ArpFx() : FxBase ("Korgus Arp", "arp")
+    {
+        rateP = add ("rate", "Rýchlosť", 0, 6, 4, "", 1.0f, 0);
+        rateP->range.interval = 1.0f;
+        rateP->choices = StringArray::fromTokens (String::fromUTF8 ("1/4|1/8|1/8 triola|1/8 bodka|1/16|1/16 triola|1/32"), "|", "");
+        modeP = add ("mode", "Smer", 0, 6, 0, "", 1.0f, 0);
+        modeP->range.interval = 1.0f;
+        modeP->choices = StringArray::fromTokens (String::fromUTF8 ("Hore|Dole|Hore-dole|Dole-hore|Náhodne|Ako hráš|Akord"), "|", "");
+        octP = add ("octaves", "Oktávy", 1, 4, 1, "", 1.0f, 0);
+        octP->range.interval = 1.0f;
+        octP->choices = StringArray ("", "1", "2", "3", "4");
+        lenP = add ("length", "Kroky", 1, 16, 16, "", 1.0f, 0);
+        lenP->range.interval = 1.0f;
+        for (int i = 0; i <= 16; ++i) lenP->choices.add (i == 0 ? String() : String (i));
+        gateP = add ("gate", "Dĺžka tónu", 5, 100, 60, "%", 1.0f, 0);
+        swingP = add ("swing", "Swing", 0, 75, 0, "%", 1.0f, 0);
+        velP = add ("velmode", "Sila", 0, 2, 2, "", 1.0f, 0);
+        velP->range.interval = 1.0f;
+        velP->choices = StringArray::fromTokens (String::fromUTF8 ("Z hry|Zo vzoru|Kombinácia"), "|", "");
+        latchP = add ("latch", "Podržať", 0, 1, 0, "", 1.0f, 0);
+        latchP->toggle = true;
+        patP = add ("pattern", "Vzor", 0, 1, 1, "", 1.0f, 0);
+        patP->toggle = true;
+        for (int i = 0; i < 16; ++i) { stepVel[i] = (i % 4 == 0) ? 120 : (i % 2 == 0 ? 95 : 80); stepOn[i] = true; stepOct[i] = 0; }
+    }
+
+    bool acceptsMidi() const override  { return true; }
+    bool producesMidi() const override { return true; }
+    bool isMidiEffect() const override { return true; }
+    std::unique_ptr<Component> makeDisplay() override { return std::make_unique<ArpGrid> (*this); }
+    int displayHeight() const override { return 190; }
+
+    void getStateInformation (MemoryBlock& mb) override
+    {
+        XmlElement x ("KORGUSFX");
+        x.setAttribute ("type", "arp");
+        for (auto* p : knobs) x.setAttribute (p->id, (double) p->get());
+        String v, o, a;
+        for (int i = 0; i < 16; ++i) { v << stepVel[i].load() << " "; o << stepOct[i].load() << " "; a << (stepOn[i].load() ? 1 : 0) << " "; }
+        x.setAttribute ("stepvel", v.trim()); x.setAttribute ("stepoct", o.trim()); x.setAttribute ("stepon", a.trim());
+        copyXmlToBinary (x, mb);
+    }
+    void setStateInformation (const void* data, int size) override
+    {
+        FxBase::setStateInformation (data, size);
+        if (auto x = getXmlFromBinary (data, size))
+        {
+            auto v = StringArray::fromTokens (x->getStringAttribute ("stepvel"), " ", ""), o = StringArray::fromTokens (x->getStringAttribute ("stepoct"), " ", ""),
+                 a = StringArray::fromTokens (x->getStringAttribute ("stepon"), " ", "");
+            for (int i = 0; i < 16; ++i)
+            {
+                if (i < v.size()) stepVel[i] = jlimit (1, 127, v[i].getIntValue());
+                if (i < o.size()) stepOct[i] = jlimit (-1, 1, o[i].getIntValue());
+                if (i < a.size()) stepOn[i] = a[i].getIntValue() != 0;
+            }
+        }
+    }
+
+    void processBlock (AudioBuffer<float>& buf, MidiBuffer& midi) override
+    {
+        out.clear();
+        double bpm = 120, ppq = 0; bool playing = false;
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition())
+            {
+                if (auto b = pos->getBpm()) bpm = jlimit (20.0, 400.0, *b);
+                playing = pos->getIsPlaying();
+                if (auto q = pos->getPpqPosition()) ppq = *q;
+            }
+        static const double rates[7] = { 4.0, 2.0, 4.0 / 3.0, 3.0, 1.0, 2.0 / 3.0, 0.5 };
+        const double rs = rates[jlimit (0, 6, roundToInt (rateP->get()))];
+        const double sps = bpm * 4.0 / 60.0 / jmax (1.0, rate);
+        const bool usePat = patP->get() > 0.5f;
+        const int len = usePat ? jlimit (1, 16, roundToInt (lenP->get())) : 16;
+        const int mode = roundToInt (modeP->get()), octs = jlimit (1, 4, roundToInt (octP->get())), velMode = roundToInt (velP->get());
+        const bool latch = latchP->get() > 0.5f;
+        const double swing = swingP->get() * 0.01;
+        const int ch = lastCh;
+        if (playing) clock = ppq * 4.0;
+        const int numSamples = jmax (1, buf.getNumSamples());
+
+        auto offAll = [&] (int at) { for (int p : sounding) out.addEvent (MidiMessage::noteOff (ch, p), jlimit (0, numSamples - 1, at)); sounding.clear(); offAt = -1; };
+        auto tick = [&] (int at, long long k)
+        {
+            const int stepPos = (int) (((k % len) + len) % len);
+            curStep = stepPos;
+            if (held.empty() && ! (latch && ! latched.empty())) return;
+            const auto& src = held.empty() ? latched : held;
+            offAll (at);
+            if (usePat && ! stepOn[stepPos].load()) return;
+            std::vector<std::pair<int, int>> base (src);
+            if (mode != 5) std::sort (base.begin(), base.end());
+            seq.clear();
+            for (int o = 0; o < octs; ++o) for (const auto& h : base) seq.push_back ({ h.first + 12 * o, h.second });
+            const int m = (int) seq.size();
+            if (m == 0) return;
+            const int shift = usePat ? 12 * stepOct[stepPos].load() : 0;
+            auto velFor = [&] (int played) { const int pv = stepVel[stepPos].load(); return jlimit (1, 127, (velMode == 0 || ! usePat) ? played : velMode == 1 ? pv : played * pv / 110); };
+            auto play = [&] (int pitch, int v) { const int p = jlimit (0, 127, pitch + shift); out.addEvent (MidiMessage::noteOn (ch, p, (uint8) velFor (v)), at); sounding.push_back (p); };
+            if (mode == 6) { for (const auto& h : seq) play (h.first, h.second); }
+            else
+            {
+                const int i = idx++;
+                int pick = 0;
+                switch (mode)
+                {
+                    case 1: pick = m - 1 - (i % m); break;
+                    case 2: { const int per = jmax (1, 2 * m - 2); const int q = i % per; pick = m == 1 ? 0 : (q < m ? q : per - q); break; }
+                    case 3: { const int per = jmax (1, 2 * m - 2); const int q = i % per; pick = m == 1 ? 0 : (q < m ? m - 1 - q : q - (m - 2)); break; }
+                    case 4: pick = rnd.nextInt (m); break;
+                    default: pick = i % m; break;
+                }
+                play (seq[(size_t) pick].first, seq[(size_t) pick].second);
+            }
+            offAt = at + jmax (1, (int) (gateP->get() * 0.01 * rs / sps));
+        };
+
+        // kroky v bloku (swing posuva neparne kroky)
+        auto tickTime = [&] (long long k) { return ((double) k * rs + ((k & 1) ? swing * 0.5 * rs : 0.0) - clock) / sps; };
+        long long k = (long long) std::ceil (clock / rs - 0.5 - 1.0e-9);
+        while (tickTime (k) < -0.5) ++k;
+        auto it = midi.cbegin();
+        const auto end = midi.cend();
+        for (;;)
+        {
+            const int tAt = (int) std::floor (tickTime (k) + 0.5);
+            const int eAt = it != end ? (*it).samplePosition : numSamples;
+            const int oAt = (! sounding.empty() && offAt >= 0) ? offAt : numSamples;
+            const int at = jmin (tAt, eAt, oAt);
+            if (at >= numSamples) break;
+            if (oAt == at) { offAll (at); continue; }
+            if (eAt == at)
+            {
+                const auto msg = (*it).getMessage();
+                ++it;
+                lastCh = msg.getChannel() > 0 ? msg.getChannel() : lastCh;
+                if (msg.isNoteOn())
+                {
+                    const bool first = held.empty();
+                    const int p = msg.getNoteNumber();
+                    if (first) { idx = 0; latched.clear(); }
+                    if (std::find_if (held.begin(), held.end(), [p] (const auto& h) { return h.first == p; }) == held.end())
+                        held.push_back ({ p, (int) msg.getVelocity() });
+                    latched = held;
+                    if (first && ! playing) { clock = -at * sps; k = 0; }   // bez prehravania: zacat hned
+                }
+                else if (msg.isNoteOff())
+                {
+                    const int p = msg.getNoteNumber();
+                    held.erase (std::remove_if (held.begin(), held.end(), [p] (const auto& h) { return h.first == p; }), held.end());
+                    if (held.empty() && ! latch) offAll (at);
+                }
+                else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+                {
+                    held.clear(); latched.clear(); offAll (at); out.addEvent (msg, at);
+                }
+                else out.addEvent (msg, at);
+                continue;
+            }
+            tick (at, k);
+            ++k;
+        }
+        if (! sounding.empty() && offAt >= 0) offAt -= numSamples;
+        clock += numSamples * sps;
+        if (! playing && held.empty() && ! latch) curStep = -1;
+        midi.swapWith (out);
+    }
+
+    std::atomic<int> stepVel[16], stepOct[16];
+    std::atomic<bool> stepOn[16];
+    std::atomic<int> curStep { -1 };
+    FxParam *rateP, *modeP, *octP, *lenP, *gateP, *swingP, *velP, *latchP, *patP;
+    AudioProcessorEditor* createEditor() override;
+
+private:
+    void prepare() override { held.clear(); latched.clear(); sounding.clear(); offAt = -1; clock = 0; idx = 0; out.ensureSize (2048); }
+    void process (AudioBuffer<float>&) override {}
+
+    MidiBuffer out;
+    std::vector<std::pair<int, int>> held, latched, seq;
+    std::vector<int> sounding;
+    double clock = 0;
+    int idx = 0, offAt = -1, lastCh = 1;
+    Random rnd;
+};
+
+void ArpGrid::paint (Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (Colour (0xff161c24));
+    g.fillRoundedRectangle (r, 3.0f);
+    g.setFont (FontOptions (12.0f));
+    g.setColour (Colour (0xff8a96a3));
+    g.drawText (String::fromUTF8 ("klik = krok zap/vyp · ťahanie = sila · dolný riadok = oktáva"), r.reduced (10, 4).removeFromTop (14), Justification::centredLeft);
+    if (arp.patP->get() < 0.5f) { g.setColour (Colour (0xcc161c24)); g.fillRoundedRectangle (r, 3.0f); g.setColour (Colour (0xff8a96a3)); g.drawText (String::fromUTF8 ("Vzor vypnutý – hrá každý krok, sila z hry"), r, Justification::centred); return; }
+    const auto va = velArea(), oa = octArea();
+    const float w = va.getWidth() / 16.0f;
+    const int len = jlimit (1, 16, roundToInt (arp.lenP->get())), cur = arp.curStep.load();
+    for (int i = 0; i < 16; ++i)
+    {
+        auto cell = Rectangle<float> (va.getX() + w * (float) i + 2, va.getY(), w - 4, va.getHeight());
+        const bool inLen = i < len, on = arp.stepOn[i].load();
+        g.setColour (i == cur ? Colour (0xff27384d) : Colour (0xff1f2630));
+        g.fillRoundedRectangle (cell, 3.0f);
+        if (on && inLen)
+        {
+            const float h = cell.getHeight() * (float) arp.stepVel[i].load() / 127.0f;
+            g.setColour (i == cur ? Colour (0xffc9d2dc) : Colour (0xff6f8fb3));
+            g.fillRoundedRectangle (cell.withTop (cell.getBottom() - h), 3.0f);
+        }
+        else if (inLen)
+        {
+            g.setColour (Colour (0xff3a4656));
+            g.drawRoundedRectangle (cell.reduced (0.5f), 3.0f, 1.0f);
+        }
+        if (! inLen) { g.setColour (Colour (0xaa161c24)); g.fillRoundedRectangle (cell, 3.0f); }
+        auto oc = Rectangle<float> (oa.getX() + w * (float) i + 2, oa.getY(), w - 4, oa.getHeight());
+        const int o = arp.stepOct[i].load();
+        g.setColour (o == 0 ? Colour (0xff1f2630) : Colour (0xff2d4362));
+        g.fillRoundedRectangle (oc, 3.0f);
+        g.setColour (inLen ? Colour (0xffc9d2dc) : Colour (0xff5a6472));
+        g.drawText (o > 0 ? "+12" : (o < 0 ? "-12" : String (i + 1)), oc, Justification::centred);
+    }
+}
+
+void ArpGrid::mouseDown (const MouseEvent& e)
+{
+    const int i = stepAt (e.position.x);
+    if (octArea().contains (e.position))
+    {
+        const int o = arp.stepOct[i].load();
+        arp.stepOct[i] = o == 0 ? 1 : (o == 1 ? -1 : 0);
+        dragMode = 0;
+    }
+    else if (velArea().contains (e.position))
+    {
+        if (e.mods.isRightButtonDown() || ! arp.stepOn[i].load()) { const bool v = ! arp.stepOn[i].load(); arp.stepOn[i] = v; dragMode = v ? 3 : 2; }
+        else dragMode = 1;
+        mouseDrag (e);
+    }
+    repaint();
+}
+
+void ArpGrid::mouseDrag (const MouseEvent& e)
+{
+    const int i = stepAt (e.position.x);
+    const auto va = velArea();
+    if (dragMode == 1)
+    {
+        arp.stepOn[i] = true;
+        arp.stepVel[i] = jlimit (1, 127, (int) ((va.getBottom() - e.position.y) / va.getHeight() * 127.0f));
+    }
+    else if (dragMode == 2) arp.stepOn[i] = false;
+    else if (dragMode == 3) arp.stepOn[i] = true;
+    repaint();
+}
+
+
+//==============================================================================
+// okno arpeggiatora (rozlozenie ako v Studio One, nase farby)
+class ArpModeButtons final : public Component
+{
+public:
+    explicit ArpModeButtons (FxParam* p) : prm (p) {}
+    void paint (Graphics& g) override
+    {
+        const int cur = roundToInt (prm->get());
+        const float w = (float) getWidth() / 7.0f;
+        for (int i = 0; i < 7; ++i)
+        {
+            auto c = Rectangle<float> (w * (float) i, 0, w, (float) getHeight()).reduced (1.5f, 0);
+            g.setColour (i == cur ? Colour (0xff6f8fb3) : Colour (0xff2a3442));
+            g.fillRoundedRectangle (c, 3.0f);
+            g.setColour (i == cur ? Colour (0xff161c24) : Colour (0xffc9d2dc));
+            auto a = c.reduced (c.getWidth() * 0.22f, c.getHeight() * 0.26f);
+            auto pt = [&a] (float x, float y) { return Point<float> (a.getX() + x * a.getWidth(), a.getBottom() - y * a.getHeight()); };
+            Path p;
+            static const float shapes[6][5] = { { 0, .25f, .5f, .75f, 1 }, { 1, .75f, .5f, .25f, 0 }, { 0, .5f, 1, .5f, 0 }, { 1, .5f, 0, .5f, 1 }, { .3f, .9f, .1f, .7f, .4f }, { .1f, .8f, .4f, 1, .6f } };
+            if (i < 4 || i == 4)
+            {
+                for (int k = 0; k < 5; ++k) g.fillRoundedRectangle (Rectangle<float> (3.5f, 3.5f).withCentre (pt ((float) k / 4.0f, shapes[i][k])), 1.0f);
+                for (int k = 0; k < 5; ++k) { if (k == 0) p.startNewSubPath (pt (0, shapes[i][0])); else p.lineTo (pt ((float) k / 4.0f, shapes[i][k])); }
+                if (i != 4) g.strokePath (p, PathStrokeType (1.0f));
+            }
+            else if (i == 5)
+            {
+                for (int k = 0; k < 5; ++k) g.fillRoundedRectangle (Rectangle<float> (3.5f, 3.5f).withCentre (pt ((float) k / 4.0f, shapes[5][k])), 1.0f);
+                g.drawText ("1", a.withTrimmedTop (a.getHeight() * 0.6f).translated (0, a.getHeight() * 0.35f), Justification::centred);
+            }
+            else
+                for (int k = 0; k < 3; ++k) g.fillRoundedRectangle (Rectangle<float> (a.getWidth() * 0.18f, a.getHeight()).withCentre (pt (0.2f + 0.3f * (float) k, 0.5f)), 1.0f);
+        }
+    }
+    void mouseDown (const MouseEvent& e) override
+    {
+        const int i = jlimit (0, 6, (int) (e.position.x / ((float) getWidth() / 7.0f)));
+        prm->beginChangeGesture(); prm->setValueNotifyingHost (prm->range.convertTo0to1 ((float) i)); prm->endChangeGesture();
+        repaint();
+    }
+private:
+    FxParam* prm;
+};
+
+class ArpEditor final : public AudioProcessorEditor, private Timer
+{
+public:
+    explicit ArpEditor (ArpFx& a) : AudioProcessorEditor (a), arp (a), grid (a), modes (a.modeP)
+    {
+        knob (rate, arp.rateP, true); knob (swing, arp.swingP, false); knob (gate, arp.gateP, false);
+        rate.setTextBoxStyle (Slider::TextBoxBelow, true, 90, 20);
+        for (int i = 1; i <= 4; ++i) oct.addItem (String (i), i);
+        oct.onChange = [this] { set (arp.octP, (float) oct.getSelectedId()); };
+        style (oct);
+        toggle (hold, arp.latchP, String::fromUTF8 ("Podržať"));
+        toggle (pat, arp.patP, "Vzor");
+        const char* vm[3] = { "Z hry", "Vzor", "Mix" };
+        for (int i = 0; i < 3; ++i)
+        {
+            auto& b = velB[i];
+            b.setButtonText (String::fromUTF8 (vm[i]));
+            b.setClickingTogglesState (false);
+            b.setColour (TextButton::buttonColourId, Colour (0xff2a3442));
+            b.setColour (TextButton::buttonOnColourId, Colour (0xff6f8fb3));
+            b.setColour (TextButton::textColourOffId, Colour (0xffc9d2dc));
+            b.setColour (TextButton::textColourOnId, Colour (0xff161c24));
+            b.onClick = [this, i] { set (arp.velP, (float) i); };
+            addAndMakeVisible (b);
+        }
+        len.setSliderStyle (Slider::LinearBar);
+        len.setRange (1, 16, 1);
+        len.setColour (Slider::trackColourId, Colour (0xff2d4362));
+        len.setColour (Slider::backgroundColourId, Colour (0xff1f2630));
+        len.setColour (Slider::textBoxTextColourId, Colour (0xffe4e9ef));
+        len.setColour (Slider::textBoxOutlineColourId, Colours::transparentBlack);
+        len.textFromValueFunction = [] (double v) { return String::fromUTF8 ("Dĺžka vzoru: ") + String ((int) v) + String::fromUTF8 (" krokov"); };
+        len.onValueChange = [this] { set (arp.lenP, (float) len.getValue()); };
+        for (auto* c : std::initializer_list<Component*> { &rate, &swing, &gate, &oct, &hold, &pat, &len, &grid, &modes }) addAndMakeVisible (c);
+        setSize (840, 330);
+        sync();
+        startTimerHz (15);
+    }
+    ~ArpEditor() override { stopTimer(); }
+
+    void paint (Graphics& g) override
+    {
+        g.fillAll (Colour (0xff161c24));
+        g.setColour (Colour (0xffe4e9ef));
+        g.setFont (FontOptions (22.0f, Font::bold));
+        g.drawText ("KORGUS ARP", 16, 10, 250, 30, Justification::centredLeft);
+        g.setColour (Colour (0xff1f2630));
+        g.fillRoundedRectangle (left.toFloat(), 3.0f);
+        g.fillRoundedRectangle (mid.toFloat(), 3.0f);
+        g.setColour (Colour (0xffc9d2dc));
+        g.setFont (FontOptions (13.0f));
+        g.drawText (String::fromUTF8 ("Oktávy"), left.getX() + 10, left.getY() + 8, 70, 22, Justification::centredLeft);
+        g.drawText (String::fromUTF8 ("Rýchlosť"), left.getX(), left.getY() + 38, left.getWidth(), 18, Justification::centred);
+        g.drawText ("Swing", swing.getX(), swing.getBottom() - 2, swing.getWidth(), 18, Justification::centred);
+        g.drawText (String::fromUTF8 ("Dĺžka tónu"), gate.getX() - 10, gate.getBottom() - 2, gate.getWidth() + 20, 18, Justification::centred);
+        g.drawText ("Sila", mid.getX(), velB[0].getY() - 22, mid.getWidth(), 18, Justification::centred);
+    }
+
+    void resized() override
+    {
+        left = { 16, 52, 190, 264 };
+        mid = { 216, 52, 96, 264 };
+        oct.setBounds (left.getRight() - 70, left.getY() + 8, 60, 22);
+        rate.setBounds (left.getX() + 40, left.getY() + 56, 110, 122);
+        swing.setBounds (left.getX() + 14, left.getBottom() - 82, 64, 62);
+        gate.setBounds (left.getRight() - 78, left.getBottom() - 82, 64, 62);
+        hold.setBounds (mid.getX() + 8, mid.getY() + 8, mid.getWidth() - 16, 26);
+        for (int i = 0; i < 3; ++i) velB[i].setBounds (mid.getX() + 10, mid.getY() + 96 + i * 34, mid.getWidth() - 20, 26);
+        modes.setBounds (324, 12, 300, 30);
+        pat.setBounds (getWidth() - 100, 14, 84, 26);
+        grid.setBounds (324, 52, getWidth() - 340, 214);
+        len.setBounds (324, 276, getWidth() - 340, 40);
+    }
+
+private:
+    void set (FxParam* p, float v) { p->beginChangeGesture(); p->setValueNotifyingHost (p->range.convertTo0to1 (v)); p->endChangeGesture(); }
+    void style (ComboBox& c)
+    {
+        c.setColour (ComboBox::backgroundColourId, Colour (0xff2d4362));
+        c.setColour (ComboBox::textColourId, Colour (0xffe4e9ef));
+        c.setColour (ComboBox::outlineColourId, Colours::transparentBlack);
+    }
+    void knob (Slider& k, FxParam* p, bool big)
+    {
+        k.setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
+        k.setTextBoxStyle (big ? Slider::TextBoxBelow : Slider::NoTextBox, true, 80, 18);
+        k.setRange (p->range.start, p->range.end, big ? 1.0 : 0.0);
+        k.setColour (Slider::rotarySliderFillColourId, Colour (0xff6f8fb3));
+        k.setColour (Slider::rotarySliderOutlineColourId, Colour (0xff2d4362));
+        k.setColour (Slider::thumbColourId, Colour (0xffe4e9ef));
+        k.setColour (Slider::textBoxTextColourId, Colour (0xffe4e9ef));
+        k.setColour (Slider::textBoxOutlineColourId, Colours::transparentBlack);
+        k.textFromValueFunction = [p] (double v) { return p->getText (p->range.convertTo0to1 ((float) v), 0); };
+        k.setDoubleClickReturnValue (true, p->range.convertFrom0to1 (p->defNorm));
+        k.onValueChange = [this, &k, p] { if (! syncing) p->setValueNotifyingHost (p->range.convertTo0to1 ((float) k.getValue())); };
+        k.setTooltip (p->name);
+    }
+    void toggle (ToggleButton& t, FxParam* p, const String& text)
+    {
+        t.setButtonText (text);
+        t.setColour (ToggleButton::textColourId, Colour (0xffe4e9ef));
+        t.setColour (ToggleButton::tickColourId, Colour (0xffe4e9ef));
+        t.onClick = [this, &t, p] { if (! syncing) set (p, t.getToggleState() ? 1.0f : 0.0f); };
+    }
+    void sync()
+    {
+        syncing = true;
+        if (! rate.isMouseButtonDown()) rate.setValue (arp.rateP->get(), dontSendNotification);
+        if (! swing.isMouseButtonDown()) swing.setValue (arp.swingP->get(), dontSendNotification);
+        if (! gate.isMouseButtonDown()) gate.setValue (arp.gateP->get(), dontSendNotification);
+        if (! len.isMouseButtonDown()) len.setValue (arp.lenP->get(), dontSendNotification);
+        oct.setSelectedId (roundToInt (arp.octP->get()), dontSendNotification);
+        hold.setToggleState (arp.latchP->get() > 0.5f, dontSendNotification);
+        pat.setToggleState (arp.patP->get() > 0.5f, dontSendNotification);
+        const int vm = roundToInt (arp.velP->get());
+        for (int i = 0; i < 3; ++i) velB[i].setToggleState (i == vm, dontSendNotification);
+        rate.updateText(); len.updateText();
+        modes.repaint();
+        syncing = false;
+    }
+    void timerCallback() override { sync(); }
+
+    ArpFx& arp;
+    ArpGrid grid;
+    ArpModeButtons modes;
+    Slider rate, swing, gate, len;
+    ComboBox oct;
+    ToggleButton hold, pat;
+    TextButton velB[3];
+    Rectangle<int> left, mid;
+    bool syncing = false;
+};
+
+AudioProcessorEditor* ArpFx::createEditor() { return new ArpEditor (*this); }
+
 struct Entry { const char* key; const char* name; std::function<std::unique_ptr<AudioPluginInstance>()> make; bool inst = false; };
 
 const std::vector<Entry>& entries()
@@ -1032,6 +1495,7 @@ const std::vector<Entry>& entries()
         { "limiter", "Korgus Limiter",   [] { return std::unique_ptr<AudioPluginInstance> (new LimiterFx()); } },
         { "pulse",   "Korgus PulseDip",  [] { return std::unique_ptr<AudioPluginInstance> (new PulseFx()); } },
         { "sampler", "Korgus Sampler",   [] { return std::unique_ptr<AudioPluginInstance> (new SamplerInst()); }, true },
+        { "arp",     "Korgus Arp",       [] { return std::unique_ptr<AudioPluginInstance> (new ArpFx()); } },
     };
     return e;
 }
@@ -1042,9 +1506,11 @@ namespace BuiltinFx
 juce::Array<juce::PluginDescription> descriptions()
 {
     juce::Array<juce::PluginDescription> a;
-    for (const auto& e : entries()) a.add (FxBase::describe (e.name, e.key, e.inst));
+    for (const auto& e : entries()) if (juce::String (e.key) != "arp") a.add (FxBase::describe (e.name, e.key, e.inst));
     return a;
 }
+
+juce::PluginDescription arpDescription() { auto d = FxBase::describe ("Korgus Arp", "arp"); d.category = "MIDI"; return d; }
 
 void setSidechain (juce::AudioPluginInstance* p, const float* l, const float* r, int n)
 {

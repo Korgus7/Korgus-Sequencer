@@ -11,4 +11,6 @@ namespace BuiltinFx
     std::unique_ptr<juce::AudioPluginInstance> create (const juce::PluginDescription&);
     // kluc pre sidechain (kompresor, PulseDip); nullptr = bez kluca
     void setSidechain (juce::AudioPluginInstance*, const float* left, const float* right, int n);
+    // arpeggiator (MIDI efekt pred nastrojom)
+    juce::PluginDescription arpDescription();
 }

@@ -327,7 +327,7 @@ function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
   return {masterVol:song.masterVol==null?1:song.masterVol,aux:auxArr().map(a=>({vol:a.vol})),byp:song.byp||{},tempoMap:song.tempoLane&&song.tempoLane.pts.length?song.tempoLane.pts.map(q=>[q[0],Math.round((TMIN+q[1]*(TMAX-TMIN))*100)/100]):[],tempo:song.tempo,bars:song.bars,locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,
-    tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,sc:!!t.sc,arp:t.arp||null,send:t.send||[0,0],mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},auto:(t.autoR===false?[]:(t.auto||[])).filter(a=>!a.rec).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.parts}))};
+    tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,sc:!!t.sc,send:t.send||[0,0],mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},auto:(t.autoR===false?[]:(t.auto||[])).filter(a=>!a.rec).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.parts}))};
 }
 function auxArr(){ if(!Array.isArray(song.aux)) song.aux=[{vol:.8},{vol:.8}]; return song.aux; }
 function pushSong(now){ if(!NATIVE) return; clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
@@ -1162,7 +1162,7 @@ function renderTracksNative(L){
              b('w','W','W – zapisovať automatizáciu (pohyby v plugine stopy a v mixpulte)',!!tr.autoW,()=>autoRW(tr,'w')));
     const nm=el('div','nm'); nm.textContent=tr.name; nm.title='Dvojklik = premenovať'+(tr.sc?' · kľúčová stopa (sidechain)':'');
     if(tr.sc){ const k=el('span','sck','SC'); nm.prepend(k); }
-    if(tr.arp&&tr.arp.on){ const k=el('span','sck','ARP'); k.title='Arpeggiátor zapnutý (pravý klik = nastavenie)'; k.style.cursor='pointer'; k.onclick=e=>{ e.stopPropagation(); arpLiveDialog(tr); }; nm.prepend(k); }
+    if(hasArp(tr)){ const k=el('span','sck','ARP'); k.title='Korgus Arp – klik = otvoriť'; k.style.cursor='pointer'; k.onmousedown=e=>e.stopPropagation(); k.onclick=e=>{ e.stopPropagation(); openArp(tr); }; nm.prepend(k); }
     nm.ondblclick=()=>{ const inp=el('input'); inp.type='text'; inp.value=tr.name; nm.innerHTML=''; nm.appendChild(inp); inp.focus(); inp.select();
       const done=ok=>{ if(ok&&inp.value.trim()&&inp.value!==tr.name){ pushUndo(); tr.name=inp.value.trim(); save(); if(ed) renderEditor(); } renderTracks(); };
       inp.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter') done(true); if(e.key==='Escape') done(false); }; inp.onblur=()=>done(true); inp.onmousedown=e=>e.stopPropagation(); };
@@ -1210,7 +1210,7 @@ function renderTracksNative(L){
     r.addEventListener('mousedown',()=>selectTrack(i));
     r.addEventListener('contextmenu',e=>{ e.preventDefault(); selectTrack(i); ctxMenu(e.clientX,e.clientY,[
       [(tr.sc?'✓ ':'')+'Kľúčová stopa (sidechain)',()=>{ pushUndo(); tr.sc=!tr.sc; renderTracks(); save(); if(tr.sc) toast('Stopa <b>'+esc(tr.name)+'</b> riadi kompresor / PulseDip s voľbou <b>Sidechain</b>.'); }],
-      ...(tr.type==='synth'?[[(tr.arp&&tr.arp.on?'✓ ':'')+'Arpeggiátor…',()=>arpLiveDialog(tr)]]:[]),
+      ...(tr.type==='synth'?(hasArp(tr)?[['Otvoriť arpeggiátor (Korgus Arp)',()=>openArp(tr)],['Odstrániť arpeggiátor',()=>nat('trackArp',{track:tr.id,on:false,name:tr.name})]]:[['Pridať arpeggiátor (Korgus Arp)…',()=>nat('trackArp',{track:tr.id,on:true,name:tr.name})]]):[]),
       ...(tr.type!=='audio'?[[tr.type==='drum'?'Vložiť rytmus z knižnice…':'Vložiť basovú linku z knižnice…',()=>patternDialog(tr)],['Bounce do audia',()=>bounceTrack(tr)]]:[]),
       ['Zmazať stopu',()=>deleteTrack(i)]]); });
     L.appendChild(r);
@@ -2266,19 +2266,8 @@ const PROGS=[['Len tónika',[0]],['I – V – vi – IV (pop)',[0,7,9,5],[0,0,1
 let patOpt={bars:4,key:0,prog:1};
 function bassOff(o,iv){ if(typeof o==='number') return o; const has=x=>iv.includes(x);
   if(o==='3') return has(3)?3:4; if(o==='5') return has(6)?6:has(8)?8:7; if(o==='6') return 9; if(o==='7') return has(11)?11:10; return 0; }
-/* zivy arpeggiator na stope (drzis akord -> hra rozlozene v tempe) */
-function arpLiveDialog(tr){
-  const a=Object.assign({on:false,rate:3,mode:0,oct:1,gate:.6},tr.arp||{});
-  const opt=(arr,v)=>arr.map(([k,n])=>`<option value="${k}"${+k===+v?' selected':''}>${n}</option>`).join('');
-  dialog('Arpeggiátor – '+esc(tr.name),`<p>Drž akord (na klávesoch alebo v nahratých notách) a nástroj ho hrá rozložene v tempe piesne. Zmeny počuješ hneď.</p>
-    <div class="frow"><label>Zapnutý</label><input type="checkbox" id="alOn"${a.on?' checked':''}></div>
-    <div class="frow"><label>Rýchlosť</label><select id="alR" style="flex:1">${opt([[0,'1/4'],[1,'1/8'],[2,'1/8 triola'],[3,'1/16'],[4,'1/32']],a.rate)}</select></div>
-    <div class="frow"><label>Smer</label><select id="alM" style="flex:1">${opt([[0,'Hore'],[1,'Dole'],[2,'Hore a dole'],[3,'Náhodne'],[4,'Ako hráš']],a.mode)}</select></div>
-    <div class="frow"><label>Oktávy</label><select id="alO" style="flex:1">${opt([[1,'1'],[2,'2'],[3,'3']],a.oct)}</select></div>
-    <div class="frow"><label>Dĺžka tónu</label><select id="alG" style="flex:1">${opt([[.3,'Krátko (staccato)'],[.6,'Stredne'],[.95,'Dlho (legato)']],a.gate)}</select></div>`);
-  const upd=()=>{ tr.arp={on:$('alOn').checked,rate:+$('alR').value,mode:+$('alM').value,oct:+$('alO').value,gate:+$('alG').value}; renderTracks(); save(); };
-  ['alOn','alR','alM','alO','alG'].forEach(id=>$(id).onchange=upd);
-}
+function hasArp(tr){ return !!(natTrackPlugins[tr.id]&&natTrackPlugins[tr.id].arp); }
+function openArp(tr){ nat('openArp',{track:tr.id,name:tr.name}); }
 function patternDialog(tr){
   const drum=tr.type==='drum', list=drum?DRUM_PATS:BASS_PATS, chords=!drum&&(song.chords||[]).length;
   const keyRow=drum?'':(chords?'<p>Bas pôjde podľa <b>akordovej stopy</b>.</p>':`<div class="frow"><label>Tónina</label><select id="ptK" style="flex:1">${['C','C#','D','Eb','E','F','F#','G','Ab','A','B','H'].map((k,i)=>`<option value="${i}">${k}</option>`).join('')}</select></div>
@@ -2909,7 +2898,8 @@ $('bHelp').onclick=()=>dialog('Pomoc – Korgus Sequencer',`
 <li>Pravý klik na hlavičku stopy bicích / nástroja → Vložiť rytmus / basovú linku z knižnice (bas ide podľa akordovej stopy alebo zvolenej tóniny).</li>
 <li>Mixpult → Mastering…: asistent vypočuje mix a nastaví EQ, kompresor a limiter na Masteri na zvolenú hlasitosť.</li>
 <li>Súbor → Export videa (MP4): video na TikTok (na výšku) alebo YouTube (na šírku) s názvom, vizualizáciou a tvojím obrázkom.</li>
-<li>Súbor → Obnoviť zálohu: program každých 5 minút uloží verziu piesne (posledných 60).</li></ul>
+<li>Súbor → Obnoviť zálohu: program každých 5 minút uloží verziu piesne (posledných 60).</li>
+<li>Pravý klik na hlavičku nástrojovej stopy → Pridať arpeggiátor (Korgus Arp): smer, oktávy, rýchlosť, swing, podržanie a 16-krokový vzor so silou a oktávou na krok. ARP v hlavičke ho otvorí.</li></ul>
 <h4>Výber nôt (Key editor)</h4><ul>
 <li><b>Pravé tlačidlo + ťahanie = označiť noty</b> (so Shiftom pridáš k výberu). Pravý klik na notu = zmazať, do prázdna = zrušiť výber. Nástroj Výber (šípka) označuje aj ľavým tlačidlom.</li>
 <li>Shift+klik = pridať / odobrať notu z výberu, Ctrl+A = všetko, Esc = zrušiť výber.</li>

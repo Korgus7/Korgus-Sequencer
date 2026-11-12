@@ -146,6 +146,8 @@ private:
 
     std::map<juce::String, juce::PluginDescription> trackDesc;   // ktory plugin ma ktora stopa
     std::map<juce::String, std::map<int, juce::PluginDescription>> fxDesc;   // efekty stop
+    std::set<juce::String> arpTracks;                                        // stopy s Korgus Arp
+    bool setArp (const juce::String& trackId, bool on, const juce::MemoryBlock* state);
     juce::var pendingSession;                                    // pluginy z minulého spustenia
     bool sessionApplied = false;
     bool booting = true, booted = false;
