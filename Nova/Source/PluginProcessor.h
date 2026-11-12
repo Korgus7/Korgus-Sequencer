@@ -1,12 +1,18 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_audio_utils/juce_audio_utils.h>
 #include "Synth.h"
+#include "Params.h"
+#include "PresetStore.h"
 
-class NovaProcessor : public juce::AudioProcessor
+class NovaProcessor : public juce::AudioProcessor,
+                      private juce::AudioProcessorValueTreeState::Listener,
+                      private juce::AsyncUpdater,
+                      private juce::Timer
 {
 public:
     NovaProcessor();
-    ~NovaProcessor() override = default;
+    ~NovaProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -31,10 +37,35 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // --- pre rozhranie
+    juce::UndoManager undo;
     juce::AudioProcessorValueTreeState params;
     nova::Synth synth;
+    nova::PresetStore presets;
+    juce::MidiKeyboardState keyboard;
+
+    bool loadPreset (const juce::String& key);            // zo zoznamu (tovarensky alebo vlastny)
+    juce::String savePreset (const juce::String& name, const juce::String& category);
+    nova::PatchData currentPatch();                      // aktualne hodnoty ako zvuk
+    void applyPatch (const nova::PatchData& p);
+    bool loadSampleFile (int layer, const juce::File& f, juce::String& error);
+    juce::String sampleName (int layer) const;
+
+    juce::String currentKey, currentName, currentCategory;
+    int uiMode = 0;          // 0 jednoducha, 1 rozsirena
+    float uiScale = 1.0f;
+    std::function<void()> onPatchChanged;                // rozhranie obnovi nazov zvuku
 
 private:
-    static juce::AudioProcessorValueTreeState::ParameterLayout layout();
-    std::atomic<float>* pPreset = nullptr, *pBright = nullptr, *pAttack = nullptr, *pRelease = nullptr, *pSpace = nullptr, *pWidth = nullptr, *pVolume = nullptr;
+    void parameterChanged (const juce::String& id, float v) override;
+    void handleAsyncUpdate() override;
+    void timerCallback() override { stopTimer(); undo.clearUndoHistory(); }   // po prvom zapise parametrov do stavu
+    void fillSettings (nova::Settings& s);
+    void setSample (int layer, const juce::MemoryBlock& flac, const juce::String& name);
+    std::map<juce::String, std::atomic<float>*> raw;
+    std::atomic<float>* rp (const char* id) { return raw[id]; }
+    juce::MemoryBlock smpFlac[2]; juce::String smpName[2];
+    std::atomic<int> pendingPreset { -1 };
+    bool restoring = false;
+    int lastPresetParam = 0;
 };

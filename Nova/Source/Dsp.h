@@ -103,10 +103,10 @@ namespace nova
             const int i0 = (int) rp; const float f = rp - (float) i0;
             return b[(size_t) i0] + f * (b[(size_t) ((i0 + 1) % n)] - b[(size_t) i0]);
         }
-        void process (float& l, float& r, float mix, float depthMs)
+        void process (float& l, float& r, float mix, float depthMs, float rate = 0.31f)
         {
             bl[(size_t) w] = l; br[(size_t) w] = r;
-            ph1 += 0.31f / sr; if (ph1 >= 1) ph1 -= 1; ph2 += 0.43f / sr; if (ph2 >= 1) ph2 -= 1;
+            ph1 += rate / sr; if (ph1 >= 1) ph1 -= 1; ph2 += rate * 1.39f / sr; if (ph2 >= 1) ph2 -= 1;
             const float base = 0.012f * sr, dep = depthMs * 0.001f * sr;
             const float d1 = base + dep * (0.5f + 0.5f * std::sin (twoPi * ph1));
             const float d2 = base * 1.3f + dep * (0.5f + 0.5f * std::sin (twoPi * ph2 + 1.7f));

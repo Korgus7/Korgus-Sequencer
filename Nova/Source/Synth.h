@@ -1,92 +1,111 @@
 #pragma once
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "Dsp.h"
+#include "Fx.h"
 #include "PianoBank.h"
 
-// Zvukovy motor Korgus Nova: klavir zo vzoriek, analogove pady a slacikly, brnknutie (Karplus-Strong), FM elektricke piano a celesta
+// Zvukovy motor Korgus Nova: 2 vrstvy na hlas (sinus, trojuholnik, pila, obdlznik, sum, pluck, FM, sampel),
+// filter s obalkou, LFO, mono/glide, arpeggiator a spolocne efekty
 namespace nova
 {
-    struct Preset
+    struct UserSample
     {
-        const char* name = "";
-        int engine = 1;                    // 0 klavir, 1 analog, 2 brnknutie, 3 FM
-        float a = 0.01f, d = 0.5f, s = 0.8f, r = 0.4f;
-        // analog
-        int uni = 1; float detune = 10, saw = 1, pulse = 0, pw = 0.5f, sub = 0, noise = 0, octUp = 0;
-        float cut = 3000, reso = 0.7f, kt = 0.5f, fAmt = 0, fa = 0.01f, fd = 0.5f, fs = 0.5f, fr = 0.5f, velCut = 1.0f;
-        float vibRate = 5, vibDepth = 0, vibDelay = 0.3f, drift = 0; bool body = false; float bowNoise = 0;
-        // brnknutie
-        float plBright = 0.6f, plT60 = 3, plPick = 0.15f, plRel = 0.25f, plDouble = 0;
-        // FM
-        float fmRatio = 1, fmIndex = 1, fmIdxT = 0.5f, fmIdxFloor = 0.1f, fmTine = 0, fmTineRatio = 14, fmDecay = 3, trem = 0;
-        // klavir
-        float pnLayerBias = 0, pnTone = 0;
-        // efekty
-        float gain = 1, chorus = 0, chorusDepth = 3, reverb = 0.2f, revSize = 0.5f, revDamp = 0.4f;
+        juce::AudioBuffer<float> buf;   // 1-2 kanaly
+        double rate = 48000;
+        juce::String name;
+        juce::MemoryBlock flac;         // na ulozenie do projektu / zvuku
+    };
+    using UserSamplePtr = std::shared_ptr<const UserSample>;
+
+    struct LayerSettings
+    {
+        bool on = true; int wave = 2; float oct = 0, semi = 0, fine = 0; int uni = 1; float spread = 10, level = 0.7f, pan = 0, color = 0.5f, ratio = 1;
+        int ftype = 0; bool f24 = false; float cut = 20000, reso = 0.1f, fenv = 0, fa = 0.005f, fd = 0.3f, fs = 1, fr = 0.3f, aa = 0.003f, ad = 0.3f, as = 1, ar = 0.3f;
+        int lshape = 0, ltgt = 0; float lrate = 5, ldepth = 0, ldelay = 0; int src = 0; int root = 60; bool loop = false;
     };
 
-    const std::vector<Preset>& presets();
-
-    struct Knobs { float bright = 0.5f, attack = 0.5f, release = 0.5f, space = 0.5f, width = 0.5f, volumeDb = 0; };
+    struct Settings
+    {
+        LayerSettings L[2];
+        FxSettings fx;
+        bool arpOn = false, arpHold = false; int arpPat = 0, arpSpeed = 3, arpOct = 1; float arpLen = 0.6f;
+        bool mono = false; float glide = 0, veltrack = 0.7f, morphX = 0, morphY = 0;
+        // makra jednoduchej verzie
+        float bright = 0.5f, attack = 0.5f, release = 0.5f, space = 0.5f, width = 0.5f;
+        bool playing = false; double ppq = 0;
+    };
 
     class Synth
     {
     public:
         Synth();
         void prepare (double sampleRate, int maxBlock);
-        void setPreset (int index);
-        int getPreset() const { return presetIndex; }
-        void setKnobs (const Knobs& k) { knobs = k; }
-        void process (juce::AudioBuffer<float>& out, const juce::MidiBuffer& midi);
+        void process (juce::AudioBuffer<float>& out, const juce::MidiBuffer& midi, const Settings& s);
+        void setUserSample (int layer, UserSamplePtr p) { const juce::SpinLock::ScopedLockType l (smpLock); userSmp[layer & 1] = std::move (p); }
+        UserSamplePtr getUserSample (int layer) const { const juce::SpinLock::ScopedLockType l (smpLock); return userSmp[layer & 1]; }
+        void fadeAll() { fadeRequest = true; }
         bool pianoReady() const { return bank != nullptr && bank->ready(); }
         bool pianoFailed() const { return bank != nullptr && bank->failed(); }
-        bool presetNeedsPiano() const { return presets()[(size_t) presetIndex].engine == 0; }
-        void allNotesOff();
+        float gainReduction() const { return fx.gainReduction.load(); }
+        int activeVoices() const { return active.load(); }
 
     private:
+        struct LayerVoice
+        {
+            bool active = false; int wave = 2;
+            Env amp, fenv;
+            float ph[8] {}, det[8] {}, pl[8] {}, pr[8] {};
+            Svf f1L, f1R, f2L, f2R, body[5]; int cnt = 0;
+            float lfoPh = 0, lfoHold = 0, lfoPrev = 0; float t = 0;
+            OnePole noiseL, tiltL, tiltR;
+            // pluck
+            std::vector<float> dl; int dlen = 100, w = 0; float apC = 0, apIn = 0, apOut = 0, yPrev = 0, loopG = 0.99f, loopS = 0.3f, plPanL = 0.7f, plPanR = 0.7f;
+            // FM
+            float cPh = 0, mPh = 0;
+            // sampel
+            const PianoBank::Sample* smp = nullptr; UserSamplePtr user; double pos = 0; float gain = 1, level = 1, dampCoef = 1, atk = 1, atkInc = 1; bool damping = false, noDamper = false;
+            float velGain = 1, peak = 0;
+        };
         struct Voice
         {
-            int note = -1; float vel = 0; bool held = false, sustained = false; uint64_t age = 0; int engine = 1;
-            float sr = 48000, freq = 440, t = 0;
-            Env amp, fenv;
-            // analog
-            float ph[8] {}, inc[8] {}, pl[8] {}, pr[8] {}, drPh[8] {}, drRate[8] {}, subPh = 0, vibPh = 0;
-            Svf fL, fR, body[5]; int cnt = 0; float bowEnv = 0;
-            // brnknutie
-            std::vector<float> dl; int dlen = 100, w = 0; float apC = 0, apIn = 0, apOut = 0, yPrev = 0, loopG = 0.99f, loopS = 0.3f, relG = 0.9f;
-            float plLev = 1, panL = 0.7f, panR = 0.7f; int dl2len = 0; std::vector<float> dl2; int w2 = 0; float yPrev2 = 0, apIn2 = 0, apOut2 = 0, apC2 = 0;
-            // FM
-            float cPh = 0, mPh = 0, tPh = 0, idx0 = 1, tineIdx = 0, fmDec = 1;
-            // klavir
-            const PianoBank::Sample* smp = nullptr; double pos = 0, step = 1; float gain = 1, dampTau = 0.1f, dampCoef = 1, level = 1; bool noDamper = false, damping = false;
-            float atkInc = 1, atk = 1;
+            int note = -1; float vel = 0; bool held = false, sustained = false; uint64_t age = 0;
+            float curNote = 60, targetNote = 60, drift = 0, driftTarget = 0;
+            LayerVoice lv[2];
+            bool isActive() const { return lv[0].active || lv[1].active; }
         };
 
+        void handleNoteOn (int note, float vel);
+        void handleNoteOff (int note);
         void noteOn (int note, float vel);
         void noteOff (int note);
         void setSustain (bool on);
-        Voice* allocVoice (int note);
-        void startVoice (Voice& v, int note, float vel);
-        void renderVoice (Voice& v, float* L, float* R, int n);
-        void renderAnalog (Voice& v, float* L, float* R, int n);
-        void renderPluck (Voice& v, float* L, float* R, int n);
-        void renderFm (Voice& v, float* L, float* R, int n);
-        void renderPiano (Voice& v, float* L, float* R, int n);
+        Voice* allocVoice();
+        void startVoice (Voice& v, int note, float vel, float fromNote);
+        void startLayer (Voice& v, int li);
         void releaseVoice (Voice& v);
-        float attackScale() const { return std::pow (2.0f, (knobs.attack - 0.5f) * 5.0f); }
-        float releaseScale() const { return std::pow (2.0f, (knobs.release - 0.5f) * 5.0f); }
+        void renderLayer (Voice& v, int li, float* L, float* R, int n);
+        void arpTick (int samples);
+        void arpStep();
+        void arpStopNotes();
 
-        std::array<Voice, 64> voices;
+        std::array<Voice, 48> voices;
         std::shared_ptr<PianoBank> bank;
-        int presetIndex = 0;
-        Knobs knobs;
+        UserSamplePtr userSmp[2];
+        juce::SpinLock smpLock;
+        Settings st;                       // nastavenia aktualneho bloku
         double sr = 48000;
         uint64_t ageCounter = 0;
-        bool sustain = false;
+        bool sustain = false, fadeRequest = false;
         float bend = 0, modWheel = 0;
+        int lastNote = -1;
+        std::vector<int> monoStack;
         std::vector<float> bufL, bufR;
-        Chorus chorus; Reverb reverb; OnePole tiltL, tiltR; float tremPh = 0;
-        float volSm = 1, widthSm = 1, revSm = 0.2f, chSm = 0; int fadeOut = 0;
+        FxChain fx;
         Noise noise;
+        std::atomic<int> active { 0 };
+        float bright = 0, atkScale = 1, relScale = 1;
+        // arpeggiator
+        std::vector<int> arpHeld, arpVel, physDown; std::vector<int> arpPlaying; float arpLastVel = 0.8f;
+        double beat = 0, stepStartBeat = 0; int64_t lastStepIndex = -1; int arpIndex = 0; bool arpRunning = false, arpWasOn = false, arpLatchedRelease = false;
     };
 }

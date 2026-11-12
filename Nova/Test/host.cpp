@@ -33,6 +33,21 @@ int main (int argc, char** argv)
         printf ("program %d (%s): spicka %.3f\n", prog, p->getProgramName (prog).toRawUTF8(), peak);
         if (! (peak > 0.01f && peak < 1.01f)) ++fails;
     }
+    if (argc > 2 && String (argv[2]) == "gui")
+    {
+        // okno s editorom na rucny test (ovladanie cez xdotool)
+        auto* w = new DocumentWindow ("Nova test", Colours::black, DocumentWindow::closeButton);
+        w->setUsingNativeTitleBar (true);
+        w->setContentNonOwned (p->createEditorIfNeeded(), true);
+        w->setTopLeftPosition (10, 10);
+        w->setVisible (true);
+        Timer::callAfterDelay (argc > 3 ? String (argv[3]).getIntValue() * 1000 : 60000, [] { MessageManager::getInstance()->stopDispatchLoop(); });
+        MessageManager::getInstance()->runDispatchLoop();
+        w->clearContentComponent();
+        delete w;
+        MemoryBlock st; p->getStateInformation (st);
+        printf ("stav po teste %d B\n", (int) st.getSize());
+    }
     p->releaseResources();
     return fails == 0 ? 0 : 5;
 }

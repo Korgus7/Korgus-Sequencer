@@ -31,6 +31,8 @@ target_sources(KorgusNova PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/Synth.cpp
+    Source/Params.cpp
+    Source/PresetStore.cpp
     Source/PianoBank.cpp)
 
 if(WIN32)
@@ -60,7 +62,7 @@ target_link_libraries(KorgusNova PRIVATE
 
 if(NOVA_TEST)
     juce_add_console_app(NovaTest PRODUCT_NAME "NovaTest")
-    target_sources(NovaTest PRIVATE Test/test.cpp Source/Synth.cpp Source/PianoBank.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
+    target_sources(NovaTest PRIVATE Test/test.cpp Source/Synth.cpp Source/PianoBank.cpp Source/Params.cpp Source/PresetStore.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
     target_compile_definitions(NovaTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Korgus Nova" JucePlugin_IsSynth=1)
     target_link_libraries(NovaTest PRIVATE juce::juce_dsp juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_formats)
 endif()
@@ -69,5 +71,5 @@ if(NOVA_HOSTTEST)
     juce_add_console_app(NovaHostTest PRODUCT_NAME "NovaHostTest")
     target_sources(NovaHostTest PRIVATE Test/host.cpp)
     target_compile_definitions(NovaHostTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_VST3=1)
-    target_link_libraries(NovaHostTest PRIVATE juce::juce_audio_processors)
+    target_link_libraries(NovaHostTest PRIVATE juce::juce_audio_processors juce::juce_gui_basics)
 endif()
