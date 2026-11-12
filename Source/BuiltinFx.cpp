@@ -60,17 +60,18 @@ public:
         g.setFont (FontOptions (13.0f));
         for (size_t i = 0; i < labels.size(); ++i)
             if (! params[i]->toggle)
-                g.drawFittedText (labels[i], comps[i]->getBounds().withY (8).withHeight (18), Justification::centred, 1);
+                g.drawFittedText (labels[i], comps[i]->getBounds().withY (top + 8).withHeight (18), Justification::centred, 1);
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (8, 0).withTrimmedTop (28).withTrimmedBottom (8);
+        if (display != nullptr) display->setBounds (8, 8, getWidth() - 16, top - 12);
+        auto r = getLocalBounds().reduced (8, 0).withTrimmedTop (top + 28).withTrimmedBottom (8);
         const int w = r.getWidth() / jmax (1, (int) comps.size());
         for (size_t i = 0; i < comps.size(); ++i)
         {
             auto cell = r.removeFromLeft (w).reduced (4, 0);
-            if (params[i]->toggle) comps[i]->setBounds (cell.withY (4).withHeight (26));
+            if (params[i]->toggle) comps[i]->setBounds (cell.withY (top + 4).withHeight (26));
             else if (! params[i]->choices.isEmpty()) comps[i]->setBounds (cell.withHeight (26).withY (cell.getCentreY() - 20));
             else comps[i]->setBounds (cell);
         }
@@ -95,6 +96,8 @@ private:
     }
 
     std::vector<FxParam*> params;
+    std::unique_ptr<Component> display;   // graf (napr. krivka PulseDip)
+    int top = 0;
     std::vector<std::unique_ptr<Component>> comps;
     std::vector<String> labels;
 };
@@ -163,6 +166,7 @@ public:
     bool producesMidi() const override { return false; }
     bool hasEditor() const override    { return true; }
     AudioProcessorEditor* createEditor() override { return new KnobEditor (*this, knobs); }
+    virtual std::unique_ptr<Component> makeDisplay() { return nullptr; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -253,7 +257,9 @@ KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProce
         labels.push_back (prm->name);
         comps.push_back (std::move (comp));
     }
-    setSize (jmax (260, 92 * (int) comps.size() + 16), 150);
+    display = p.makeDisplay();
+    if (display != nullptr) { top = 150; addAndMakeVisible (*display); }
+    setSize (jmax (display != nullptr ? 460 : 260, 92 * (int) comps.size() + 16), 150 + top);
     startTimerHz (20);
 }
 
@@ -402,7 +408,7 @@ public:
     {
         sync = add ("sync", "Synchro", 0, 5, 2, "", 1.0f, 0);
         sync->range.interval = 1.0f;
-        sync->choices = StringArray::fromTokens (String::fromUTF8 ("Voľne|1/4|1/8 s bodkou|1/8|1/8 triola|1/16"), "|", "");
+        sync->choices = StringArray::fromTokens (String::fromUTF8 ("Voľne|1/4|1/8 bodka|1/8|1/8 triola|1/16"), "|", "");
         time = add ("time", "Čas", 10, 2000, 375, "ms", 0.5f, 0);
         time->textFn = [this] (float) { const int sy = roundToInt (sync->get()); return sy > 0 ? sync->choices[sy] : String(); };
         fb   = add ("feedback", "Opakovanie", 0, 95, 35, "%", 1.0f, 0);
@@ -514,6 +520,160 @@ private:
     float lastPre = 1.0f;
 };
 
+
+//==============================================================================
+// PulseDip - rytmicke stisenie hlasitosti synchronizovane s tempom
+namespace Pulse
+{
+    inline float smooth (float x) { x = jlimit (0.0f, 1.0f, x); return x * x * (3.0f - 2.0f * x); }
+    inline float classic (float f) { return (1.0f - std::exp (-6.0f * f)) / (1.0f - std::exp (-6.0f)); }
+
+    // hlasitost 0..1 v case f (0..1 = jedna perioda)
+    inline float shape (int s, float f)
+    {
+        f = f - std::floor (f);
+        const float pi = MathConstants<float>::pi;
+        switch (s)
+        {
+            case 0:  { const float x = std::sin (0.5f * pi * f); return x * x; }   // makky nabeh
+            case 1:  return classic (f);                                          // klasika
+            case 2:  return f * f * f;                                            // neskory nastup
+            case 3:  return smooth ((f - 0.25f) / 0.5f);                          // hlboka pumpa
+            case 4:  return smooth (f / 0.25f);                                   // rychly nabeh
+            case 5:  return classic (1.0f - f);                                   // opacne
+            case 6:  { const float x = std::cos (0.5f * pi * f); return x * x; }  // makky pokles
+            case 7:  return std::sin (pi * f);                                    // vrchol
+            case 8:  return smooth ((f - 0.5f) / 0.1f);                           // dlhe podrzanie
+            case 9:  return smooth (f);                                           // plynuly nabeh
+            case 10: return smooth ((f - 0.15f) / 0.03f);                         // tvrda pumpa
+            case 11: return f < 0.5f ? 1.0f : 0.0f;                               // brana
+            case 12: return jmin (smooth (f / 0.2f), smooth ((1.0f - f) / 0.2f)); // plato
+            case 13: return f;                                                    // svah
+            case 14: return 1.0f - std::sin (pi * f);                             // udolie
+            case 15: return classic (2.0f * f - std::floor (2.0f * f));           // dvojita
+            default: return 1.0f;
+        }
+    }
+}
+
+class PulseFx;
+
+class PulseDisplay final : public Component, private Timer
+{
+public:
+    explicit PulseDisplay (PulseFx& p) : fx (p) { startTimerHz (30); }
+    ~PulseDisplay() override { stopTimer(); }
+    void paint (Graphics& g) override;
+private:
+    void timerCallback() override { repaint(); }
+    PulseFx& fx;
+};
+
+class PulseFx final : public FxBase
+{
+public:
+    PulseFx() : FxBase ("Korgus PulseDip", "pulse")
+    {
+        rateP = add ("rate", "Rytmus", 0, 3, 1, "", 1.0f, 0);
+        rateP->range.interval = 1.0f;
+        rateP->choices = StringArray { "1/8", "1/4", "1/2", "1/1" };
+        shp = add ("shape", "Tvar", 0, 15, 1, "", 1.0f, 0);
+        shp->range.interval = 1.0f;
+        shp->choices = StringArray::fromTokens (String::fromUTF8 ("Mäkký nábeh|Klasika|Neskorý nástup|Hlboká pumpa|Rýchly nábeh|Opačne|Mäkký pokles|"
+                                                                 "Vrchol|Dlhé podržanie|Plynulý nábeh|Tvrdá pumpa|Brána|Plató|Svah|Údolie|Dvojitá"), "|", "");
+        mix = add ("mix", "Hĺbka", 0, 100, 100, "%", 1.0f, 0);
+        out = add ("output", "Výstup", -12, 12, 0, "dB");
+        on  = add ("active", "Zapnuté", 0, 1, 1, "", 1.0f, 0);
+        on->toggle = true;
+    }
+
+    std::unique_ptr<Component> makeDisplay() override { return std::make_unique<PulseDisplay> (*this); }
+
+    std::atomic<float> phaseNow { 0 }, bpmNow { 120 };
+    FxParam *rateP, *shp, *mix, *out, *on;
+
+private:
+    void prepare() override { freePpq = 0; gSm = 1; }
+
+    void process (AudioBuffer<float>& b) override
+    {
+        const int n = b.getNumSamples(), ch = b.getNumChannels();
+        double bpm = 120, ppq = freePpq;
+        bool playing = false;
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition())
+            {
+                if (auto v = pos->getBpm()) bpm = jlimit (20.0, 400.0, *v);
+                playing = pos->getIsPlaying();
+                if (playing) if (auto q = pos->getPpqPosition()) ppq = *q;
+            }
+        static const double beats[4] = { 0.5, 1.0, 2.0, 4.0 };
+        const double per = beats[jlimit (0, 3, roundToInt (rateP->get()))];
+        const int s = roundToInt (shp->get());
+        const float depth = on->get() > 0.5f ? mix->get() * 0.01f : 0.0f;
+        const float og = Decibels::decibelsToGain (out->get());
+        const double dq = bpm / 60.0 / rate;
+        const float a = (float) std::exp (-1.0 / (0.002 * rate));   // 2 ms proti lupancom
+        for (int i = 0; i < n; ++i)
+        {
+            const double q = ppq + i * dq;
+            const float f = (float) (q / per - std::floor (q / per));
+            const float target = (1.0f - depth * (1.0f - Pulse::shape (s, f))) * og;
+            gSm = target + (gSm - target) * a;
+            for (int c = 0; c < ch; ++c) b.getWritePointer (c)[i] *= gSm;
+        }
+        freePpq = ppq + n * dq;
+        if (freePpq > 1.0e6) freePpq = 0;
+        phaseNow = (float) (ppq / per - std::floor (ppq / per));
+        bpmNow = (float) bpm;
+    }
+
+
+    double freePpq = 0;
+    float gSm = 1;
+};
+
+void PulseDisplay::paint (Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (Colour (0xff161c24));
+    g.fillRoundedRectangle (r, 3.0f);
+    auto area = r.reduced (10, 22);
+    const int s = roundToInt (fx.shp->get());
+    const float depth = fx.on->get() > 0.5f ? fx.mix->get() * 0.01f : 0.0f;
+    // dve periody krivky
+    Path fill, line;
+    const int W = jmax (2, (int) area.getWidth());
+    for (int x = 0; x <= W; ++x)
+    {
+        const float f = 2.0f * (float) x / (float) W;
+        const float gv = 1.0f - depth * (1.0f - Pulse::shape (s, f));
+        const float px = area.getX() + (float) x, py = area.getBottom() - gv * area.getHeight();
+        if (x == 0) { line.startNewSubPath (px, py); fill.startNewSubPath (px, area.getBottom()); }
+        else line.lineTo (px, py);
+        fill.lineTo (px, py);
+    }
+    fill.lineTo (area.getRight(), area.getBottom());
+    fill.closeSubPath();
+    g.setColour (Colour (0xff2d4362).withAlpha (0.85f));
+    g.fillPath (fill);
+    g.setColour (Colour (0xff8fb0d0));
+    g.strokePath (line, PathStrokeType (1.6f));
+    g.setColour (Colour (0xff3a4656));
+    g.drawVerticalLine ((int) area.getCentreX(), area.getY(), area.getBottom());
+    // poloha prehravania
+    const float ph = fx.phaseNow.load();
+    const float gx = area.getX() + ph * 0.5f * area.getWidth();
+    const float gy = area.getBottom() - (1.0f - depth * (1.0f - Pulse::shape (s, ph))) * area.getHeight();
+    g.setColour (Colour (0xffc9d2dc));
+    g.fillEllipse (gx - 3.5f, gy - 3.5f, 7.0f, 7.0f);
+    g.setFont (FontOptions (12.0f));
+    g.setColour (Colour (0xff8a96a3));
+    g.drawText ("PULSEDIP", r.reduced (10, 4).removeFromTop (14), Justification::centredLeft);
+    g.drawText (String (fx.bpmNow.load(), 1) + " BPM  /  " + fx.rateP->choices[roundToInt (fx.rateP->get())] + "  /  " + fx.shp->choices[s],
+                r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
+}
+
 struct Entry { const char* key; const char* name; std::function<std::unique_ptr<AudioPluginInstance>()> make; };
 
 const std::vector<Entry>& entries()
@@ -524,6 +684,7 @@ const std::vector<Entry>& entries()
         { "reverb",  "Korgus Dozvuk",    [] { return std::unique_ptr<AudioPluginInstance> (new ReverbFx()); } },
         { "delay",   "Korgus Ozvena",    [] { return std::unique_ptr<AudioPluginInstance> (new DelayFx()); } },
         { "limiter", "Korgus Limiter",   [] { return std::unique_ptr<AudioPluginInstance> (new LimiterFx()); } },
+        { "pulse",   "Korgus PulseDip",  [] { return std::unique_ptr<AudioPluginInstance> (new PulseFx()); } },
     };
     return e;
 }
