@@ -115,6 +115,13 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
 
     web = std::make_unique<juce::WebBrowserComponent> (makeOptions());
     web->setWantsKeyboardFocus (true);
+    BuiltinFx::requestFile = [this] (std::function<void (const juce::File&)> cb)
+    {
+        pendingFileCb = std::move (cb);
+        if (auto* t = getTopLevelComponent()) t->toFront (true);
+        auto o = obj(); put (o, "kind", juce::String ("sampler"));
+        emit ("openBrowser", o);
+    };
     PluginWindow::hostKey = [this] (const juce::KeyPress& k)
     {
         if (k == juce::KeyPress::spaceKey) { auto o = obj(); put (o, "code", juce::String ("Space")); emit ("hostKey", o); }
@@ -140,6 +147,7 @@ MainView::~MainView()
     saveSession();
     saveSettings();
     PluginWindow::hostKey = nullptr;
+    BuiltinFx::requestFile = nullptr;
     pluginWindows.clear();
     for (auto& [k, w] : watches) if (w->proc != nullptr) w->proc->removeListener (w.get());
     watches.clear();
@@ -218,8 +226,13 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 put (o, "list", arr);
                                 emit ("params", o);
                             })
-        .withEventListener ("importMidi",  [this] (const juce::var&)
+        .withEventListener ("importMidi",  [this] (const juce::var& v)
                             {
+                                if (const auto path = v["path"].toString(); juce::File::isAbsolutePath (path))
+                                {
+                                    if (juce::File (path).existsAsFile()) emit ("midiImported", readMidiFile (juce::File (path)));
+                                    return;
+                                }
                                 chooser = std::make_unique<juce::FileChooser> (sk ("Import MIDI"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.mid;*.midi");
                                 juce::Component::SafePointer<MainView> sp (this);
                                 chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -272,7 +285,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("exportVideo", [this] (const juce::var& v) { onExportVideo (v); })
         .withEventListener ("mastering",   [this] (const juce::var& v) { onMastering (v); })
         .withEventListener ("analyze",     [this] (const juce::var& v) { onAnalyze (v); })
-        .withEventListener ("refLoad",     [this] (const juce::var&) { onRefLoad(); })
+        .withEventListener ("refLoad",     [this] (const juce::var& v) { onRefLoad (v["path"].toString()); })
         .withEventListener ("refSet",      [this] (const juce::var& v)
                             {
                                 const auto id = v["id"].toString();
@@ -353,8 +366,24 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                                       (float) (double) v.getProperty ("vel", 1.0), (int) v.getProperty ("lane", 0));
                             })
         .withEventListener ("fsList",      [this] (const juce::var& v) { onFsList (v); })
+        .withEventListener ("browserPick", [this] (const juce::var& v)
+                            {
+                                auto cb = std::move (pendingFileCb);
+                                pendingFileCb = nullptr;
+                                if (! cb) return;
+                                if ((bool) v.getProperty ("sys", false))
+                                {
+                                    chooser = std::make_unique<juce::FileChooser> (sk ("Vyber zvuk pre sampler"), juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                                                   "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
+                                    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                                          [cb] (const juce::FileChooser& fc) { if (fc.getResult().existsAsFile()) cb (fc.getResult()); });
+                                    return;
+                                }
+                                if (const auto path = v["path"].toString(); juce::File::isAbsolutePath (path)) cb (juce::File (path));
+                            })
         .withEventListener ("fsPreview",   [this] (const juce::var& v)
                             {
+                                if (v["track"].toString().isEmpty()) return;
                                 const int slot = engine.getOrCreateSlot (v["track"].toString());
                                 const juce::File f (v["path"].toString());
                                 AudioBufPtr b;
@@ -1271,14 +1300,11 @@ void MainView::onPackProject (const juce::var& v)
                           });
 }
 
-void MainView::onOpenSong (const juce::var&)
+void MainView::onOpenSong (const juce::var& v)
 {
-    chooser = std::make_unique<juce::FileChooser> (sk ("Otvoriť pieseň"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.s92;*.kpack;*.json");
     juce::Component::SafePointer<MainView> sp (this);
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                          [sp] (const juce::FileChooser& fc)
+    auto run = [sp] (juce::File f)
                           {
-                              auto f = fc.getResult();
                               if (sp == nullptr || ! f.existsAsFile()) return;
                               juce::var j;
                               if (f.hasFileExtension ("kpack"))
@@ -1322,7 +1348,11 @@ void MainView::onOpenSong (const juce::var&)
                               put (o, "text", juce::JSON::toString (j, true));
                               sp->emit ("songLoaded", o);
                               juce::MessageManager::callAsync ([sp, vst] { if (sp != nullptr && vst.isObject()) sp->restorePluginStates (vst); });
-                          });
+                          };
+    if (const auto path = v["path"].toString(); juce::File::isAbsolutePath (path)) { run (juce::File (path)); return; }
+    chooser = std::make_unique<juce::FileChooser> (sk ("Otvoriť pieseň"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.s92;*.kpack;*.json");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [run] (const juce::FileChooser& fc) { run (fc.getResult()); });
 }
 
 //==============================================================================
@@ -1476,6 +1506,12 @@ void MainView::onImportAudio (const juce::var& v)
 {
     const auto track = v["track"].toString();
     const double bar = (double) v.getProperty ("bar", 0);
+    if (const auto path = v["path"].toString(); juce::File::isAbsolutePath (path))
+    {
+        // z prehliadaca zvukov v programe
+        if (juce::File (path).existsAsFile()) finishImport (juce::File (path), track, bar, false);
+        return;
+    }
     chooser = std::make_unique<juce::FileChooser> (sk ("Import audio (WAV, MP3)"), juce::File::getSpecialLocation (juce::File::userMusicDirectory),
                                                    "*.wav;*.mp3;*.ogg;*.flac;*.aif;*.aiff");
     juce::Component::SafePointer<MainView> sp (this);
@@ -2106,14 +2142,11 @@ namespace
     };
 }
 
-void MainView::onRefLoad()
+void MainView::onRefLoad (const juce::String& path)
 {
-    chooser = std::make_unique<juce::FileChooser> (sk ("Referenčná pesnička"), juce::File::getSpecialLocation (juce::File::userMusicDirectory),
-                                                   "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff");
     juce::Component::SafePointer<MainView> sp (this);
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [sp] (const juce::FileChooser& fc)
+    auto run = [sp] (juce::File f)
     {
-        const auto f = fc.getResult();
         if (sp == nullptr || ! f.existsAsFile()) return;
         const auto id = sp->store->importFile (f);
         auto b = id.isNotEmpty() ? sp->store->get (id) : nullptr;
@@ -2123,7 +2156,12 @@ void MainView::onRefLoad()
         sp->engine.setReference (b, 1.0f);
         put (o, "id", id); put (o, "name", f.getFileNameWithoutExtension()); put (o, "lufs", std::round (lufs * 10.0) / 10.0);
         sp->emit ("refLoaded", o);
-    });
+    };
+    if (juce::File::isAbsolutePath (path)) { run (juce::File (path)); return; }
+    chooser = std::make_unique<juce::FileChooser> (sk ("Referenčná pesnička"), juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                   "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [run] (const juce::FileChooser& fc) { run (fc.getResult()); });
 }
 
 namespace
@@ -2745,8 +2783,13 @@ namespace
 // prehliadac zvukov: obsah priecinka alebo vyhladavanie v nom (aj v podpriecinkoch)
 void MainView::onFsList (const juce::var& v)
 {
-    static const juce::StringArray exts { "wav", "mp3", "ogg", "flac", "aif", "aiff" };
-    auto isAudio = [] (const juce::File& f) { return exts.contains (f.getFileExtension().substring (1).toLowerCase()); };
+    juce::StringArray exts { "wav", "mp3", "ogg", "flac", "aif", "aiff" };
+    if (const auto* ea = v["ext"].getArray(); ea != nullptr && ! ea->isEmpty())
+    {
+        exts.clear();
+        for (auto& e : *ea) exts.add (e.toString().toLowerCase());
+    }
+    auto isAudio = [&exts] (const juce::File& f) { return exts.contains (f.getFileExtension().substring (1).toLowerCase()); };
     juce::File dir (v["path"].toString());
     if (! juce::File::isAbsolutePath (v["path"].toString()) || ! dir.isDirectory())
         dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);

@@ -92,7 +92,7 @@ private:
     void onExportVideo (const juce::var&);
     void onMastering (const juce::var&);
     void onAnalyze (const juce::var&);
-    void onRefLoad();
+    void onRefLoad (const juce::String& path = {});
     void onRefMatch (const juce::var&);
     juce::File backupDir() const;
     void backupMaybe (const juce::String& text);
@@ -150,6 +150,7 @@ private:
     std::unique_ptr<juce::DocumentWindow> settingsWindow;
     std::unique_ptr<PluginManagerWindow> managerWindow;
     std::unique_ptr<juce::FileChooser> chooser;
+    std::function<void (const juce::File&)> pendingFileCb;   // sampler caka na subor z prehliadaca
 
     std::map<juce::String, juce::PluginDescription> trackDesc;   // ktory plugin ma ktora stopa
     std::map<juce::String, std::map<int, juce::PluginDescription>> fxDesc;   // efekty stop

@@ -1047,6 +1047,19 @@ SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
 
 void SamplerDisplay::choose()
 {
+    if (BuiltinFx::requestFile)
+    {
+        SafePointer<SamplerDisplay> sp (this);
+        BuiltinFx::requestFile ([sp] (const File& f)
+        {
+            if (sp == nullptr || ! f.existsAsFile()) return;
+            String err;
+            if (! sp->sm.loadFile (f, err)) AlertWindow::showMessageBoxAsync (MessageBoxIconType::WarningIcon, "Korgus Sampler", err);
+            sp->repaint();
+            if (auto* t = sp->getTopLevelComponent()) t->toFront (true);
+        });
+        return;
+    }
     chooser = std::make_unique<FileChooser> (String::fromUTF8 ("Vyber zvuk pre sampler"), File (sm.filePath).existsAsFile() ? File (sm.filePath) : File::getSpecialLocation (File::userMusicDirectory),
                                              "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
     SafePointer<SamplerDisplay> sp (this);

@@ -423,7 +423,7 @@ function setupNative(){
   $('bStop').onclick=stop; $('bRec').onclick=toggleRec;
   $('bAudio').onclick=()=>nat('showSettings'); showLat=function(){ $('latV').textContent=''; };
   $('bSave').onclick=()=>nat('saveFile',{name:'piesen.s92',kind:'s92',text:JSON.stringify(song)});
-  $('bOpen').onclick=()=>nat('openSong');
+  $('bOpen').onclick=()=>fileBrowser('song');
   $('bMidi').onclick=()=>{ const b=buildMidi(); let bin=''; for(let i=0;i<b.length;i+=32768) bin+=String.fromCharCode.apply(null,b.subarray(i,i+32768)); nat('saveFile',{name:'piesen.mid',kind:'mid',b64:btoa(bin)}); };
   onNat('pos',e=>{
     natLast={pos:e.pos,t:performance.now()};
@@ -440,7 +440,7 @@ function setupNative(){
   });
   onNat('plugins',list=>{ natPlugins=Array.isArray(list)?list:[]; renderTracks(); });
   onNat('trackPlugins',m=>{ natTrackPlugins=m||{}; renderTracks(); });
-  pickAudio=function(){ nat('importAudio',{track:audTarget&&audTarget.trId||'',bar:audTarget?audTarget.bar:0}); };
+  pickAudio=function(){ audioBrowser(audTarget&&audTarget.trId||'',audTarget?audTarget.bar:0); };
   importAudioFile=function(f,trId,bar){ natUpload(f,trId,bar); };
   $('bWav').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
     stopIfPlaying(); nat('exportWav',{end}); };
@@ -472,12 +472,13 @@ function setupNative(){
   onNat('midiCC',midiCcIn);
   onNat('drumKitLoaded',drumKitLoaded);
   onNat('fsList',sbListIn);
+  onNat('openBrowser',e=>{ if(e&&e.kind==='sampler') fileBrowser('sampler'); });
   // bez systemoveho menu WebView2 (prekryvalo nase menu, napr. na audio klipe)
   document.addEventListener('contextmenu',e=>{ if(!(e.target.closest&&e.target.closest('input[type=text],input[type=number],textarea'))) e.preventDefault(); },true);
   onNat('hostKey',e=>{ if(e&&e.code==='Space') playing?stop():play(); });
   onNat('recPeaks',e=>{ const p=natRecPk[e.track]||(natRecPk[e.track]={mn:[],mx:[]}); p.B=e.B; p.sr=e.sr; p.start=e.start; p.mn.push(...e.mn); p.mx.push(...e.mx); });
   onNat('midiImported',midiImported);
-  $('bImpMidi').onclick=()=>nat('importMidi');
+  $('bImpMidi').onclick=()=>fileBrowser('midi');
   $('bMp3').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
     const lo=[[-14,'TikTok / YouTube / Spotify (−14 LUFS)'],[-11,'Hlasnejšie (−11 LUFS)'],[-9,'Veľmi hlasno (−9 LUFS)'],[0,'Bez úpravy hlasitosti']];
     dialog('Export MP3',`<p>Pieseň sa uloží ako MP3. Hlasitosť sa dorovná na zvolenú úroveň a vrcholy sa obmedzia na −1 dB, aby sa nič neskreslilo.</p>
@@ -2096,7 +2097,7 @@ function refDialog(){
     <div class="frow"><label>Hlasitosť</label><span style="flex:1">referencia ${r.lufs} LUFS${r.mix!=null?' · mix '+r.mix+' LUFS':''}</span></div>
     <div class="frow"><label>Úprava referencie</label><input type="range" id="refG" min="-24" max="12" step="0.5" style="flex:1"><span id="refGv" style="width:60px;text-align:right"></span></div>`:''}
     <div class="row"><button id="refL">${r?'Iná pesnička…':'Načítať pesničku…'}</button>${r?'<button id="refM">Vyrovnať hlasitosť s mixom</button><button id="refX">Odstrániť</button>':''}<span style="flex:1"></span></div>`);
-  $('refL').onclick=()=>{ $('dlgBack').hidden=true; nat('refLoad'); };
+  $('refL').onclick=()=>fileBrowser('ref');
   if(r){
     const g=$('refG'), gv=$('refGv'); g.value=r.gainDb||0; gv.textContent=(r.gainDb>0?'+':'')+(r.gainDb||0)+' dB';
     g.oninput=()=>{ r.gainDb=+g.value; gv.textContent=(r.gainDb>0?'+':'')+r.gainDb+' dB'; refSync(); }; g.onchange=()=>save();
@@ -2935,23 +2936,36 @@ function midiParamsIn(e){
 const LSSB='korgusSmpBrowser';
 let sb={dir:'',auto:true,fav:[]}; try{ Object.assign(sb,JSON.parse(localStorage.getItem(LSSB)||'{}')); }catch(e){}
 let sbCur=null;   // {tr,lane,list,sel,req}
-function sbSave(){ try{ localStorage.setItem(LSSB,JSON.stringify({dir:sb.dir,auto:sb.auto,fav:sb.fav})); }catch(e){} }
+function sbSave(){ try{ localStorage.setItem(LSSB,JSON.stringify({dir:sb.dir,dirs:sb.dirs||{},auto:sb.auto,fav:sb.fav})); }catch(e){} }
 function sbLaneOpts(tr,l){ return DRUMS.map((d,i)=>`<option value="${i}"${i===l?' selected':''}>${i+1}. ${esc((tr.smpN&&tr.smp&&tr.smp[i]&&tr.smpN[i])?d[0]+' – '+tr.smpN[i]:d[0])}</option>`).join(''); }
-function smpBrowser(tr,l){
-  sbCur={tr,lane:l,list:[],sel:-1,req:0};
-  dialog('Zvuky pre bicie – '+tr.name,`<div class="row" style="gap:6px;margin-bottom:6px"><button id="sbUp" title="O priečinok vyššie">▲</button><span id="sbPath"></span><button id="sbFav" title="Pridať / odobrať priečinok z obľúbených">★</button></div>
-    <div class="row" style="gap:6px;margin-bottom:6px"><input id="sbQ" type="text" placeholder="Hľadať v tomto priečinku a podpriečinkoch (napr. kick 808)…" style="flex:1"><label style="white-space:nowrap"><input id="sbAuto" type="checkbox"${sb.auto?' checked':''}> Prehrať pri výbere</label></div>
+// rovnaky prehliadac pre vsetky importy: audio, MIDI, referencia, otvorenie piesne
+const SBK={
+  audio:{t:'Import audia (WAV, MP3…)',ok:'Vložiť',pv:1,info:'vložiť do stopy'},
+  ref:{t:'Referenčná pesnička',ok:'Načítať',pv:1,info:'načítať ako referenciu'},
+  midi:{t:'Import MIDI',ok:'Importovať',ext:['mid','midi'],info:'importovať'},
+  song:{t:'Otvoriť pieseň',ok:'Otvoriť',ext:['s92','kpack','json'],info:'otvoriť'},
+  sampler:{t:'Zvuk pre Korgus Sampler',ok:'Načítať',pv:1,info:'načítať do samplera'}};
+function audioBrowser(trId,bar){ fileBrowser('audio',{trId,bar}); }
+function fileBrowser(kind,o){
+  const pv=(o&&o.trId)||((song.tracks[selT]||song.tracks[0]||{}).id)||'';
+  smpBrowser({id:pv,name:SBK[kind].t},0,Object.assign({kind},o||{}));
+}
+function smpBrowser(tr,l,audio){
+  const K=audio?SBK[audio.kind]:null;
+  sbCur={tr,lane:l,list:[],sel:-1,req:0,audio:audio||null,ext:K&&K.ext||null,pv:!K||!!K.pv};
+  dialog(K?K.t:'Zvuky pre bicie – '+tr.name,`<div class="row" style="gap:6px;margin-bottom:6px"><button id="sbUp" title="O priečinok vyššie">▲</button><span id="sbPath"></span><button id="sbFav" title="Pridať / odobrať priečinok z obľúbených">★</button></div>
+    <div class="row" style="gap:6px;margin-bottom:6px"><input id="sbQ" type="text" placeholder="Hľadať v tomto priečinku a podpriečinkoch${K?'':' (napr. kick 808)'}…" style="flex:1"><label style="white-space:nowrap${sbCur.pv?'':';display:none'}"><input id="sbAuto" type="checkbox"${sb.auto?' checked':''}> Prehrať pri výbere</label></div>
     <div id="sbBox"><div id="sbPl"></div><div id="sbList" tabindex="0"></div></div>
-    <p id="sbInfo" style="color:#2d4362;margin:6px 0">Klik = vypočuť · dvojklik alebo Enter = použiť · šípky hore/dole = ďalší zvuk</p>
-    <div class="row" style="gap:6px"><label>Riadok</label><select id="sbLane">${sbLaneOpts(tr,l)}</select><span style="flex:1"></span><button id="sbSys" title="Klasické okno Windows na výber súboru">Iné okno…</button><button id="sbOk">Použiť</button><button id="sbClose">Zavrieť</button></div>`,true);
+    <p id="sbInfo" style="color:#2d4362;margin:6px 0">${sbCur.pv?'Klik = vypočuť · ':''}dvojklik alebo Enter = ${K?K.info:'použiť'} · šípky hore/dole = ďalší ${sbCur.pv?'zvuk':'súbor'}</p>
+    <div class="row" style="gap:6px">${audio?'':'<label>Riadok</label><select id="sbLane">'+sbLaneOpts(tr,l)+'</select>'}<span style="flex:1"></span><button id="sbSys" title="Klasické okno Windows na výber súboru">Iné okno…</button><button id="sbOk">${K?K.ok:'Použiť'}</button><button id="sbClose">Zavrieť</button></div>`,true);
   $('sbUp').onclick=()=>{ if(sbCur.parent) sbGo(sbCur.parent); };
   $('sbFav').onclick=()=>{ const d=sbCur.path; if(!d) return; const k=sb.fav.indexOf(d); if(k>=0) sb.fav.splice(k,1); else sb.fav.push(d); sbSave(); sbPlaces(); };
   $('sbAuto').onchange=e=>{ sb.auto=e.target.checked; sbSave(); if(!sb.auto) nat('fsPreview',{track:tr.id,path:''}); };
   let qt=null; $('sbQ').oninput=()=>{ clearTimeout(qt); qt=setTimeout(()=>sbGo(sbCur.path,$('sbQ').value),450); };
   $('sbQ').onkeydown=e=>{ if(e.key==='Enter'){ clearTimeout(qt); sbGo(sbCur.path,$('sbQ').value); } else if(e.key==='ArrowDown'){ e.preventDefault(); $('sbList').focus(); sbMove(1); } e.stopPropagation(); };
-  $('sbLane').onchange=e=>{ sbCur.lane=+e.target.value; };
+  if($('sbLane')) $('sbLane').onchange=e=>{ sbCur.lane=+e.target.value; };
   $('sbOk').onclick=()=>sbPick();
-  $('sbSys').onclick=()=>{ sbStop(); $('dlgBack').hidden=true; nat('importSample',{track:tr.id,lane:sbCur.lane}); };
+  $('sbSys').onclick=()=>{ sbStop(); $('dlgBack').hidden=true; if(!audio) nat('importSample',{track:tr.id,lane:sbCur.lane}); else if(audio.kind==='audio') nat('importAudio',{track:audio.trId,bar:audio.bar}); else if(audio.kind==='ref') nat('refLoad'); else if(audio.kind==='midi') nat('importMidi'); else if(audio.kind==='sampler') nat('browserPick',{sys:true}); else nat('openSong'); };
   $('sbClose').onclick=()=>{ sbStop(); $('dlgBack').hidden=true; };
   const L=$('sbList');
   L.onkeydown=e=>{ if(e.key==='ArrowDown'){ e.preventDefault(); sbMove(1); } else if(e.key==='ArrowUp'){ e.preventDefault(); sbMove(-1); }
@@ -2960,10 +2974,10 @@ function smpBrowser(tr,l){
     else if(e.key===' '){ e.preventDefault(); sbPreview(true); } e.stopPropagation(); };
   L.onclick=e=>{ const r=e.target.closest('[data-i]'); if(!r) return; sbSelect(+r.dataset.i,true); };
   L.ondblclick=e=>{ const r=e.target.closest('[data-i]'); if(!r) return; const it=sbCur.list[+r.dataset.i]; if(it.d) sbGo(it.p); else sbPick(); };
-  sbGo(sb.dir||'');
+  sbGo((audio?(sb.dirs||{})[audio.kind]||sb.dirA:sb.dir)||'');
 }
-function sbStop(){ if(sbCur) nat('fsPreview',{track:sbCur.tr.id,path:''}); }
-function sbGo(path,q){ if(!sbCur) return; sbCur.req++; $('sbList').innerHTML='<div style="opacity:.6">Načítavam…</div>'; nat('fsList',{req:sbCur.req,path:path||'',q:q||''}); }
+function sbStop(){ if(sbCur&&sbCur.pv) nat('fsPreview',{track:sbCur.tr.id,path:''}); }
+function sbGo(path,q){ if(!sbCur) return; sbCur.req++; $('sbList').innerHTML='<div style="opacity:.6">Načítavam…</div>'; nat('fsList',{req:sbCur.req,path:path||'',q:q||'',ext:sbCur.ext||[]}); }
 function sbPlaces(){
   const pl=$('sbPl'); if(!pl||!sbCur) return;
   const fav=sb.fav.map(p=>({n:'★ '+(p.split(/[\\/]/).filter(Boolean).pop()||p),p,t:p}));
@@ -2975,8 +2989,8 @@ function sbPlaces(){
 function sbListIn(e){
   if(!sbCur||e.req!==sbCur.req||!$('sbList')) return;
   sbCur.path=e.path; sbCur.parent=e.parent; sbCur.places=e.places||[];
-  if(!e.q){ sb.dir=e.path; sbSave(); }
-  const kb=b=>b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' kB';
+  if(!e.q){ if(sbCur.audio){ sb.dirs=sb.dirs||{}; sb.dirs[sbCur.audio.kind]=e.path; } else sb.dir=e.path; sbSave(); }
+  const kb=b=>b==null?'':b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' kB';
   sbCur.list=[...(e.dirs||[]).map(d=>({d:1,n:d.n,p:d.p})),...(e.files||[]).map(f=>({n:f.n,p:f.p,sz:f.sz}))];
   sbCur.sel=-1;
   $('sbPath').textContent='\u200e'+e.path+(e.q?'  –  hľadám: '+e.q:'')+'\u200e'; $('sbPath').title=e.path;
@@ -2993,9 +3007,16 @@ function sbSelect(i,play){
   if(play) sbPreview(false);
 }
 function sbMove(d){ if(!sbCur.list.length) return; sbSelect(clamp(sbCur.sel+d,0,sbCur.list.length-1),true); }
-function sbPreview(force){ const it=sbCur.list[sbCur.sel]; if(!it||it.d) return; if(sb.auto||force) nat('fsPreview',{track:sbCur.tr.id,path:it.p}); }
+function sbPreview(force){ const it=sbCur.list[sbCur.sel]; if(!it||it.d||!sbCur.pv) return; if(sb.auto||force) nat('fsPreview',{track:sbCur.tr.id,path:it.p}); }
 function sbPick(){
-  const it=sbCur&&sbCur.list[sbCur.sel]; if(!it||it.d){ toast('Vyber zvuk (WAV, MP3…).'); return; }
+  const it=sbCur&&sbCur.list[sbCur.sel]; if(!it||it.d){ toast(sbCur.pv?'Vyber zvuk (WAV, MP3…).':'Vyber súbor.'); return; }
+  if(sbCur.audio){ const A=sbCur.audio; sbStop(); $('dlgBack').hidden=true;
+    if(A.kind==='audio') nat('importAudio',{track:A.trId,bar:A.bar,path:it.p});
+    else if(A.kind==='ref') nat('refLoad',{path:it.p});
+    else if(A.kind==='midi') nat('importMidi',{path:it.p});
+    else if(A.kind==='sampler') nat('browserPick',{path:it.p});
+    else nat('openSong',{path:it.p});
+    return; }
   nat('pickSample',{track:sbCur.tr.id,lane:sbCur.lane,path:it.p});
   sbCur.picked={lane:sbCur.lane,name:it.n.split(/[\\/]/).pop()};
 }
