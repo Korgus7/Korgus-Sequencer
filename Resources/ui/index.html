@@ -11,6 +11,8 @@ body{background:#3b4b5f;font:12px "Microsoft Sans Serif",Tahoma,Arial,sans-serif
 [hidden]{display:none!important}
 .win{background:#c0c0c0;border:2px solid;border-color:#dfdfdf #404040 #404040 #dfdfdf;box-shadow:inset 1px 1px #fff,inset -1px -1px #808080;margin:3px 4px;display:flex;flex-direction:column;min-height:0;border-radius:2px}
 .tb{background:#2d4362;color:#fff;font-weight:bold;padding:2px 4px 2px 8px;display:flex;align-items:center;gap:6px;min-height:22px;flex:none}
+.tb .mnu{background:transparent;border:0;color:#e4e9ef;font-weight:normal;padding:2px 10px;border-radius:3px;min-height:0;box-shadow:none}
+.tb .mnu:hover,.tb .mnu.on{background:#3d5677}
 .tb button{min-height:18px;padding:0 7px;font-weight:normal;background:#4a6085;border-color:#6e83a5;color:#fff}
 .tb button.on{background:#c9d2de;color:#1b2533;border-color:#c9d2de}
 .tb button:hover{background:#5a7199;border-color:#8a9dbc}
@@ -229,36 +231,28 @@ button.ico svg{display:block}
 <body>
 
 <div class="win" id="topWin">
-  <div class="tb">KORGUS SEQUENCER<span class="sp"></span><span id="tbInfo" style="font-weight:normal"></span></div>
-  <div class="bar">
+  <div class="tb">KORGUS SEQUENCER<span style="width:14px"></span><button class="mnu" id="mFile">Súbor</button><button class="mnu" id="mTrack">+ Stopa</button><button class="mnu" id="bHelp">Pomoc</button><span class="sp"></span><span id="tbInfo" style="font-weight:normal"></span></div>
+  <div id="hidBtns" hidden>
     <button id="bNew">Nový</button>
     <button id="bOpen">Otvoriť…</button>
     <button id="bSave">Uložiť…</button>
-    <button id="bImpMidi" title="Import MIDI súboru (.mid) – vytvorí stopy aj s notami">Import MIDI</button>
+    <button id="bImpMidi">Import MIDI</button>
     <button id="bMidi">Export MIDI</button>
     <button id="bWav">Export WAV</button>
-    <button id="bMp3" title="Pieseň do MP3 s vyrovnanou hlasitosťou (napr. na TikTok, YouTube)">Export MP3</button>
-    <button id="bStems" title="Každá stopa zvlášť do WAV (bez efektov mastra)">Export stôp</button>
-    <input type="file" id="fileIn" accept=".json,.s92" hidden>
-    <input type="file" id="smpIn" accept="audio/*,.wav,.mp3,.ogg,.flac" hidden>
-    <span class="sep"></span>
+    <button id="bMp3">Export MP3</button>
+    <button id="bStems">Export stôp</button>
     <button id="bAddD">+ Bicie</button>
     <button id="bAddS">+ Syntezátor</button>
     <button id="bAddA">+ Audio</button>
-    <button id="bImpA" title="Načítať WAV / MP3 do audio stopy (alebo súbor pretiahni myšou do Aranžmánu)">Import audio…</button>
-    <input type="file" id="audIn" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a" hidden>
-
-    <span class="sep"></span>
-    <button id="bUndo">Späť</button>
-    <span class="sep"></span>
-    Takty <input type="number" id="barsIn" min="4" max="256" style="width:56px">
-    <span class="sp"></span>
-    <button id="bHelp">Pomoc</button>
+    <button id="bImpA">Import audio…</button>
   </div>
+  <input type="file" id="fileIn" accept=".json,.s92" hidden>
+  <input type="file" id="smpIn" accept="audio/*,.wav,.mp3,.ogg,.flac" hidden>
+  <input type="file" id="audIn" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a" hidden>
 </div>
 
 <div class="win" id="arrWin">
-  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><button id="atErase" class="ico" title="Guma – klik na časť ju zmaže"><svg width="14" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9.5 1.5l5 5-6.5 6.5H4.5L1.5 10z"/><path d="M5.5 5.5l5 5"/><path d="M4.5 13h10"/></svg></button><span class="sp"></span><button id="bAuto" title="Automatizácia vybranej stopy (hlasitosť, panoráma, parametre pluginov)">Auto</button><span style="width:4px"></span><button id="bAi" title="AI asistent pre vybranú stopu (Ctrl+I)">AI</button><span style="width:4px"></span><button id="bMix" title="Mixpult (F3)">Mix</button></div>
+  <div class="tb">Aranžmán<span style="width:14px"></span><button id="atArrow" class="ico on" title="Šípka – výber a presun"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg></button><button id="atCut" class="ico" title="Nožnice – klik do časti ju rozdelí"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="12" r="2.2"/><circle cx="11.5" cy="12" r="2.2"/><path d="M5.8 10.3L12 2M10.2 10.3L4 2"/></svg></button><button id="atGlue" class="ico" title="Lepidlo – klik na časť ju zlepí s nasledujúcou"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg></button><button id="atErase" class="ico" title="Guma – klik na časť ju zmaže"><svg width="14" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9.5 1.5l5 5-6.5 6.5H4.5L1.5 10z"/><path d="M5.5 5.5l5 5"/><path d="M4.5 13h10"/></svg></button><span style="width:14px"></span><button id="bUndo" title="Späť (Ctrl+Z)">Späť</button><span style="width:10px"></span><span style="font-weight:normal">Takty</span><input type="number" id="barsIn" min="4" max="256" style="width:56px"><span class="sp"></span><button id="bAuto" title="Automatizácia vybranej stopy (hlasitosť, panoráma, parametre pluginov)">Auto</button><span style="width:4px"></span><button id="bAi" title="AI asistent pre vybranú stopu (Ctrl+I)">AI</button><span style="width:4px"></span><button id="bMix" title="Mixpult (F3)">Mix</button></div>
   <div id="arrScroll"><div id="arrInner"><div id="trackList"></div><div id="arrCvWrap"><canvas id="arrCv"></canvas><div id="arrPH" class="ph"></div></div></div></div>
 </div>
 
@@ -1150,7 +1144,10 @@ function renderTracksNative(L){
       const di=dd('',trackIn(tr),tr.inp||'0','Vstup zvukovky',v=>{tr.inp=v; save();});
       const tg=el('button','tg'+(st?' on':''),st?ICO_ST:ICO_MO); tg.title=st?'Stereo (klik = mono)':'Mono (klik = stereo)'; tg.onmousedown=e=>e.stopPropagation();
       tg.onclick=()=>{ const a=parseInt(tr.inp||'0')||0; tr.inp=st?String(a):(a-a%2)+'+'+(a-a%2+1); save(); renderTracks(); };
-      r3.append(di,tg); rows.push(r3,fxRow(tr));
+      const ia=el('button','tg','<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.5 4.5h4.5l1.5 1.5h7v7.5h-13z"/><path d="M8 7.5v4M6.2 9.8L8 11.6l1.8-1.8"/></svg>');
+      ia.title='Import audio (WAV, MP3…) do tejto stopy na pozíciu prehrávania'; ia.onmousedown=e=>e.stopPropagation();
+      ia.onclick=()=>{ selectTrack(i); audTarget={trId:tr.id,bar:Math.floor(curPos()/SPB)}; pickAudio(); };
+      r3.append(di,ia,tg); rows.push(r3,fxRow(tr));
     } else {
       const cur=natTrackPlugins[tr.id]||{}, r3=el('div','r');
       const inst='<option value="">Žiadny nástroj</option>'+natPlugins.filter(p=>p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
@@ -2556,6 +2553,15 @@ $('audIn').onchange=e=>{const f=e.target.files[0]; e.target.value=''; if(f&&audT
 function deleteTrack(i){ if(!song.tracks[i]) return; pushUndo(); const tr=song.tracks.splice(i,1)[0];
   if(ed&&tr.parts.some(p=>p.id===ed.pId)) closeEditor(); selT=clamp(selT>i?selT-1:selT,0,Math.max(0,song.tracks.length-1)); renderAll(); save(); if(NATIVE) natSel();}
 $('bUndo').onclick=undo;
+/* hlavne menu (Subor, + Stopa) */
+function menuAt(btn,items){ const r=btn.getBoundingClientRect(); btn.classList.add('on'); ctxMenu(r.left,r.bottom+2,items); const off=()=>{ btn.classList.remove('on'); removeEventListener('mousedown',off,true); }; setTimeout(()=>addEventListener('mousedown',off,true),0); }
+const clk=id=>()=>$(id).click();
+$('mFile').onclick=e=>{ e.stopPropagation(); menuAt($('mFile'),[
+  ['Nový',clk('bNew')],['Otvoriť…  (Ctrl+O)',clk('bOpen')],['Uložiť…  (Ctrl+S)',clk('bSave')],null,
+  ['Import MIDI…',clk('bImpMidi')],['Import audio…',clk('bImpA')],null,
+  ['Export MIDI',clk('bMidi')],['Export WAV',clk('bWav')],['Export MP3',clk('bMp3')],['Export stôp',clk('bStems')]]); };
+$('mTrack').onclick=e=>{ e.stopPropagation(); menuAt($('mTrack'),[
+  ['Bicie (krokový sekvencer)',clk('bAddD')],[NATIVE?'Nástroj (VST)':'Syntezátor',clk('bAddS')],['Audio (nahrávanie, wav)',clk('bAddA')]]); };
 $('barsIn').onchange=e=>{const mx=Math.max(4,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len))); song.bars=clamp(+e.target.value||32,mx,256);
   song.locR=Math.min(song.locR,song.bars*SPB); song.locL=Math.min(song.locL,song.locR-1); song.pos=Math.min(song.pos,song.bars*SPB-1); updTransport(); drawArrange(); save();};
 function saveView(){try{localStorage.setItem(LSV,JSON.stringify({zoomA,ROWH,zoomK,KH,latMode,sinkId,inId}));}catch(e){}}
