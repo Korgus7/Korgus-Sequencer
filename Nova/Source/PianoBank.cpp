@@ -32,7 +32,7 @@ static bool readPack (juce::MemoryBlock& out)
     HMODULE mod = nullptr;
     if (! GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                               (LPCWSTR) (void*) &readPack, &mod)) return false;
-    HRSRC r = FindResourceW (mod, L"PIANO", RT_RCDATA);
+    HRSRC r = FindResourceW (mod, L"PIANO", MAKEINTRESOURCEW (10));   // 10 = RT_RCDATA
     if (r == nullptr) return false;
     HGLOBAL h = LoadResource (mod, r);
     const void* p = h != nullptr ? LockResource (h) : nullptr;
