@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "BuiltinFx.h"
 
 namespace
 {
@@ -68,9 +69,12 @@ void Engine::Slot::prepare (double sr, int bs)
 Engine::Engine()
 {
     cmds.reserve (64);
+    order.reserve (512);
     trigs.reserve (64);
     fxMidi.ensureSize (64);
     masterSlot = getOrCreateSlot ("__master");
+    auxSlot[0] = getOrCreateSlot ("__aux1");
+    auxSlot[1] = getOrCreateSlot ("__aux2");
 }
 
 Engine::~Engine()
@@ -426,6 +430,15 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
         }
         if (! td.audible) continue;
 
+        // MIDI CC a pitch bend (pred notami v tom istom okamihu)
+        auto cit = std::lower_bound (td.ccs.begin(), td.ccs.end(), p0, [] (const CcEv& c, double v) { return c.start < v; });
+        for (; cit != td.ccs.end() && cit->start < p1; ++cit)
+        {
+            const int o = off + juce::jmax (0, (int) ((cit->start - p0) * sps));
+            s.midi.addEvent (cit->ctrl == 128 ? juce::MidiMessage::pitchWheel (td.channel, cit->value)
+                                              : juce::MidiMessage::controllerEvent (td.channel, cit->ctrl, cit->value), o);
+        }
+
         // zaciatky nôt
         auto it = std::lower_bound (td.notes.begin(), td.notes.end(), p0,
                                     [] (const NoteEv& n, double v) { return n.start < v; });
@@ -589,7 +602,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 const int len = juce::jlimit (0, n - s, (int) std::ceil ((limit - pos) * sps));
                 renderSegment (*sd, pos, limit, s, len, sps);
                 captureInput (s, len, pos);
-                if (recActive.load()) recStopped = true;   // nahravanie konci pri skoku spat
+                if (recActive.load() && ! loop) recStopped = true;   // koniec piesne ukonci nahravanie, v cykle sa nahrava dalej (takes)
                 allNotesOff (s + len > 0 ? s + len - 1 : 0, false);
                 s += len;
                 pos = loop ? sd->locL : 0.0;
@@ -612,11 +625,36 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     float* mixL = ms.buf.getWritePointer (0);
     float* mixR = ms.buf.getWritePointer (1);
 
+    float* auxL[2] {}; float* auxR[2] {};
+    for (int k = 0; k < 2; ++k)
+    {
+        auto& as = *slots[(size_t) auxSlot[k]];
+        if (as.buf.getNumSamples() < n || as.buf.getNumChannels() < 2) as.buf.setSize (juce::jmax (2, as.buf.getNumChannels()), n, false, true, true);
+        for (int c = 0; c < as.buf.getNumChannels(); ++c) juce::FloatVectorOperations::clear (as.buf.getWritePointer (c), n);
+        auxL[k] = as.buf.getWritePointer (0); auxR[k] = as.buf.getWritePointer (1);
+    }
+
+    // kluc pre sidechain: stopy oznacene ako kluc sa spracuju prve, ich signal (pred hlasitostou) ide do keyBuf
+    if (keyBuf.getNumSamples() < n) keyBuf.setSize (2, n, false, false, true);
+    keyBuf.clear (0, n);
+    bool keyReady = false;
+    auto setKey = [this, n, &keyReady] (juce::AudioPluginInstance* f)
+    {
+        if (keyReady) BuiltinFx::setSidechain (f, keyBuf.getReadPointer (0), keyBuf.getReadPointer (1), n);
+        else BuiltinFx::setSidechain (f, nullptr, nullptr, 0);
+    };
+
     // stopy: odposluch vstupu, nastroj, efekty, hlasitost a panorama
     if (sd != nullptr)
     {
-        for (const auto& td : sd->tracks)
+        order.clear();
+        for (int i = 0; i < (int) sd->tracks.size(); ++i) if (sd->tracks[(size_t) i].isKey) order.push_back (i);
+        const int numKeys = (int) order.size();
+        for (int i = 0; i < (int) sd->tracks.size(); ++i) if (! sd->tracks[(size_t) i].isKey) order.push_back (i);
+        for (int oi = 0; oi < (int) order.size(); ++oi)
         {
+            if (oi == numKeys && numKeys > 0) keyReady = true;
+            const auto& td = sd->tracks[(size_t) order[(size_t) oi]];
             if (! juce::isPositiveAndBelow (td.slot, (int) slots.size())) continue;
             auto& slot = *slots[(size_t) td.slot];
             juce::AudioBuffer<float> view (slot.buf.getArrayOfWritePointers(), slot.buf.getNumChannels(), n);
@@ -667,8 +705,11 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             if (slot.plugin != nullptr) { slot.plugin->processBlock (view, slot.midi); any = true; }
             if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
             for (auto& f : slot.fx)
-                if (f != nullptr) { fxMidi.clear(); f->processBlock (view, fxMidi); any = true; }
+                if (f != nullptr) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); any = true; }
             if (! any && ! td.isAudio) continue;
+            if (td.isKey)
+                for (int c = 0; c < 2; ++c)
+                    keyBuf.addFrom (c, 0, view, juce::jmin (c, view.getNumChannels() - 1), 0, n);
 
             const int chans = view.getNumChannels();
             const float* srcL = view.getReadPointer (0);
@@ -686,7 +727,28 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 for (int i = 0; i < n; ++i) { a += dL; b += dR; mixL[i] += srcL[i] * a; mixR[i] += srcR[i] * b; }
             }
             slot.curL = gL; slot.curR = gR;
+            for (int k = 0; k < 2; ++k)
+                if (td.send[k] > 0.0f)
+                {
+                    juce::FloatVectorOperations::addWithMultiply (auxL[k], srcL, gL * td.send[k], n);
+                    juce::FloatVectorOperations::addWithMultiply (auxR[k], srcR, gR * td.send[k], n);
+                }
         }
+    }
+
+    // spolocne efekty FX 1 / FX 2 -> master
+    for (int k = 0; k < 2; ++k)
+    {
+        auto& as = *slots[(size_t) auxSlot[k]];
+        bool anyFx = false;
+        for (auto& f : as.fx) anyFx = anyFx || f != nullptr;
+        if (! anyFx) continue;
+        juce::AudioBuffer<float> view (as.buf.getArrayOfWritePointers(), as.buf.getNumChannels(), n);
+        for (auto& f : as.fx)
+            if (f != nullptr) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
+        const float g = sd != nullptr ? sd->auxGain[k] : 1.0f;
+        juce::FloatVectorOperations::addWithMultiply (mixL, auxL[k], g, n);
+        juce::FloatVectorOperations::addWithMultiply (mixR, auxR[k], g, n);
     }
 
     {
@@ -694,7 +756,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         const bool bypass = forced != nullptr && bypassMaster.load();
         if (! bypass)
             for (auto& f : ms.fx)
-                if (f != nullptr) { fxMidi.clear(); f->processBlock (view, fxMidi); }
+                if (f != nullptr) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
         const float mg = bypass ? 1.0f : (sd != nullptr ? sd->masterGain : 1.0f);
         if (curNumOut == 1 && out[0] != nullptr)
         {

@@ -16,6 +16,12 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
     sd->loopOn  = (bool) j.getProperty ("loopOn", false);
     sd->click   = (bool) j.getProperty ("click", false);
     { const float mv = (float) (double) j.getProperty ("masterVol", 1.0); sd->masterGain = mv * mv; }
+    if (const auto* aux = j["aux"].getArray())
+        for (int k = 0; k < juce::jmin (2, aux->size()); ++k)
+        {
+            const float av = juce::jlimit (0.0f, 1.0f, (float) (double) (*aux)[k].getProperty ("vol", 1.0));
+            sd->auxGain[k] = av * av;
+        }
     const double swing = (double) j.getProperty ("swing", 0) / 100.0 * 0.6;
 
     const auto* tracks = j["tracks"].getArray();
@@ -45,6 +51,13 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             td.gainL = g * juce::jmin (1.0f, 1.0f - pan);
             td.gainR = g * juce::jmin (1.0f, 1.0f + pan);
             td.vol = vol; td.pan = pan;
+            td.isKey = (bool) t.getProperty ("sc", false);
+            if (const auto* snd = t["send"].getArray())
+                for (int k = 0; k < juce::jmin (2, snd->size()); ++k)
+                {
+                    const float sv = juce::jlimit (0.0f, 1.0f, (float) (double) (*snd)[k]);
+                    td.send[k] = sv * sv;
+                }
             if (const auto* autos = t["auto"].getArray())
                 for (const auto& av : *autos)
                 {
@@ -123,7 +136,32 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                             }
                         }
                     }
-                    else if (const auto* notes = p["notes"].getArray())
+                    else
+                    {
+                        if (auto* cc = p["cc"].getDynamicObject())
+                            for (const auto& prop : cc->getProperties())
+                            {
+                                const auto key = prop.name.toString();
+                                const bool pb = key == "pb";
+                                const int ctrl = pb ? 128 : key.getIntValue();
+                                if (! pb && ! juce::isPositiveAndBelow (ctrl, 128)) continue;
+                                bool any = false;
+                                if (const auto* pts = prop.value.getArray())
+                                    for (const auto& q : *pts)
+                                        if (const auto* xy = q.getArray(); xy != nullptr && xy->size() >= 2)
+                                        {
+                                            const double s = (double) (*xy)[0];
+                                            if (s < 0 || s >= steps) continue;
+                                            const int v = juce::jlimit (0, 127, (int) (*xy)[1]);
+                                            td.ccs.push_back ({ a + s, ctrl, pb ? juce::jmin (16383, v * 128) : v });
+                                            any = true;
+                                        }
+                                // na konci casti: sustain pusti, bend do stredu
+                                if (any && (ctrl == 64 || pb)) td.ccs.push_back ({ a + steps - 0.01, ctrl, pb ? 8192 : 0 });
+                            }
+                    }
+                    if (type != "drum" && ! td.isAudio)
+                    if (const auto* notes = p["notes"].getArray())
                     {
                         for (const auto& nv : *notes)
                         {
@@ -142,6 +180,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             }
             std::sort (td.notes.begin(), td.notes.end(), [] (const NoteEv& x, const NoteEv& y) { return x.start < y.start; });
             std::sort (td.hits.begin(), td.hits.end(), [] (const HitEv& x, const HitEv& y) { return x.start < y.start; });
+            std::stable_sort (td.ccs.begin(), td.ccs.end(), [] (const CcEv& x, const CcEv& y) { return x.start < y.start; });
             sd->tracks.push_back (std::move (td));
         }
     }

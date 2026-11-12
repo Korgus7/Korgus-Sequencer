@@ -190,8 +190,11 @@ public:
                     p->setValueNotifyingHost (p->range.convertTo0to1 ((float) x->getDoubleAttribute (p->id)));
     }
 
+    void setKey (const float* l, const float* r, int n) { scL = l; scR = r != nullptr ? r : l; scN = l != nullptr ? n : 0; }
+
 protected:
     virtual void prepare() = 0;
+    const float* scL = nullptr; const float* scR = nullptr; int scN = 0;
     virtual void process (AudioBuffer<float>&) = 0;
 
     double rate = 44100;
@@ -334,15 +337,16 @@ public:
         rel  = add ("release", "Dozvuk", 10, 1000, 120, "ms", 0.4f, 0);
         mak  = add ("makeup", "Zisk", 0, 24, 0, "dB");
         mix  = add ("mix", "Mix", 0, 100, 100, "%", 1.0f, 0);
+        key  = add ("key", "Riadenie", 0, 1, 0, "", 1.0f, 0);
+        key->range.interval = 1.0f;
+        key->choices = StringArray { String::fromUTF8 ("Vlastný signál"), String::fromUTF8 ("Sidechain (kľúčová stopa)") };
     }
 
 private:
-    void prepare() override { comp.prepare (spec); comp.reset(); dry.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize); }
+    void prepare() override { env = 0; dry.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize); }
 
     void process (AudioBuffer<float>& b) override
     {
-        comp.setThreshold (thr->get()); comp.setRatio (rat->get());
-        comp.setAttack (att->get()); comp.setRelease (rel->get());
         const float m = mix->get() * 0.01f;
         const int n = b.getNumSamples(), ch = b.getNumChannels();
         if (m < 0.999f)
@@ -350,11 +354,25 @@ private:
             if (dry.getNumSamples() < n || dry.getNumChannels() < ch) dry.setSize (ch, n, false, false, true);
             for (int c = 0; c < ch; ++c) dry.copyFrom (c, 0, b, c, 0, n);
         }
-        dsp::AudioBlock<float> blk (b);
-        comp.process (dsp::ProcessContextReplacing<float> (blk));
-        const float g = Decibels::decibelsToGain (mak->get());
-        b.applyGainRamp (0, n, lastG, g);
-        lastG = g;
+        const bool useKey = key->get() > 0.5f && scL != nullptr && scN >= n;
+        const float* dL = useKey ? scL : b.getReadPointer (0);
+        const float* dR = useKey ? scR : b.getReadPointer (ch > 1 ? 1 : 0);
+        const float aA = (float) std::exp (-1.0 / (att->get() * 0.001 * rate));
+        const float aR = (float) std::exp (-1.0 / (rel->get() * 0.001 * rate));
+        const float t = thr->get(), slope = 1.0f - 1.0f / rat->get(), knee = 6.0f;
+        const float mg0 = lastG, mg1 = Decibels::decibelsToGain (mak->get());
+        for (int i = 0; i < n; ++i)
+        {
+            const float x = jmax (std::abs (dL[i]), std::abs (dR[i]));
+            env = x > env ? x + (env - x) * aA : x + (env - x) * aR;
+            const float lev = Decibels::gainToDecibels (env, -120.0f), over = lev - t;
+            float gr = 0;
+            if (over > knee * 0.5f) gr = over * slope;
+            else if (over > -knee * 0.5f) { const float k = over + knee * 0.5f; gr = slope * k * k / (2.0f * knee); }
+            const float g = Decibels::decibelsToGain (-gr) * (mg0 + (mg1 - mg0) * (float) i / (float) n);
+            for (int c = 0; c < ch; ++c) b.getWritePointer (c)[i] *= g;
+        }
+        lastG = mg1;
         if (m < 0.999f)
             for (int c = 0; c < ch; ++c)
             {
@@ -363,10 +381,9 @@ private:
             }
     }
 
-    FxParam *thr, *rat, *att, *rel, *mak, *mix;
-    dsp::Compressor<float> comp;
+    FxParam *thr, *rat, *att, *rel, *mak, *mix, *key;
     AudioBuffer<float> dry;
-    float lastG = 1.0f;
+    float env = 0, lastG = 1.0f;
 };
 
 //==============================================================================
@@ -583,6 +600,9 @@ public:
                                                                  "Vrchol|Dlhé podržanie|Plynulý nábeh|Tvrdá pumpa|Brána|Plató|Svah|Údolie|Dvojitá"), "|", "");
         mix = add ("mix", "Hĺbka", 0, 100, 100, "%", 1.0f, 0);
         out = add ("output", "Výstup", -12, 12, 0, "dB");
+        mode = add ("mode", "Riadenie", 0, 1, 0, "", 1.0f, 0);
+        mode->range.interval = 1.0f;
+        mode->choices = StringArray { String::fromUTF8 ("Tempo (tvar)"), String::fromUTF8 ("Sidechain (kľúč)") };
         on  = add ("active", "Zapnuté", 0, 1, 1, "", 1.0f, 0);
         on->toggle = true;
     }
@@ -590,7 +610,8 @@ public:
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<PulseDisplay> (*this); }
 
     std::atomic<float> phaseNow { 0 }, bpmNow { 120 };
-    FxParam *rateP, *shp, *mix, *out, *on;
+    FxParam *rateP, *shp, *mix, *out, *mode, *on;
+    std::atomic<bool> keyMode { false };
 
 private:
     void prepare() override { freePpq = 0; gSm = 1; }
@@ -614,11 +635,22 @@ private:
         const float og = Decibels::decibelsToGain (out->get());
         const double dq = bpm / 60.0 / rate;
         const float a = (float) std::exp (-1.0 / (0.002 * rate));   // 2 ms proti lupancom
+        const bool useKey = mode->get() > 0.5f && scL != nullptr && scN >= n;
+        keyMode = mode->get() > 0.5f;
+        const float kA = (float) std::exp (-1.0 / (0.002 * rate)), kR = (float) std::exp (-1.0 / (0.180 * rate));
         for (int i = 0; i < n; ++i)
         {
             const double q = ppq + i * dq;
             const float f = (float) (q / per - std::floor (q / per));
-            const float target = (1.0f - depth * (1.0f - Pulse::shape (s, f))) * og;
+            float shapeG;
+            if (useKey)
+            {
+                const float x = jmax (std::abs (scL[i]), std::abs (scR[i]));
+                kEnv = x > kEnv ? x + (kEnv - x) * kA : x + (kEnv - x) * kR;
+                shapeG = 1.0f - jlimit (0.0f, 1.0f, (Decibels::gainToDecibels (kEnv, -120.0f) + 36.0f) / 30.0f);
+            }
+            else shapeG = Pulse::shape (s, f);
+            const float target = (1.0f - depth * (1.0f - shapeG)) * og;
             gSm = target + (gSm - target) * a;
             for (int c = 0; c < ch; ++c) b.getWritePointer (c)[i] *= gSm;
         }
@@ -630,7 +662,7 @@ private:
 
 
     double freePpq = 0;
-    float gSm = 1;
+    float gSm = 1, kEnv = 0;
 };
 
 void PulseDisplay::paint (Graphics& g)
@@ -670,6 +702,9 @@ void PulseDisplay::paint (Graphics& g)
     g.setFont (FontOptions (12.0f));
     g.setColour (Colour (0xff8a96a3));
     g.drawText ("PULSEDIP", r.reduced (10, 4).removeFromTop (14), Justification::centredLeft);
+    if (fx.keyMode.load())
+        g.drawText (String::fromUTF8 ("SIDECHAIN – riadi kľúčová stopa"), r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
+    else
     g.drawText (String (fx.bpmNow.load(), 1) + " BPM  /  " + fx.rateP->choices[roundToInt (fx.rateP->get())] + "  /  " + fx.shp->choices[s],
                 r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
 }
@@ -697,6 +732,11 @@ juce::Array<juce::PluginDescription> descriptions()
     juce::Array<juce::PluginDescription> a;
     for (const auto& e : entries()) a.add (FxBase::describe (e.name, e.key));
     return a;
+}
+
+void setSidechain (juce::AudioPluginInstance* p, const float* l, const float* r, int n)
+{
+    if (auto* f = dynamic_cast<FxBase*> (p)) f->setKey (l, r, n);
 }
 
 bool isBuiltin (const juce::PluginDescription& d) { return d.pluginFormatName == formatName && d.fileOrIdentifier.startsWith ("korgus:"); }

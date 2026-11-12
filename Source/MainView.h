@@ -28,7 +28,13 @@ class MainView : public juce::Component,
                  private juce::Timer
 {
 public:
-    void focusWeb() { if (web != nullptr && web->isShowing()) web->grabKeyboardFocus(); }
+    // klavesnica do WebView2 (F3, medzernik...) - aj ked ju JUCE uz ma, MoveFocus sa zavola znova
+    void focusWeb()
+    {
+        if (web == nullptr || ! web->isShowing()) return;
+        if (web->hasKeyboardFocus (true)) web->giveAwayKeyboardFocus();
+        web->grabKeyboardFocus();
+    }
     explicit MainView (juce::ApplicationProperties&);
     ~MainView() override;
     void resized() override;
@@ -79,6 +85,7 @@ private:
     void onRecAudio (const juce::var&);
     void onExportWav (const juce::var&);
     void onExportStems (const juce::var&);
+    void onBounce (const juce::var&);
     void onSeparate (const juce::var&);
     void onAutotune (const juce::var&);
     void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);
@@ -116,6 +123,7 @@ private:
     void sendLivePeaks();
     std::vector<RecTrack> recTracks;
     bool recOn = false, recFinishing = false;
+    struct { bool on = false; double L = 0, R = 0, tempo = 120; } recLoop;   // cyklus pocas nahravania (takes)
     juce::uint32 recStopTime = 0;
     std::atomic<bool> exporting { false };
 

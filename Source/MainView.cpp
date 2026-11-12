@@ -227,6 +227,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("autoRec",     [this] (const juce::var& v) { autoRecOn = (bool) v["on"]; })
         .withEventListener ("separate",    [this] (const juce::var& v) { onSeparate (v); })
         .withEventListener ("autotune",    [this] (const juce::var& v) { onAutotune (v); })
+        .withEventListener ("bounce",      [this] (const juce::var& v) { onBounce (v); })
         .withEventListener ("clipPeak",    [this] (const juce::var& v)
                             {
                                 auto b = store->get (v["id"].toString());
@@ -320,7 +321,13 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 const auto d = it->second;
                                 loadPluginForTrack (to, d, &mb);
                             })
-        .withEventListener ("ready",       [this] (const juce::var&)   { onReady(); });
+        .withEventListener ("ready",       [this] (const juce::var&)
+                            {
+                                onReady();
+                                juce::Component::SafePointer<MainView> sp (this);
+                                for (int ms : { 50, 400, 1500 })
+                                    juce::Timer::callAfterDelay (ms, [sp] { if (sp != nullptr && sp->isShowing() && juce::Process::isForegroundProcess()) sp->focusWeb(); });
+                            });
    #if JUCE_WINDOWS
     o = o.withBackend (O::Backend::webview2)
          .withWinWebView2Options (O::WinWebView2{}
@@ -357,7 +364,11 @@ std::unique_ptr<SongData> MainView::parseCurrent (const juce::var& v)
 
 void MainView::onSong (const juce::var& v)
 {
-    if (&v != &lastSong) lastSong = v;   // var sa nesmie priradit sam do seba
+    if (&v != &lastSong)   // var sa nesmie priradit sam do seba
+    {
+        const juce::var parsed = v.isString() ? juce::JSON::parse (v.toString()) : v;   // JS posiela JSON text
+        lastSong = parsed;
+    }
     auto sd = parseCurrent (lastSong);
     if (sd == nullptr) return;
     engine.setSong (std::move (sd));
@@ -423,7 +434,7 @@ void MainView::onTrackFx (const juce::var& v)
     for (const auto& d : allPluginTypes())
         if (d.createIdentifierString() == uid)
         {
-            if (loadFxForTrack (trackId, idx, d, nullptr))
+            if (loadFxForTrack (trackId, idx, d, nullptr) && ! (bool) v.getProperty ("quiet", false))
                 onOpenFx (v);
             return;
         }
@@ -1109,6 +1120,13 @@ void MainView::onRecAudio (const juce::var& v)
     {
         if (recFinishing) finishRecording();
         recTracks.clear();
+        {
+            const juce::var sj = lastSong.isString() ? juce::JSON::parse (lastSong.toString()) : lastSong;
+            recLoop.on = (bool) sj.getProperty ("loopOn", false);
+            recLoop.L = (double) sj.getProperty ("locL", 0.0);
+            recLoop.R = (double) sj.getProperty ("locR", 0.0);
+            recLoop.tempo = juce::jlimit (20.0, 400.0, (double) sj.getProperty ("tempo", 120.0));
+        }
         std::vector<Engine::RecSpec> specs;
         if (const auto* arr = v["tracks"].getArray())
             for (const auto& t : *arr)
@@ -1154,6 +1172,20 @@ void MainView::finishRecording()
         auto o = obj();
         put (o, "track", rt.id); put (o, "id", id);
         put (o, "start", engine.getRecStartStep()); put (o, "dur", n / sr);
+        // nahravanie v cykle: kazdy prechod je jeden take (posun v subore v sekundach od zaciatku cyklu)
+        const double st0 = engine.getRecStartStep();
+        if (recLoop.on && recLoop.R > recLoop.L && st0 < recLoop.R)
+        {
+            const double secStep = 60.0 / (recLoop.tempo * 4.0), loopSec = (recLoop.R - recLoop.L) * secStep;
+            const double firstSec = (recLoop.R - st0) * secStep, total = n / sr;
+            if (total > firstSec + loopSec * 0.5)
+            {
+                juce::Array<juce::var> takes;
+                if (st0 <= recLoop.L + 0.5 || firstSec >= loopSec * 0.5) takes.add ((recLoop.L - st0) * secStep);
+                for (double t = firstSec; t + loopSec * 0.5 <= total; t += loopSec) takes.add (t);
+                put (o, "takes", takes); put (o, "loopL", recLoop.L); put (o, "loopSec", loopSec);
+            }
+        }
         emit ("audioRec", o);
     }
     recTracks.clear();
@@ -1323,6 +1355,84 @@ namespace
         std::function<void (int)> done;
         int written = 0;
     };
+}
+
+namespace
+{
+    struct BounceJob : juce::ThreadWithProgressWindow
+    {
+        BounceJob (Engine& e, std::unique_ptr<SongData> s, double endStep, juce::File f, std::function<void (bool)> onDone)
+            : ThreadWithProgressWindow (sk ("Bounce stopy do audia"), true, true),
+              engine (e), sd (std::move (s)), end (endStep), file (f), done (std::move (onDone)) {}
+
+        void run() override
+        {
+            file.deleteFile();
+            std::unique_ptr<juce::OutputStream> os (file.createOutputStream().release());
+            if (os == nullptr) return;
+            juce::WavAudioFormat wav;
+            auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (engine.getSampleRate()).withNumChannels (2).withBitsPerSample (24));
+            if (w == nullptr) return;
+            engine.bypassMaster = true;
+            ok = engine.renderOffline (*sd, end, 2.0, *w, [this] (double p) { setProgress (p); return ! threadShouldExit(); });
+            engine.bypassMaster = false;
+        }
+        void threadComplete (bool cancelled) override
+        {
+            if (done) done (ok && ! cancelled);
+            delete this;
+        }
+
+        Engine& engine;
+        std::unique_ptr<SongData> sd;
+        double end;
+        juce::File file;
+        std::function<void (bool)> done;
+        bool ok = false;
+    };
+}
+
+void MainView::onBounce (const juce::var& v)
+{
+    const auto req = v["req"].toString(), trackId = v["track"].toString();
+    auto fail = [this, req] (const juce::String& msg) { auto o = obj(); put (o, "req", req); put (o, "error", msg); emit ("bounced", o); };
+    if (exporting.load() || lastSong.isVoid()) { fail (sk ("Práve prebieha iný export.")); return; }
+    const auto* tracks = lastSong["tracks"].getArray();
+    int idx = -1;
+    if (tracks != nullptr)
+        for (int i = 0; i < tracks->size(); ++i) if ((*tracks)[i]["id"].toString() == trackId) idx = i;
+    auto sd = parseCurrent (lastSong);
+    if (idx < 0 || sd == nullptr || idx >= (int) sd->tracks.size()) { fail (sk ("Stopa sa nenašla.")); return; }
+    for (int k = 0; k < (int) sd->tracks.size(); ++k)
+    {
+        auto& o = sd->tracks[(size_t) k];
+        if (k != idx) { o.audible = false; o.gainL = o.gainR = 0; o.autos.clear(); o.monitor = false; }
+        o.send[0] = o.send[1] = 0;
+    }
+    // bounce bez hlasitosti a panoramy stopy (tie zostanu na novej stope); automatizacia parametrov ostava
+    auto& t = sd->tracks[(size_t) idx];
+    t.audible = true; t.gainL = t.gainR = 1.0f; t.vol = 1.0f; t.pan = 0;
+    t.autos.erase (std::remove_if (t.autos.begin(), t.autos.end(), [] (const AutoLane& a) { return a.type != 2; }), t.autos.end());
+    const double end = juce::jmax (1.0, (double) v.getProperty ("end", 64));
+    const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("korgus_bounce.wav");
+    engine.stop();
+    exporting = true;
+    juce::Component::SafePointer<MainView> sp (this);
+    auto* job = new BounceJob (engine, std::move (sd), end, tmp, [sp, req, tmp] (bool ok)
+    {
+        if (sp == nullptr) return;
+        sp->exporting = false;
+        auto o = obj(); put (o, "req", req);
+        if (! ok) { tmp.deleteFile(); put (o, "error", juce::String ("cancel")); sp->emit ("bounced", o); return; }
+        const auto id = sp->store->importFile (tmp);
+        tmp.deleteFile();
+        auto b = id.isNotEmpty() ? sp->store->get (id) : nullptr;
+        if (b == nullptr) { put (o, "error", sk ("Výsledok sa nepodarilo uložiť.")); sp->emit ("bounced", o); return; }
+        sp->emit ("audioPeaks", sp->store->peaksFor (id));
+        put (o, "id", id); put (o, "dur", b->getNumSamples() / sp->store->getSampleRate());
+        sp->emit ("bounced", o);
+    });
+    job->launchThread();
 }
 
 void MainView::onExportStems (const juce::var& v)

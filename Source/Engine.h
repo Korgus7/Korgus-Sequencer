@@ -6,6 +6,13 @@
 #include "AudioStore.h"
 
 // Jedna nota na casovej osi (v krokoch = 1/16)
+struct CcEv
+{
+    double start = 0;
+    int ctrl = 1;      // 0..127 = CC, 128 = pitch bend
+    int value = 0;     // CC 0..127, pitch bend 0..16383
+};
+
 struct NoteEv
 {
     double start = 0, end = 0;
@@ -63,13 +70,17 @@ struct TrackData
     int channel = 1;            // MIDI kanal pre VST nastroj
     float gainL = 1, gainR = 1; // hlasitost + panorama
     bool audible = true;        // nie je stlmena / je solo
+    float send[2] { 0, 0 };     // posielanie do FX 1 / FX 2 (za hlasitostou)
+    bool isKey = false;         // klucova stopa pre sidechain
     std::vector<NoteEv> notes;  // zoradene podla start
+    std::vector<CcEv> ccs;      // MIDI CC a pitch bend, zoradene podla start
 };
 
 struct SongData
 {
     double tempo = 120, endStep = 512, locL = 0, locR = 64;
     float masterGain = 1;
+    float auxGain[2] { 1, 1 };  // navrat FX 1 / FX 2
     bool loopOn = false, click = false;
     std::vector<TrackData> tracks;
 };
@@ -225,6 +236,9 @@ private:
     int curNumOut = 0;
     std::atomic<bool> offline { false };
     int masterSlot = -1;
+    int auxSlot[2] { -1, -1 };
+    juce::AudioBuffer<float> keyBuf { 2, 512 };   // sidechain kluc
+    std::vector<int> order;                       // poradie spracovania stop  // sloty "__aux1", "__aux2" (spolocne efekty)
 public:
     std::atomic<bool> bypassMaster { false };   // export stop: bez efektov a hlasitosti mastra
 private:   // slot "__master" s efektmi celej piesne
