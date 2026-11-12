@@ -1021,6 +1021,127 @@ void SamplerDisplay::paint (Graphics& g)
 }
 
 
+
+//==============================================================================
+// Korgus Dvojhlas - zdvojenie spevu (rozladene kopie) a harmonizer (druhy hlas o interval)
+struct DelayShifter
+{
+    // dve citacie hlavy s prelinanim; pri vymene sa nova hlava zarovna podla podobnosti priebehu (menej "kvakania")
+    void prepare (double sr) { n = jmax (256, (int) (sr * 0.040)); buf.assign ((size_t) n * 3 + 8, 0.0f); w = 0; ph = 0; d[0] = 2.0 + n; d[1] = 2.0 + n * 0.5; }
+    float tap (double dl) const
+    {
+        const int sz = (int) buf.size();
+        double rp = (double) w - dl;
+        while (rp < 0) rp += sz;
+        const int i0 = (int) rp % sz, i1 = (i0 + 1) % sz;
+        const float fr = (float) (rp - std::floor (rp));
+        return buf[(size_t) i0] + (buf[(size_t) i1] - buf[(size_t) i0]) * fr;
+    }
+    void resync (int which, double ratio)
+    {
+        const double nominal = ratio > 1.0 ? 2.0 + n : 2.0;
+        const double other = d[1 - which];
+        const int L = jmin (256, n / 4), range = n / 3;
+        double best = -1.0e30, bestD = nominal;
+        for (int k = 0; k <= range; k += 2)
+        {
+            const double cand = ratio > 1.0 ? nominal - k : nominal + k;
+            if (cand < 2.0 || cand > (double) buf.size() - L - 4) continue;
+            double c = 0, e = 1.0e-9;
+            for (int j = 0; j < L; j += 2) { const float a = tap (cand + j), o = tap (other + j); c += a * o; e += a * a; }
+            const double score = c / std::sqrt (e);
+            if (score > best) { best = score; bestD = cand; }
+        }
+        d[which] = bestD;
+    }
+    float process (float x, double ratio)
+    {
+        buf[(size_t) w] = x;
+        const double step = (1.0 - ratio) / n;
+        const double old = ph;
+        ph += step;
+        if (ph >= 1.0) { ph -= 1.0; resync (0, ratio); }
+        else if (ph < 0.0) { ph += 1.0; resync (0, ratio); }
+        if ((old < 0.5) != (ph < 0.5) && std::abs (ph - old) < 0.5) resync (1, ratio);
+        const float g1 = (float) std::pow (std::sin (MathConstants<double>::pi * ph), 2.0), g2 = 1.0f - g1;
+        const float y = tap (d[0]) * g1 + tap (d[1]) * g2;
+        for (auto& dd : d) dd = jlimit (2.0, (double) buf.size() - 4, dd + (1.0 - ratio));
+        if (++w >= (int) buf.size()) w = 0;
+        return y;
+    }
+    std::vector<float> buf;
+    int n = 1024, w = 0;
+    double ph = 0, d[2] { 0, 0 };
+};
+
+class HarmonyFx final : public FxBase
+{
+public:
+    HarmonyFx() : FxBase ("Korgus Dvojhlas", "harmony")
+    {
+        mode = add ("mode", "Režim", 0, 2, 0, "", 1.0f, 0);
+        mode->range.interval = 1.0f;
+        mode->choices = StringArray::fromTokens (String::fromUTF8 ("Dvojhlas|Harmonizér|Oboje"), "|", "");
+        interval = add ("interval", "Interval", 0, 7, 4, "", 1.0f, 0);
+        interval->range.interval = 1.0f;
+        interval->choices = StringArray::fromTokens (String::fromUTF8 ("−12 oktáva dole|−7 kvinta dole|−5 kvarta dole|+3 malá terca|+4 veľká terca|+5 kvarta|+7 kvinta|+12 oktáva"), "|", "");
+        detune = add ("detune", "Rozladenie", 0, 30, 9, "cent", 1.0f, 0);
+        delayMs = add ("delay", "Oneskorenie", 5, 60, 20, "ms", 1.0f, 0);
+        width = add ("width", "Šírka", 0, 100, 80, "%", 1.0f, 0);
+        level = add ("level", "Hlasitosť", -24, 0, -6, "dB");
+    }
+
+private:
+    void prepare() override
+    {
+        for (auto* d : { &dl, &dr, &hv }) d->prepare (rate);
+        const int maxD = (int) (rate * 0.1) + 4;
+        lineL.assign ((size_t) maxD, 0.0f); lineR.assign ((size_t) maxD, 0.0f); lw = 0;
+    }
+
+    void process (AudioBuffer<float>& b) override
+    {
+        static const int semis[8] = { -12, -7, -5, 3, 4, 5, 7, 12 };
+        const int md = roundToInt (mode->get());
+        const bool dbl = md != 1, har = md != 0;
+        const double cents = detune->get();
+        const double rUp = std::pow (2.0, cents / 1200.0), rDn = 1.0 / rUp;
+        const double rH = std::pow (2.0, semis[jlimit (0, 7, roundToInt (interval->get()))] / 12.0);
+        const float g = Decibels::decibelsToGain (level->get()), wd = width->get() * 0.01f;
+        const int d1 = jlimit (1, (int) lineL.size() - 1, (int) (delayMs->get() * 0.001 * rate)), d2 = jlimit (1, (int) lineL.size() - 1, (int) (delayMs->get() * 0.00135 * rate));
+        const int n = b.getNumSamples(), ch = b.getNumChannels();
+        float* L = b.getWritePointer (0);
+        float* R = ch > 1 ? b.getWritePointer (1) : nullptr;
+        const int sz = (int) lineL.size();
+        for (int i = 0; i < n; ++i)
+        {
+            const float x = R != nullptr ? 0.5f * (L[i] + R[i]) : L[i];
+            float outL = 0, outR = 0;
+            if (dbl)
+            {
+                const float a = dl.process (x, rUp), c = dr.process (x, rDn);
+                lineL[(size_t) lw] = a; lineR[(size_t) lw] = c;
+                const float va = lineL[(size_t) ((lw - d1 + sz) % sz)], vc = lineR[(size_t) ((lw - d2 + sz) % sz)];
+                outL += va * (0.5f + 0.5f * wd) + vc * (0.5f - 0.5f * wd);
+                outR += vc * (0.5f + 0.5f * wd) + va * (0.5f - 0.5f * wd);
+            }
+            if (har)
+            {
+                const float h = hv.process (x, rH);
+                outL += h * 0.7f; outR += h * 0.7f;
+            }
+            if (++lw >= sz) lw = 0;
+            L[i] += outL * g;
+            if (R != nullptr) R[i] += outR * g;
+        }
+    }
+
+    FxParam *mode, *interval, *detune, *delayMs, *width, *level;
+    DelayShifter dl, dr, hv;
+    std::vector<float> lineL, lineR;
+    int lw = 0;
+};
+
 //==============================================================================
 // Korgus Arp - MIDI arpeggiator so 16-krokovym vzorom (sila, pauzy, oktava na krok)
 class ArpFx;
@@ -1494,6 +1615,7 @@ const std::vector<Entry>& entries()
         { "delay",   "Korgus Ozvena",    [] { return std::unique_ptr<AudioPluginInstance> (new DelayFx()); } },
         { "limiter", "Korgus Limiter",   [] { return std::unique_ptr<AudioPluginInstance> (new LimiterFx()); } },
         { "pulse",   "Korgus PulseDip",  [] { return std::unique_ptr<AudioPluginInstance> (new PulseFx()); } },
+        { "harmony", "Korgus Dvojhlas",  [] { return std::unique_ptr<AudioPluginInstance> (new HarmonyFx()); } },
         { "sampler", "Korgus Sampler",   [] { return std::unique_ptr<AudioPluginInstance> (new SamplerInst()); }, true },
         { "arp",     "Korgus Arp",       [] { return std::unique_ptr<AudioPluginInstance> (new ArpFx()); } },
     };

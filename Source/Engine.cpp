@@ -813,6 +813,30 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         }
     }
 
+    // referencna piesen namiesto mixu (len pri realnom prehravani)
+    if (forced == nullptr && refOn.load() && head.playing)
+    {
+        const juce::SpinLock::ScopedTryLockType l (refLock);
+        if (l.isLocked() && refBuf != nullptr && sd != nullptr)
+        {
+            const auto start = (juce::int64) (sd->secondsBetween (0.0, head.ppq * 4.0) * sampleRate);
+            const int rch = refBuf->getNumChannels();
+            for (int c = 0; c < curNumOut; ++c)
+            {
+                if (out[c] == nullptr) continue;
+                juce::FloatVectorOperations::clear (out[c], n);
+                const float* src = refBuf->getReadPointer (juce::jmin (c, rch - 1));
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto k = start + i;
+                    if (k >= 0 && k < refBuf->getNumSamples()) out[c][i] = src[k] * refGain;
+                }
+            }
+            if (curNumOut == 1 && rch > 1 && out[0] != nullptr)
+                for (int i = 0; i < n; ++i) { const auto k = start + i; if (k >= 0 && k < refBuf->getNumSamples()) out[0][i] = 0.5f * (refBuf->getSample (0, (int) k) + refBuf->getSample (1, (int) k)) * refGain; }
+        }
+    }
+
     renderClicks (out, curNumOut, n);
 }
 

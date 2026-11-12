@@ -91,6 +91,9 @@ private:
     void onExportMp3 (const juce::var&);
     void onExportVideo (const juce::var&);
     void onMastering (const juce::var&);
+    void onAnalyze (const juce::var&);
+    void onRefLoad();
+    void onRefMatch (const juce::var&);
     juce::File backupDir() const;
     void backupMaybe (const juce::String& text);
     void sendBackups();

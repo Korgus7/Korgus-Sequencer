@@ -32,6 +32,7 @@ target_sources(KorgusSequencer PRIVATE
     Source/BuiltinFx.cpp
     Source/Autotune.cpp
     Source/VideoExport.cpp
+    Source/AudioAnalysis.cpp
     Source/Mp3Export.cpp
     Source/UiCommon.cpp
     Source/MainView.cpp)

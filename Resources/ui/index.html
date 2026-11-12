@@ -135,7 +135,7 @@ canvas{display:block}
 .trk input.mx{width:40px}
 .trk button.plw{width:40px}
 body.native #outSel,body.native #outLbl{display:none!important}
-body:not(.native) #bAi,body:not(.native) #bAuto,body:not(.native) #bImpMidi,body:not(.native) #bStems,body:not(.native) #bMp3{display:none}
+body:not(.native) #bRef,body:not(.native) #bAi,body:not(.native) #bAuto,body:not(.native) #bImpMidi,body:not(.native) #bStems,body:not(.native) #bMp3{display:none}
 body.native #trackList{background:#232c38}
 body.native #trackList .thead{background:#232c38;border-bottom:1px solid #161d27;height:58px;box-sizing:border-box}
 .trk button.plw svg{display:block;margin:auto}
@@ -295,6 +295,7 @@ button.ico svg{display:block}
     <button id="bPIn" title="Punch In – nahráva sa až od L">Punch In</button><button id="bPOut" title="Punch Out – nahrávanie končí na R">Punch Out</button>
     </span>
     <span class="sep"></span>
+    <button id="bRef" title="Referenčná pesnička: prepínanie A/B s tvojím mixom (kláves B). Pravý klik = nastavenie">A/B</button>
     <button id="bClick" class="ico" title="Metronóm"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.8h4l3 12.4H3z"/><path d="M4 11.2h8"/><path d="M8 11.2l4.2-7.4"/></svg></button>
     <span class="sep"></span>
     Swing <input type="range" id="swing" min="0" max="100" style="width:60px"> <span id="swV" style="width:30px"></span>
@@ -446,6 +447,14 @@ function setupNative(){
   onNat('clipResult',clipResult);
   onNat('separated',separated);
   onNat('bounced',bounced);
+  onNat('analyzed',analyzed);
+  onNat('refLoaded',e=>{ if(e.error){ dialog('Referenčná pesnička','<p>'+esc(e.error)+'</p>'); return; }
+    song.ref={id:e.id,name:e.name,lufs:e.lufs,gainDb:Math.round(((song.ref&&song.ref.mix!=null?song.ref.mix:-14)-e.lufs)*10)/10,mix:song.ref&&song.ref.mix}; save(); refSync(); refDialog(); });
+  onNat('refMatched',e=>{ if(!e.ok){ toast('Meranie sa nepodarilo alebo bolo zrušené.'); return; } if(!song.ref) return;
+    song.ref.mix=e.mix; song.ref.gainDb=Math.round((e.mix-song.ref.lufs)*10)/10; save(); refSync(); refDialog(); toast('Mix má '+e.mix+' LUFS – referencia je stíšená/zosilnená na rovnakú hlasitosť.'); });
+  $('bRef').onclick=()=>{ if(!song.ref){ refDialog(); return; } refToggle(); };
+  $('bRef').oncontextmenu=e=>{ e.preventDefault(); refDialog(); };
+  setTimeout(refSync,1500);
   onNat('meters',meterIn);
   // bez systemoveho menu WebView2 (prekryvalo nase menu, napr. na audio klipe)
   document.addEventListener('contextmenu',e=>{ if(!(e.target.closest&&e.target.closest('input[type=text],input[type=number],textarea'))) e.preventDefault(); },true);
@@ -526,7 +535,7 @@ function setupNative(){
     renderAll(); save();
   });
   onNat('exported',e=>{ toast(e.ok?(/\.mp3$/i.test(e.name)?'MP3':/\.mp4$/i.test(e.name)?'Video':'WAV')+' uložený: <b>'+esc(e.name)+'</b>'+(e.info?'<br>'+esc(e.info):''):(e.info&&e.info!=='cancel'?esc(e.info):'Export sa nepodaril alebo bol zrušený.')); });
-  onNat('songLoaded',e=>{ try{ const s=normalize(JSON.parse(e.text)); pushUndo(); if(playing) stop(); song=s; selT=0; selPart=null; closeEditor(); renderAll(); save(); natSel(); natNeedPeaks(); }
+  onNat('songLoaded',e=>{ try{ const s=normalize(JSON.parse(e.text)); pushUndo(); if(playing) stop(); song=s; setTimeout(refSync,0); selT=0; selPart=null; closeEditor(); renderAll(); save(); natSel(); natNeedPeaks(); }
     catch(err){ dialog('Chyba','<p>Tento súbor sa nedá otvoriť.</p>'); } });
 }
 const $=id=>document.getElementById(id);
@@ -1922,6 +1931,11 @@ function clipMenu(tr,p,x,y){
     ['Stíšiť úsek medzi lokátormi L – R',()=>clipMuteRange(tr,p)],
     ['Doladiť spev (autotune)…',()=>clipAutotune(tr,p)],
     ['Oddeliť spev a hudbu (AI)…',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'sep'}; nat('separate',{req,id:p.aid,off:p.off||0,dur:p.dur}); }],
+    null,
+    ['Zarovnať na takty (tempo z nahrávky)',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'beats'}; nat('analyze',{req,id:p.aid,off:p.off||0,dur:p.dur,what:1}); }],
+    ['Rozpoznať akordy → akordová stopa',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'chords'}; nat('analyze',{req,id:p.aid,off:p.off||0,dur:p.dur,what:3}); }],
+    ['Bicie z nahrávky → krokový sekvencer',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'drums'}; nat('analyze',{req,id:p.aid,off:p.off||0,dur:p.dur,what:5}); }],
+    null,
     ['Rozložiť na 4 stopy: spev, bicie, basa, ostatné (AI)…',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'sep4'}; nat('separate',{req,id:p.aid,off:p.off||0,dur:p.dur,four:true}); }],
     [(p.bpm?'✓ ':'')+'Prispôsobovať tempu piesne',()=>{ pushUndo(); if(p.bpm) delete p.bpm; else p.bpm=song.tempo; updateAudioLens(); renderAll(); save(); }],
   ]);
@@ -1985,6 +1999,73 @@ function separated(e){
   song.tracks.splice(i+1,0,...nt); src.mute=true;
   selT=i+1; renderAll(); save(); natSel();
   toast('Hotovo: pribudli stopy <b>'+names.join(', ')+'</b>, pôvodná stopa je stlmená. Ctrl+Z vráti späť.');
+}
+/* cas v piesni <-> kroky (aj so zmenami tempa) */
+function secAtStep(st){ if(!song.tempoLane||!song.tempoLane.pts.length) return st*15/song.tempo; let t=0; const d=.25; for(let x=0;x<st;x+=d){ const w=Math.min(d,st-x); t+=w*15/tempoAtStep(x+w/2); } return t; }
+function stepAtSec(sec){ if(!song.tempoLane||!song.tempoLane.pts.length) return sec*song.tempo/15; let t=0,x=0; const d=.25; while(t<sec&&x<1e6){ const dt=d*15/tempoAtStep(x+d/2); if(t+dt>=sec) return x+d*(sec-t)/dt; t+=dt; x+=d; } return x; }
+function clipTimeToStep(p,t){ return stepAtSec(secAtStep(p.start*SPB)+t*clipK(p)); }
+function analyzed(e){
+  const j=clipReq[e.req]; if(!j) return; delete clipReq[e.req];
+  if(e.error){ if(e.error!=='cancel') dialog('Analýza nahrávky','<p>'+esc(e.error)+'</p>'); return; }
+  const tr=j.tr, p=j.p, beats=e.beats||[];
+  if(j.kind==='beats'){
+    const db=beats[e.downbeat]||0; pushUndo();
+    if(e.steady){
+      const bpm=Math.round(e.bpm*100)/100; song.tempo=clamp(bpm,40,240); if(song.tempoLane){ delete song.tempoLane; }
+      p.bpm=song.tempo; const dbBars=db/(240/song.tempo), bt=Math.ceil(p.start+dbBars-1e-6); p.start=Math.max(0,bt-dbBars);
+      renderAll(); save(); toast('Tempo piesne: <b>'+song.tempo+' BPM</b>, prvá doba nahrávky je na začiatku taktu '+(bt+1)+'. Ctrl+Z vráti späť.');
+    } else {
+      const bars=[]; for(let i=e.downbeat;i+4<beats.length;i+=4) bars.push(clamp(240/(beats[i+4]-beats[i]),TMIN,TMAX));
+      if(!bars.length){ toast('Málo dôb na zarovnanie.'); return; }
+      delete p.bpm; song.tempo=Math.round(bars[0]*100)/100;
+      const dbBars=db/(240/bars[0]), b0=Math.max(1,Math.ceil(p.start+dbBars-1e-6)); p.start=Math.max(0,b0-dbBars);
+      const nv=v=>clamp((v-TMIN)/(TMAX-TMIN),0,1), pts=[[0,nv(bars[0])]];
+      bars.forEach((v,k)=>{ const a=(b0+k)*SPB; pts.push([a,nv(v)],[a+SPB-.02,nv(v)]); });
+      song.tempoLane={id:'__tempo',t:'tempo',name:'Tempo piesne',pts};
+      renderAll(); save(); toast('Tempo nahrávky kolíše ('+Math.round(Math.min(...bars))+'–'+Math.round(Math.max(...bars))+' BPM) – vytvoril som tempovú krivku, takty sedia na nahrávku. Ctrl+Z vráti späť.');
+    }
+    return;
+  }
+  if(j.kind==='chords'){
+    const ch=e.chords||[]; if(!ch.length){ toast('Akordy sa nepodarilo rozpoznať.'); return; }
+    pushUndo(); const a=p.start*SPB, b=a+p.len*SPB; song.chords=(song.chords||[]).filter(c=>c.s<a||c.s>=b);
+    let last=null; ch.forEach(c=>{ const st=Math.max(0,Math.round(clipTimeToStep(p,c.t))); if(st>=b) return; if(last&&last.c===c.c) return; last={s:st,c:c.c}; song.chords.push(last); });
+    drawArrange(); save(); toast('Rozpoznaných '+song.chords.filter(c=>c.s>=a&&c.s<b).length+' akordov v akordovej stope (nad pravítkom). Ctrl+Z vráti späť.');
+    return;
+  }
+  if(j.kind==='drums'){
+    const hits=[]; [['kick',0],['snare',1],['hat',3]].forEach(([k,l])=>(e[k]||[]).forEach(([t,v])=>{ const st=Math.round(clipTimeToStep(p,t)); if(st>=0) hits.push({st,l,v}); }));
+    if(!hits.length){ toast('Žiadne údery sa nenašli.'); return; }
+    pushUndo();
+    const nt=mkTrack('drum'); nt.name='Bicie – '+String(p.name||tr.name).slice(0,14);
+    const first=Math.floor(Math.min(...hits.map(h=>h.st))/SPB), last=Math.ceil((Math.max(...hits.map(h=>h.st))+1)/SPB);
+    for(let b0=first;b0<last;b0+=4){ const pl=Math.min(4,last-b0), plen=pl*SPB, grid=emptyGrid(plen); let any=false;
+      hits.forEach(h=>{ const s0=h.st-b0*SPB; if(s0<0||s0>=plen) return; grid[h.l][s0]=Math.max(grid[h.l][s0],h.v>=1?2:1); any=true; });
+      if(any) nt.parts.push({id:uid(),start:b0,len:pl,plen,grid}); }
+    if(last>song.bars) song.bars=last;
+    const i=song.tracks.indexOf(tr); song.tracks.splice(i+1,0,nt); selT=i+1; renderAll(); save();
+    toast('Pribudla stopa <b>'+esc(nt.name)+'</b> s rytmom z nahrávky (kopák, virbel, hi-hat). Najlepšie funguje na stope Bicie po rozložení na 4 stopy. Ctrl+Z vráti späť.');
+  }
+}
+/* referencna piesen A/B */
+let refIsOn=false;
+function refSync(){ if(!NATIVE) return; nat('refSet',{id:song.ref?song.ref.id:'',gainDb:song.ref?song.ref.gainDb||0:0}); if(!song.ref&&refIsOn) refToggle(false); }
+function refToggle(v){ refIsOn=v==null?!refIsOn:v; if(!song.ref) refIsOn=false; nat('refOn',{on:refIsOn}); $('bRef').classList.toggle('on',refIsOn); $('bRef').textContent=refIsOn?'REF':'A/B';
+  if(v==null) toast(refIsOn?'Počúvaš <b>referenciu</b> ('+esc(song.ref.name)+'). B = späť na mix.':'Počúvaš <b>svoj mix</b>.'); }
+function refDialog(){
+  const r=song.ref;
+  dialog('Referenčná pesnička',`<p>Natiahni pesničku, ktorá znie tak, ako chceš znieť ty. Počas prehrávania kláves <b>B</b> (alebo tlačidlo A/B) prepína medzi ňou a tvojím mixom – pri rovnakej hlasitosti hneď počuť, čo chýba.</p>
+    ${r?`<div class="frow"><label>Pesnička</label><b style="flex:1">${esc(r.name)}</b></div>
+    <div class="frow"><label>Hlasitosť</label><span style="flex:1">referencia ${r.lufs} LUFS${r.mix!=null?' · mix '+r.mix+' LUFS':''}</span></div>
+    <div class="frow"><label>Úprava referencie</label><input type="range" id="refG" min="-24" max="12" step="0.5" style="flex:1"><span id="refGv" style="width:60px;text-align:right"></span></div>`:''}
+    <div class="row"><button id="refL">${r?'Iná pesnička…':'Načítať pesničku…'}</button>${r?'<button id="refM">Vyrovnať hlasitosť s mixom</button><button id="refX">Odstrániť</button>':''}<span style="flex:1"></span></div>`);
+  $('refL').onclick=()=>{ $('dlgBack').hidden=true; nat('refLoad'); };
+  if(r){
+    const g=$('refG'), gv=$('refGv'); g.value=r.gainDb||0; gv.textContent=(r.gainDb>0?'+':'')+(r.gainDb||0)+' dB';
+    g.oninput=()=>{ r.gainDb=+g.value; gv.textContent=(r.gainDb>0?'+':'')+r.gainDb+' dB'; refSync(); }; g.onchange=()=>save();
+    $('refM').onclick=()=>{ $('dlgBack').hidden=true; stopIfPlaying(); nat('refMatch',{end:Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB)}); };
+    $('refX').onclick=()=>{ delete song.ref; save(); refSync(); $('dlgBack').hidden=true; };
+  }
 }
 function clipResult(e){
   const j=clipReq[e.req]; if(!j) return; delete clipReq[e.req];
@@ -2696,7 +2777,7 @@ const clk=id=>()=>$(id).click();
 $('mFile').onclick=e=>{ e.stopPropagation(); menuAt($('mFile'),[
   ['Nový…',clk('bNew')],['Otvoriť…  (Ctrl+O)',clk('bOpen')],['Uložiť…  (Ctrl+S)',clk('bSave')],...(NATIVE?[['Obnoviť zálohu…',()=>nat('listBackups')]]:[]),null,
   ['Import MIDI…',clk('bImpMidi')],['Import audio…',clk('bImpA')],null,
-  ['Export MIDI',clk('bMidi')],['Export WAV',clk('bWav')],['Export MP3',clk('bMp3')],['Export videa (MP4)…',()=>window.exportVideo&&window.exportVideo()],['Export stôp',clk('bStems')]]); };
+  ...(NATIVE?[['Referenčná pesnička (A/B)…',()=>refDialog()],null]:[]),['Export MIDI',clk('bMidi')],['Export WAV',clk('bWav')],['Export MP3',clk('bMp3')],['Export videa (MP4)…',()=>window.exportVideo&&window.exportVideo()],['Export stôp',clk('bStems')]]); };
 $('mTrack').onclick=e=>{ e.stopPropagation(); menuAt($('mTrack'),[
   ['Bicie (krokový sekvencer)',clk('bAddD')],[NATIVE?'Nástroj (VST)':'Syntezátor',clk('bAddS')],['Audio (nahrávanie, wav)',clk('bAddA')]]); };
 $('barsIn').onchange=e=>{const mx=Math.max(4,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len))); song.bars=clamp(+e.target.value||32,mx,256);
@@ -2892,13 +2973,16 @@ $('bHelp').onclick=()=>dialog('Pomoc – Korgus Sequencer',`
 <li>G / H = zoom von / dnu (Shift+G / Shift+H na výšku), Shift+F = zobraziť celú pieseň.</li>
 <li>↑ ↓ = predchádzajúca / ďalšia stopa, Backspace = zmazať, Ctrl+E = otvoriť časť v editore.</li>
 <li>Ctrl+Z = späť, Ctrl+Shift+Z alebo Ctrl+Y = znova, Ctrl+X / C / V = vystrihnúť / kopírovať / vložiť, Ctrl+D = zdvojiť.</li>
-<li>Ctrl+S = uložiť, Ctrl+O = otvoriť, F3 = mixpult, Ctrl+I = AI asistent.</li></ul>
+<li>Ctrl+S = uložiť, Ctrl+O = otvoriť, F3 = mixpult, Ctrl+I = AI asistent, B = referenčná pesnička A/B.</li></ul>
 <h4>Šablóny, vzory, mastering, video, zálohy</h4><ul>
 <li>Súbor → Nový: vyber šablónu (Pop, Spev s gitarou, Elektronika, Nahrávanie hlasu) – stopy aj efekty sa pripravia samé.</li>
 <li>Pravý klik na hlavičku stopy bicích / nástroja → Vložiť rytmus / basovú linku z knižnice (bas ide podľa akordovej stopy alebo zvolenej tóniny).</li>
 <li>Mixpult → Mastering…: asistent vypočuje mix a nastaví EQ, kompresor a limiter na Masteri na zvolenú hlasitosť.</li>
 <li>Súbor → Export videa (MP4): video na TikTok (na výšku) alebo YouTube (na šírku) s názvom, vizualizáciou a tvojím obrázkom.</li>
 <li>Súbor → Obnoviť zálohu: program každých 5 minút uloží verziu piesne (posledných 60).</li>
+<li>Pravý klik na audio klip: <b>Zarovnať na takty</b> (tempo a mriežka podľa nahrávky), <b>Rozpoznať akordy</b> (vyplní akordovú stopu), <b>Bicie z nahrávky</b> (rytmus do krokového sekvencera – najlepšie na stope Bicie po rozložení na 4 stopy).</li>
+<li>Efekt <b>Korgus Dvojhlas</b>: zhrubne spev (Dvojhlas) alebo pridá druhý hlas o zvolený interval (Harmonizér).</li>
+<li>Súbor → Referenčná pesnička (A/B): kláves B prepína počas prehrávania medzi referenciou a tvojím mixom pri rovnakej hlasitosti.</li>
 <li>Pravý klik na hlavičku nástrojovej stopy → Pridať arpeggiátor (Korgus Arp): smer, oktávy, rýchlosť, swing, podržanie a 16-krokový vzor so silou a oktávou na krok. ARP v hlavičke ho otvorí.</li></ul>
 <h4>Výber nôt (Key editor)</h4><ul>
 <li><b>Pravé tlačidlo + ťahanie = označiť noty</b> (so Shiftom pridáš k výberu). Pravý klik na notu = zmazať, do prázdna = zrušiť výber. Nástroj Výber (šípka) označuje aj ľavým tlačidlom.</li>
@@ -2986,6 +3070,7 @@ document.addEventListener('keydown',e=>{
       case 'KeyF': if(e.shiftKey){ zoomFit(); return; } break;
       case 'KeyP': locToSel(); return;
       case 'KeyL': if(!e.repeat){song.loopOn=!song.loopOn; updTransport(); drawArrange(); save();} return;
+      case 'KeyB': if(!e.repeat&&NATIVE){ if(song.ref) refToggle(); else refDialog(); } return;
       case 'KeyC': if(!e.repeat){song.click=!song.click; updTransport(); save();} return;
       case 'Backspace': if(lastArea==='key'&&selDelete()) return; if(lastArea==='arr'&&partsDelete()) return; return;
       case 'ArrowUp': if(!(lastArea==='key'&&keyEd())&&song.tracks.length){ e.preventDefault(); selectTrack(clamp(selT-1,0,song.tracks.length-1)); return; } break;

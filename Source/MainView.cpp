@@ -2,6 +2,7 @@
 #include "BuiltinFx.h"
 #include "Autotune.h"
 #include "VideoExport.h"
+#include "AudioAnalysis.h"
 #include "Mp3Export.h"
 #include "BinaryData.h"
 #include "SongParse.h"
@@ -233,6 +234,17 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("exportMp3",   [this] (const juce::var& v) { onExportMp3 (v); })
         .withEventListener ("exportVideo", [this] (const juce::var& v) { onExportVideo (v); })
         .withEventListener ("mastering",   [this] (const juce::var& v) { onMastering (v); })
+        .withEventListener ("analyze",     [this] (const juce::var& v) { onAnalyze (v); })
+        .withEventListener ("refLoad",     [this] (const juce::var&) { onRefLoad(); })
+        .withEventListener ("refSet",      [this] (const juce::var& v)
+                            {
+                                const auto id = v["id"].toString();
+                                auto b = id.isNotEmpty() ? store->get (id) : nullptr;
+                                engine.setReference (b, juce::Decibels::decibelsToGain ((float) (double) v.getProperty ("gainDb", 0.0)));
+                                if (b == nullptr) engine.refOn = false;
+                            })
+        .withEventListener ("refOn",       [this] (const juce::var& v) { engine.refOn = (bool) v.getProperty ("on", false); })
+        .withEventListener ("refMatch",    [this] (const juce::var& v) { onRefMatch (v); })
         .withEventListener ("trackArp",    [this] (const juce::var& v)
                             {
                                 const auto id = v["track"].toString();
@@ -1801,6 +1813,139 @@ void MainView::onMastering (const juce::var& v)
         put (o, "eqLow", std::round (j.eqLow * 10.0f) / 10.0f); put (o, "eqHigh", std::round (j.eqHigh * 10.0f) / 10.0f);
         put (o, "thr", std::round (j.compThr * 10.0f) / 10.0f); put (o, "gain", std::round (j.limGain * 10.0f) / 10.0f);
         sp->emit ("mastered", o);
+    });
+    job->launchThread();
+}
+
+namespace
+{
+    struct AnalyzeJob : juce::ThreadWithProgressWindow
+    {
+        AnalyzeJob (juce::AudioBuffer<float> b, double s, int w, std::function<void (bool, AnalysisResult&)> onDone)
+            : ThreadWithProgressWindow (sk ("Analyzujem nahrávku"), true, true), buf (std::move (b)), sr (s), what (w), done (std::move (onDone)) {}
+        void run() override
+        {
+            setStatusMessage (sk ("Hľadám doby, tempo, akordy a údery…"));
+            res = analyzeAudio (buf, sr, what, [this] (double p) { setProgress (p); return ! threadShouldExit(); });
+        }
+        void threadComplete (bool cancelled) override
+        {
+            if (done) done (res.ok && ! cancelled, res);
+            delete this;
+        }
+        juce::AudioBuffer<float> buf;
+        double sr;
+        int what;
+        AnalysisResult res;
+        std::function<void (bool, AnalysisResult&)> done;
+    };
+}
+
+void MainView::onRefLoad()
+{
+    chooser = std::make_unique<juce::FileChooser> (sk ("Referenčná pesnička"), juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                   "*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff");
+    juce::Component::SafePointer<MainView> sp (this);
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [sp] (const juce::FileChooser& fc)
+    {
+        const auto f = fc.getResult();
+        if (sp == nullptr || ! f.existsAsFile()) return;
+        const auto id = sp->store->importFile (f);
+        auto b = id.isNotEmpty() ? sp->store->get (id) : nullptr;
+        auto o = obj();
+        if (b == nullptr) { put (o, "error", sk ("Súbor sa nedá prečítať.")); sp->emit ("refLoaded", o); return; }
+        const double lufs = measureLufs (*b, sp->store->getSampleRate());
+        sp->engine.setReference (b, 1.0f);
+        put (o, "id", id); put (o, "name", f.getFileNameWithoutExtension()); put (o, "lufs", std::round (lufs * 10.0) / 10.0);
+        sp->emit ("refLoaded", o);
+    });
+}
+
+namespace
+{
+    struct MixLufsJob : juce::ThreadWithProgressWindow
+    {
+        MixLufsJob (Engine& e, std::unique_ptr<SongData> s, double endStep, std::function<void (bool, double)> onDone)
+            : ThreadWithProgressWindow (sk ("Meriam hlasitosť mixu"), true, true), engine (e), sd (std::move (s)), end (endStep), done (std::move (onDone)) {}
+        void run() override
+        {
+            const double sr = engine.getSampleRate();
+            const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("korgus_ref.wav");
+            tmp.deleteFile();
+            {
+                std::unique_ptr<juce::OutputStream> os (tmp.createOutputStream().release());
+                if (os == nullptr) return;
+                juce::WavAudioFormat wav;
+                auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (32)
+                                                    .withSampleFormat (juce::AudioFormatWriterOptions::SampleFormat::floatingPoint));
+                if (w == nullptr) return;
+                if (! engine.renderOffline (*sd, end, 0.5, *w, [this] (double p) { setProgress (p); return ! threadShouldExit(); })) { tmp.deleteFile(); return; }
+            }
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatReader> rd (wav.createReaderFor (new juce::FileInputStream (tmp), true));
+            if (rd == nullptr) return;
+            juce::AudioBuffer<float> mix (2, (int) rd->lengthInSamples);
+            rd->read (&mix, 0, (int) rd->lengthInSamples, 0, true, true);
+            rd.reset();
+            tmp.deleteFile();
+            lufs = measureLufs (mix, sr);
+            ok = true;
+        }
+        void threadComplete (bool cancelled) override { if (done) done (ok && ! cancelled, lufs); delete this; }
+        Engine& engine;
+        std::unique_ptr<SongData> sd;
+        double end, lufs = 0;
+        bool ok = false;
+        std::function<void (bool, double)> done;
+    };
+}
+
+void MainView::onRefMatch (const juce::var& v)
+{
+    if (exporting.load() || lastSong.isVoid()) return;
+    auto sd = parseCurrent (lastSong);
+    if (sd == nullptr) return;
+    engine.stop();
+    exporting = true;
+    juce::Component::SafePointer<MainView> sp (this);
+    auto* job = new MixLufsJob (engine, std::move (sd), juce::jmax (16.0, (double) v.getProperty ("end", 64)), [sp] (bool ok, double lufs)
+    {
+        if (sp == nullptr) return;
+        sp->exporting = false;
+        sp->lastSentPos = -1;
+        auto o = obj(); put (o, "ok", ok); put (o, "mix", std::round (lufs * 10.0) / 10.0);
+        sp->emit ("refMatched", o);
+    });
+    job->launchThread();
+}
+
+void MainView::onAnalyze (const juce::var& v)
+{
+    const auto req = v["req"].toString();
+    auto src = store->get (v["id"].toString());
+    auto fail = [this, req] (const juce::String& msg) { auto o = obj(); put (o, "req", req); put (o, "error", msg); emit ("analyzed", o); };
+    if (src == nullptr) { fail (sk ("Zvuk klipu sa nenašiel.")); return; }
+    const double sr = store->getSampleRate();
+    const int a0 = juce::jlimit (0, src->getNumSamples(), (int) ((double) v.getProperty ("off", 0.0) * sr));
+    const int len = juce::jlimit (0, src->getNumSamples() - a0, (int) ((double) v.getProperty ("dur", 0.0) * sr));
+    if (len < (int) (sr * 4)) { fail (sk ("Klip je príliš krátky (aspoň 4 sekundy).")); return; }
+    juce::AudioBuffer<float> clip (juce::jmax (1, src->getNumChannels()), len);
+    for (int c = 0; c < clip.getNumChannels(); ++c) clip.copyFrom (c, 0, *src, c, a0, len);
+    juce::Component::SafePointer<MainView> sp (this);
+    auto* job = new AnalyzeJob (std::move (clip), sr, (int) v.getProperty ("what", 1), [sp, req] (bool ok, AnalysisResult& r)
+    {
+        if (sp == nullptr) return;
+        auto o = obj(); put (o, "req", req);
+        if (! ok) { put (o, "error", r.beats.size() < 8 && r.bpm <= 0.0 ? sk ("V nahrávke sa nenašiel zreteľný rytmus.") : juce::String ("cancel")); sp->emit ("analyzed", o); return; }
+        auto r3 = [] (double x) { return std::round (x * 1000.0) / 1000.0; };
+        put (o, "bpm", std::round (r.bpm * 100.0) / 100.0); put (o, "steady", r.steady); put (o, "downbeat", r.downbeat);
+        juce::Array<juce::var> beats, chords;
+        for (double b : r.beats) beats.add (r3 (b));
+        for (auto& c : r.chords) { auto q = obj(); put (q, "t", r3 (c.t)); put (q, "c", c.name); chords.add (q); }
+        put (o, "beats", beats); put (o, "chords", chords);
+        auto hits = [&] (const std::vector<AnalysisResult::Hit>& h) { juce::Array<juce::var> a; for (auto& x : h) { juce::Array<juce::var> p; p.add (r3 (x.t)); p.add (x.v); a.add (p); } return a; };
+        put (o, "kick", hits (r.kick)); put (o, "snare", hits (r.snare)); put (o, "hat", hits (r.hat));
+        sp->emit ("analyzed", o);
     });
     job->launchThread();
 }

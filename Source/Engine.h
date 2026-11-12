@@ -160,6 +160,9 @@ public:
     void setTrackFx (int slot, int index, std::unique_ptr<juce::AudioPluginInstance>);
     juce::AudioPluginInstance* getFx (int slot, int index);
     void setTrackMidiFx (int slot, std::unique_ptr<juce::AudioPluginInstance> p);   // arpeggiator pred nastrojom
+    // referencna piesen (A/B): pri zapnuti a prehravani znie namiesto mixu
+    void setReference (AudioBufPtr buf, float gain) { const juce::SpinLock::ScopedLockType l (refLock); refBuf = std::move (buf); refGain = gain; }
+    std::atomic<bool> refOn { false };
     juce::AudioPluginInstance* getMidiFx (int slot);
     void setMidiFilter (const juce::String& deviceId);
     void triggerSample (int slot, AudioBufPtr buf, float gain, int lane);   // ziva hra / nahlad samplu
@@ -312,6 +315,9 @@ private:
     int masterSlot = -1;
     int auxSlot[2] { -1, -1 };
     juce::AudioBuffer<float> keyBuf { 2, 512 };   // sidechain kluc
+    AudioBufPtr refBuf;
+    float refGain = 1.0f;
+    juce::SpinLock refLock;
     std::vector<int> order;                       // poradie spracovania stop
     const SongData* curSongData = nullptr;        // piesen v aktualnom bloku  // sloty "__aux1", "__aux2" (spolocne efekty)
 public:
