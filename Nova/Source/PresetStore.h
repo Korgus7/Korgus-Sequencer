@@ -33,6 +33,10 @@ namespace nova
         juce::String importFile (const juce::File& f);
         bool exportTo (const juce::String& key, const juce::File& f) const;
 
+        // drobne nastavenia (napr. posledny priecinok s WAV)
+        juce::String setting (const juce::String& k) const { auto it = settings.find (k); return it != settings.end() ? it->second : juce::String(); }
+        void setSetting (const juce::String& k, const juce::String& v) { settings[k] = v; saveIndex(); }
+
         static juce::var toJson (const PatchData& p);
         static bool fromJson (const juce::var& v, PatchData& out);
 
@@ -41,7 +45,7 @@ namespace nova
         void saveIndex() const;
         juce::File dir, indexFile;
         juce::StringArray order;
-        std::map<juce::String, juce::String> catOverride;
+        std::map<juce::String, juce::String> catOverride, settings;
         std::vector<Entry> list;
     };
 }

@@ -148,14 +148,15 @@ namespace
         }
         void chooseFile()
         {
-            static juce::File lastDir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+            juce::File lastDir (p.presets.setting ("wavDir"));
+            if (! lastDir.isDirectory()) lastDir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
             chooser = std::make_unique<juce::FileChooser> (u8 ("Zvuk do vrstvy"), lastDir, "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
             juce::Component::SafePointer<LayerPanel> sp (this);
             chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [sp] (const juce::FileChooser& fc)
             {
                 const auto f = fc.getResult();
                 if (sp == nullptr || ! f.existsAsFile()) return;
-                lastDir = f.getParentDirectory();
+                sp->p.presets.setSetting ("wavDir", f.getParentDirectory().getFullPathName());
                 juce::String err;
                 if (! sp->p.loadSampleFile (sp->li, f, err)) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Nova", err);
                 sp->update();

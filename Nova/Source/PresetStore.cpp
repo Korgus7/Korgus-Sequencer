@@ -13,10 +13,11 @@ namespace nova
 
     void PresetStore::loadIndex()
     {
-        order.clear(); catOverride.clear();
+        order.clear(); catOverride.clear(); settings.clear();
         auto j = juce::JSON::parse (indexFile.loadFileAsString());
         if (auto* a = j["order"].getArray()) for (auto& k : *a) order.add (k.toString());
         if (auto* o = j["cat"].getDynamicObject()) for (auto& p : o->getProperties()) catOverride[p.name.toString()] = p.value.toString();
+        if (auto* o = j["settings"].getDynamicObject()) for (auto& p : o->getProperties()) settings[p.name.toString()] = p.value.toString();
     }
 
     void PresetStore::saveIndex() const
@@ -27,6 +28,9 @@ namespace nova
         auto* c = new juce::DynamicObject();
         for (auto& [k, v] : catOverride) c->setProperty (k, v);
         o->setProperty ("cat", juce::var (c));
+        auto* st = new juce::DynamicObject();
+        for (auto& [k, v] : settings) st->setProperty (k, v);
+        o->setProperty ("settings", juce::var (st));
         indexFile.getParentDirectory().createDirectory();
         indexFile.replaceWithText (juce::JSON::toString (juce::var (o)));
     }
