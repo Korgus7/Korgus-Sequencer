@@ -497,7 +497,7 @@ void MainView::onOpenPlugin (const juce::var& v)
 {
     const auto trackId = v["track"].toString();
     auto* p = engine.getPlugin (engine.getOrCreateSlot (trackId));
-    if (p != nullptr) openWindow (trackId, p, p->getName() + "  –  " + v.getProperty ("name", "").toString());
+    if (p != nullptr) openWindow (trackId, p, p->getName() + sk ("  –  ") + v.getProperty ("name", "").toString());
 }
 
 void MainView::onOpenFx (const juce::var& v)
@@ -505,7 +505,7 @@ void MainView::onOpenFx (const juce::var& v)
     const auto trackId = v["track"].toString();
     const int idx = (int) v.getProperty ("idx", 0);
     auto* p = engine.getFx (engine.getOrCreateSlot (trackId), idx);
-    if (p != nullptr) openWindow (trackId + "#fx" + juce::String (idx), p, p->getName() + "  –  " + v.getProperty ("name", "").toString());
+    if (p != nullptr) openWindow (trackId + "#fx" + juce::String (idx), p, p->getName() + sk ("  –  ") + v.getProperty ("name", "").toString());
 }
 
 void MainView::sendDevices()

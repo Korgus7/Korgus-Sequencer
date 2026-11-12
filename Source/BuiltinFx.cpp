@@ -83,9 +83,9 @@ public:
                                          .withOutput ("Out", AudioChannelSet::stereo())),
                                      fxName (std::move (nm)), fxKey (std::move (key)) {}
 
-    FxParam* add (String id, String n, float lo, float hi, float def, String u, float skew = 1.0f, int dec = 1)
+    FxParam* add (String id, const char* utf8Name, float lo, float hi, float def, String u, float skew = 1.0f, int dec = 1)
     {
-        auto p = std::make_unique<FxParam> (std::move (id), std::move (n), lo, hi, def, std::move (u), skew, dec);
+        auto p = std::make_unique<FxParam> (std::move (id), String::fromUTF8 (utf8Name), lo, hi, def, std::move (u), skew, dec);
         auto* raw = p.get();
         addHostedParameter (std::move (p));
         knobs.push_back (raw);
