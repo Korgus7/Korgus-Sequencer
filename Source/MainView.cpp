@@ -1,6 +1,7 @@
 #include "MainView.h"
 #include "BuiltinFx.h"
 #include "Autotune.h"
+#include "VideoExport.h"
 #include "Mp3Export.h"
 #include "BinaryData.h"
 #include "SongParse.h"
@@ -230,6 +231,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("autotune",    [this] (const juce::var& v) { onAutotune (v); })
         .withEventListener ("bounce",      [this] (const juce::var& v) { onBounce (v); })
         .withEventListener ("exportMp3",   [this] (const juce::var& v) { onExportMp3 (v); })
+        .withEventListener ("exportVideo", [this] (const juce::var& v) { onExportVideo (v); })
         .withEventListener ("clipPeak",    [this] (const juce::var& v)
                             {
                                 auto b = store->get (v["id"].toString());
@@ -1375,6 +1377,116 @@ void MainView::onExportMp3 (const juce::var& v)
                                   sp->emit ("exported", o);
                               });
                               job->launchThread();
+                          });
+}
+
+namespace
+{
+    struct VideoJob : juce::ThreadWithProgressWindow
+    {
+        VideoJob (Engine& e, std::unique_ptr<SongData> s, double endStep, VideoOptions o, juce::File f, std::function<void (bool, juce::String)> onDone)
+            : ThreadWithProgressWindow (sk ("Export videa – ") + f.getFileName(), true, true),
+              engine (e), sd (std::move (s)), end (endStep), opt (std::move (o)), file (f), done (std::move (onDone)) {}
+
+        void run() override
+        {
+            const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("korgus_video.wav");
+            tmp.deleteFile();
+            const double sr = engine.getSampleRate();
+            {
+                std::unique_ptr<juce::OutputStream> os (tmp.createOutputStream().release());
+                if (os == nullptr) { error = sk ("Nedá sa zapísať dočasný súbor."); return; }
+                juce::WavAudioFormat wav;
+                auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (32)
+                                                    .withSampleFormat (juce::AudioFormatWriterOptions::SampleFormat::floatingPoint));
+                if (w == nullptr) { error = sk ("Nedá sa zapísať dočasný súbor."); return; }
+                setStatusMessage (sk ("Nahrávam pieseň…"));
+                if (! engine.renderOffline (*sd, end, 3.0, *w, [this] (double p) { setProgress (p * 0.3); return ! threadShouldExit(); })) { tmp.deleteFile(); return; }
+            }
+            juce::AudioBuffer<float> mix;
+            {
+                juce::WavAudioFormat wav;
+                std::unique_ptr<juce::AudioFormatReader> r (wav.createReaderFor (new juce::FileInputStream (tmp), true));
+                if (r == nullptr) { error = sk ("Dočasný súbor sa nedá prečítať."); return; }
+                mix.setSize (2, (int) r->lengthInSamples);
+                r->read (&mix, 0, (int) r->lengthInSamples, 0, true, true);
+            }
+            tmp.deleteFile();
+            int n = mix.getNumSamples();
+            while (n > (int) sr && mix.getMagnitude (0, n - 64, 64) < 1.0e-4f && mix.getMagnitude (1, n - 64, 64) < 1.0e-4f) n -= 64;
+            mix.setSize (2, juce::jmin (mix.getNumSamples(), n + (int) (sr * 0.5)), true);
+            setStatusMessage (sk ("Dorovnávam hlasitosť…"));
+            normaliseLoudness (mix, sr, -14.0, -1.0);
+            setStatusMessage (sk ("Vytváram video (môže to chvíľu trvať)…"));
+            ok = writeMp4 (mix, sr, opt, file, error, [this] (double p) { setProgress (0.32 + p * 0.68); return ! threadShouldExit(); });
+        }
+        void threadComplete (bool cancelled) override
+        {
+            if (done) done (ok && ! cancelled, ok ? juce::String() : error);
+            delete this;
+        }
+
+        Engine& engine;
+        std::unique_ptr<SongData> sd;
+        double end;
+        VideoOptions opt;
+        juce::File file;
+        std::function<void (bool, juce::String)> done;
+        juce::String error;
+        bool ok = false;
+    };
+}
+
+void MainView::onExportVideo (const juce::var& v)
+{
+    if (exporting.load() || lastSong.isVoid()) return;
+    VideoOptions o;
+    o.title = v["title"].toString();
+    o.subtitle = v["subtitle"].toString();
+    o.style = (int) v.getProperty ("style", 0);
+    o.portrait = (bool) v.getProperty ("portrait", true);
+    const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
+    const bool useImage = (bool) v.getProperty ("useImage", false);
+    juce::Component::SafePointer<MainView> sp (this);
+
+    auto chooseTarget = [sp, end] (VideoOptions opt)
+    {
+        if (sp == nullptr) return;
+        const auto name = juce::File::createLegalFileName (opt.title.isNotEmpty() ? opt.title : sk ("piesen")) + ".mp4";
+        sp->chooser = std::make_unique<juce::FileChooser> (sk ("Export videa (MP4)"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (name), "*.mp4");
+        sp->chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
+                                  [sp, end, opt] (const juce::FileChooser& fc)
+                                  {
+                                      auto f = fc.getResult();
+                                      if (sp == nullptr || f == juce::File()) return;
+                                      f = f.withFileExtension ("mp4");
+                                      auto sd = sp->parseCurrent (sp->lastSong);
+                                      if (sd == nullptr) return;
+                                      sp->engine.stop();
+                                      sp->exporting = true;
+                                      auto* job = new VideoJob (sp->engine, std::move (sd), end, opt, f, [sp, f] (bool good, juce::String info)
+                                      {
+                                          if (sp == nullptr) return;
+                                          sp->exporting = false;
+                                          sp->lastSentPos = -1;
+                                          auto o2 = obj();
+                                          put (o2, "ok", good); put (o2, "name", f.getFullPathName()); put (o2, "info", info);
+                                          sp->emit ("exported", o2);
+                                      });
+                                      job->launchThread();
+                                  });
+    };
+
+    if (! useImage) { chooseTarget (o); return; }
+    chooser = std::make_unique<juce::FileChooser> (sk ("Obrázok na pozadie videa"), juce::File::getSpecialLocation (juce::File::userPicturesDirectory), "*.jpg;*.jpeg;*.png");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [sp, o, chooseTarget] (const juce::FileChooser& fc)
+                          {
+                              if (sp == nullptr) return;
+                              auto opt = o;
+                              const auto f = fc.getResult();
+                              if (f.existsAsFile()) opt.background = juce::ImageFileFormat::loadFrom (f);
+                              juce::MessageManager::callAsync ([chooseTarget, opt] { chooseTarget (opt); });
                           });
 }
 

@@ -31,6 +31,7 @@ target_sources(KorgusSequencer PRIVATE
     Source/Separator.cpp
     Source/BuiltinFx.cpp
     Source/Autotune.cpp
+    Source/VideoExport.cpp
     Source/Mp3Export.cpp
     Source/UiCommon.cpp
     Source/MainView.cpp)
@@ -49,6 +50,12 @@ if(WIN32 AND ASIO_SDK_DIR)
     target_compile_definitions(KorgusSequencer PRIVATE JUCE_ASIO=1)
     target_include_directories(KorgusSequencer PRIVATE "${ASIO_SDK_DIR}/common")
     message(STATUS "ASIO zapnute: ${ASIO_SDK_DIR}")
+endif()
+
+# export videa (Media Foundation) - len Windows
+if(WIN32)
+    target_sources(KorgusSequencer PRIVATE Source/VideoExportWin.cpp)
+    target_link_libraries(KorgusSequencer PRIVATE mfplat mfreadwrite mfuuid ole32)
 endif()
 
 file(GLOB SHINE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/shine/*.c")

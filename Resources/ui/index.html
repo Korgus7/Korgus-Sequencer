@@ -444,6 +444,8 @@ function setupNative(){
   onNat('separated',separated);
   onNat('bounced',bounced);
   onNat('meters',meterIn);
+  // bez systemoveho menu WebView2 (prekryvalo nase menu, napr. na audio klipe)
+  document.addEventListener('contextmenu',e=>{ if(!(e.target.closest&&e.target.closest('input[type=text],input[type=number],textarea'))) e.preventDefault(); },true);
   onNat('hostKey',e=>{ if(e&&e.code==='Space') playing?stop():play(); });
   onNat('recPeaks',e=>{ const p=natRecPk[e.track]||(natRecPk[e.track]={mn:[],mx:[]}); p.B=e.B; p.sr=e.sr; p.start=e.start; p.mn.push(...e.mn); p.mx.push(...e.mx); });
   onNat('midiImported',midiImported);
@@ -455,6 +457,18 @@ function setupNative(){
       <div class="frow"><label>Kvalita</label><select id="mp3K" style="flex:1"><option value="320">320 kbps (najlepšia)</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps (menší súbor)</option></select></div>
       <div class="row"><span style="flex:1"></span><button id="mp3Ok">Uložiť MP3…</button></div>`);
     $('mp3Ok').onclick=()=>{ const l=+$('mp3L').value, k=+$('mp3K').value; song.mp3L=l; $('dlgBack').hidden=true; stopIfPlaying(); nat('exportMp3',{end,lufs:l,kbps:k}); }; };
+  window.exportVideo=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
+    const v=song.video||{title:'',subtitle:'',style:0,portrait:true,img:false};
+    dialog('Export videa (MP4)',`<p>Pieseň sa uloží ako video s názvom, pohyblivou vizualizáciou a časom – pripravené na TikTok alebo YouTube. Hlasitosť sa dorovná na −14 LUFS.</p>
+      <div class="frow"><label>Názov</label><input type="text" id="vdT" style="flex:1" maxlength="60" placeholder="napr. Letná noc"></div>
+      <div class="frow"><label>Podnadpis</label><input type="text" id="vdS" style="flex:1" maxlength="60" placeholder="napr. meno autora"></div>
+      <div class="frow"><label>Formát</label><select id="vdP" style="flex:1"><option value="1">Na výšku 9:16 (TikTok, Reels)</option><option value="0">Na šírku 16:9 (YouTube)</option></select></div>
+      <div class="frow"><label>Vizualizácia</label><select id="vdV" style="flex:1"><option value="0">Stĺpce (podľa výšok tónov)</option><option value="1">Vlna</option></select></div>
+      <div class="frow"><label>Pozadie</label><select id="vdI" style="flex:1"><option value="0">Farebný prechod</option><option value="1">Môj obrázok (JPG, PNG)…</option></select></div>
+      <div class="row"><span style="flex:1"></span><button id="vdOk">Uložiť video…</button></div>`);
+    $('vdT').value=v.title||''; $('vdS').value=v.subtitle||''; $('vdP').value=v.portrait===false?'0':'1'; $('vdV').value=String(v.style||0); $('vdI').value=v.img?'1':'0';
+    $('vdOk').onclick=()=>{ const o={title:$('vdT').value.trim(),subtitle:$('vdS').value.trim(),style:+$('vdV').value,portrait:$('vdP').value==='1',img:$('vdI').value==='1'};
+      song.video=o; save(); $('dlgBack').hidden=true; stopIfPlaying(); nat('exportVideo',{end,title:o.title,subtitle:o.subtitle,style:o.style,portrait:o.portrait,useImage:o.img}); }; };
   $('bStems').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB); stopIfPlaying(); nat('exportStems',{end}); };
   initAuto();
   $('bAi').onclick=openAi;
@@ -489,7 +503,7 @@ function setupNative(){
     const end=Math.ceil(part.start+part.len); if(end>song.bars) song.bars=Math.min(256,end);
     renderAll(); save();
   });
-  onNat('exported',e=>{ toast(e.ok?(/\.mp3$/i.test(e.name)?'MP3':'WAV')+' uložený: <b>'+esc(e.name)+'</b>'+(e.info?'<br>'+esc(e.info):''):(e.info&&e.info!=='cancel'?esc(e.info):'Export sa nepodaril alebo bol zrušený.')); });
+  onNat('exported',e=>{ toast(e.ok?(/\.mp3$/i.test(e.name)?'MP3':/\.mp4$/i.test(e.name)?'Video':'WAV')+' uložený: <b>'+esc(e.name)+'</b>'+(e.info?'<br>'+esc(e.info):''):(e.info&&e.info!=='cancel'?esc(e.info):'Export sa nepodaril alebo bol zrušený.')); });
   onNat('songLoaded',e=>{ try{ const s=normalize(JSON.parse(e.text)); pushUndo(); if(playing) stop(); song=s; selT=0; selPart=null; closeEditor(); renderAll(); save(); natSel(); natNeedPeaks(); }
     catch(err){ dialog('Chyba','<p>Tento súbor sa nedá otvoriť.</p>'); } });
 }
@@ -2565,7 +2579,7 @@ const clk=id=>()=>$(id).click();
 $('mFile').onclick=e=>{ e.stopPropagation(); menuAt($('mFile'),[
   ['Nový',clk('bNew')],['Otvoriť…  (Ctrl+O)',clk('bOpen')],['Uložiť…  (Ctrl+S)',clk('bSave')],null,
   ['Import MIDI…',clk('bImpMidi')],['Import audio…',clk('bImpA')],null,
-  ['Export MIDI',clk('bMidi')],['Export WAV',clk('bWav')],['Export MP3',clk('bMp3')],['Export stôp',clk('bStems')]]); };
+  ['Export MIDI',clk('bMidi')],['Export WAV',clk('bWav')],['Export MP3',clk('bMp3')],['Export videa (MP4)…',()=>window.exportVideo&&window.exportVideo()],['Export stôp',clk('bStems')]]); };
 $('mTrack').onclick=e=>{ e.stopPropagation(); menuAt($('mTrack'),[
   ['Bicie (krokový sekvencer)',clk('bAddD')],[NATIVE?'Nástroj (VST)':'Syntezátor',clk('bAddS')],['Audio (nahrávanie, wav)',clk('bAddA')]]); };
 $('barsIn').onchange=e=>{const mx=Math.max(4,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len))); song.bars=clamp(+e.target.value||32,mx,256);

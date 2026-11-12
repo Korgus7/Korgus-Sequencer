@@ -89,6 +89,7 @@ private:
     void sendMeters();
     bool metersLive = false;
     void onExportMp3 (const juce::var&);
+    void onExportVideo (const juce::var&);
     void onSeparate (const juce::var&);
     void onAutotune (const juce::var&);
     void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);
