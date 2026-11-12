@@ -1024,6 +1024,26 @@ void MainView::showPluginManager()
     });
 }
 
+void MainView::sendMeters()
+{
+    juce::Array<juce::var> ids, vals;
+    bool any = false;
+    auto addId = [&] (const juce::String& id)
+    {
+        const auto m = engine.takeMeter (engine.getOrCreateSlot (id));
+        ids.add (id);
+        vals.add (std::round (m.first * 1000.0f) / 1000.0f); vals.add (std::round (m.second * 1000.0f) / 1000.0f);
+        any = any || m.first > 0.0005f || m.second > 0.0005f;
+    };
+    if (const auto* tracks = lastSong["tracks"].getArray())
+        for (const auto& t : *tracks) if (t["id"].toString().isNotEmpty()) addId (t["id"].toString());
+    addId ("__aux1"); addId ("__aux2"); addId ("__master");
+    if (! any && ! metersLive) return;
+    metersLive = any;
+    auto o = obj(); put (o, "ids", ids); put (o, "v", vals);
+    emit ("meters", o);
+}
+
 void MainView::timerCallback()
 {
     if (recOn || recFinishing)
@@ -1031,6 +1051,8 @@ void MainView::timerCallback()
     if (recOn) sendLivePeaks();
     if (recFinishing && juce::Time::getMillisecondCounter() - recStopTime > 250) finishRecording();
     if (exporting.load()) return;
+
+    sendMeters();
 
     const double p = engine.getPosition();
     const bool pl = engine.isPlaying(), cn = engine.isCounting();

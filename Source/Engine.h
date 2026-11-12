@@ -197,6 +197,24 @@ public:
 private:
     enum State { stopped, counting, playing };
 
+    // merace hlasitosti (spicka od posledneho citania) podla indexu slotu
+    static constexpr int maxMeters = 512;
+    std::array<std::atomic<float>, maxMeters * 2> meters {};
+    void meterPut (int slot, float l, float r)
+    {
+        if (! juce::isPositiveAndBelow (slot, maxMeters)) return;
+        auto& a = meters[(size_t) slot * 2]; auto& b = meters[(size_t) slot * 2 + 1];
+        if (l > a.load (std::memory_order_relaxed)) a.store (l, std::memory_order_relaxed);
+        if (r > b.load (std::memory_order_relaxed)) b.store (r, std::memory_order_relaxed);
+    }
+public:
+    // spicka L/R od posledneho volania (a vynuluje ju)
+    std::pair<float, float> takeMeter (int slot)
+    {
+        if (! juce::isPositiveAndBelow (slot, maxMeters)) return { 0.0f, 0.0f };
+        return { meters[(size_t) slot * 2].exchange (0.0f), meters[(size_t) slot * 2 + 1].exchange (0.0f) };
+    }
+private:
     struct Slot
     {
         juce::String trackId;

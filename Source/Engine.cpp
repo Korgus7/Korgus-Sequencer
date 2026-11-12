@@ -730,6 +730,11 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 for (int i = 0; i < n; ++i) { a += dL; b += dR; mixL[i] += srcL[i] * a; mixR[i] += srcR[i] * b; }
             }
             slot.curL = gL; slot.curR = gR;
+            if (forced == nullptr)
+            {
+                const auto rl = juce::FloatVectorOperations::findMinAndMax (srcL, n), rr = juce::FloatVectorOperations::findMinAndMax (srcR, n);
+                meterPut (td.slot, juce::jmax (-rl.getStart(), rl.getEnd()) * gL, juce::jmax (-rr.getStart(), rr.getEnd()) * gR);
+            }
             for (int k = 0; k < 2; ++k)
                 if (td.send[k] > 0.0f)
                 {
@@ -753,6 +758,11 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         const float g = sd != nullptr ? sd->auxGain[k] : 1.0f;
         juce::FloatVectorOperations::addWithMultiply (mixL, auxL[k], g, n);
         juce::FloatVectorOperations::addWithMultiply (mixR, auxR[k], g, n);
+        if (forced == nullptr)
+        {
+            const auto rl = juce::FloatVectorOperations::findMinAndMax (auxL[k], n), rr = juce::FloatVectorOperations::findMinAndMax (auxR[k], n);
+            meterPut (auxSlot[k], juce::jmax (-rl.getStart(), rl.getEnd()) * g, juce::jmax (-rr.getStart(), rr.getEnd()) * g);
+        }
     }
 
     {
@@ -762,6 +772,11 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             for (int q = 0; q < numFx; ++q)
                 if (auto& f = ms.fx[(size_t) q]; f != nullptr && ! ((sd != nullptr ? sd->masterFxOff : 0u) & (1u << q))) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
         const float mg = bypass ? 1.0f : (sd != nullptr ? sd->masterGain : 1.0f);
+        if (forced == nullptr)
+        {
+            const auto rl = juce::FloatVectorOperations::findMinAndMax (mixL, n), rr = juce::FloatVectorOperations::findMinAndMax (mixR, n);
+            meterPut (masterSlot, juce::jmax (-rl.getStart(), rl.getEnd()) * mg, juce::jmax (-rr.getStart(), rr.getEnd()) * mg);
+        }
         if (curNumOut == 1 && out[0] != nullptr)
         {
             juce::FloatVectorOperations::addWithMultiply (out[0], mixL, mg * 0.5f, n);

@@ -86,6 +86,8 @@ private:
     void onExportWav (const juce::var&);
     void onExportStems (const juce::var&);
     void onBounce (const juce::var&);
+    void sendMeters();
+    bool metersLive = false;
     void onExportMp3 (const juce::var&);
     void onSeparate (const juce::var&);
     void onAutotune (const juce::var&);
