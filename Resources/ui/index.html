@@ -34,6 +34,11 @@ input[type=range]{accent-color:#2d4362}
 #edWin{flex:1.25 1 0;min-height:180px}
 #mixWin{flex:none;height:360px}
 #autoWin{flex:none;height:230px}
+#trWin .bar{min-height:44px}
+#trWin .bar #bRew,#trWin .bar #bStop,#trWin .bar #bPlay,#trWin .bar #bRec,#trWin .bar #bLoop,#trWin .bar #bClick{height:34px;min-width:44px;font-size:17px;padding:0 8px}
+#trWin .bar #bLoop svg,#trWin .bar #bClick svg{width:20px;height:20px}
+#trWin .bar #bPlay.on{background:#4f7a6a;color:#fff}
+#trWin .bar #lcd{font-size:20px;padding:4px 10px}
 button.rw{font:bold 11px Tahoma,Arial,sans-serif;min-width:24px;padding:0 4px}
 button.rw.r.on{background:#4f7a6a;color:#fff;border-color:#2f4c41}
 button.rw.w.on{background:#a14a3e;color:#fff;border-color:#5e2419}
@@ -257,11 +262,11 @@ button.ico svg{display:block}
     <button id="bStop" title="Stop (Num 0)">■</button>
     <button id="bPlay" title="Play (medzerník)">►</button>
     <button id="bRec" title="Nahrávanie (Num *)">●</button>
+    <button id="bLoop" class="ico" title="Cyklus (Num /)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9V7.5a3 3 0 0 1 3-3H13"/><path d="M11 2.5l2 2-2 2"/><path d="M13.5 7v1.5a3 3 0 0 1-3 3H3"/><path d="M5 13.5l-2-2 2-2"/></svg></button>
     <div class="lcd" id="lcd">001.1.1</div>
     <span class="sep"></span>
     Tempo <input type="number" id="tempo" min="30" max="300" style="width:50px">
     <span class="sep"></span>
-    <button id="bLoop" class="ico" title="Cyklus (Num /)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9V7.5a3 3 0 0 1 3-3H13"/><path d="M11 2.5l2 2-2 2"/><path d="M13.5 7v1.5a3 3 0 0 1-3 3H3"/><path d="M5 13.5l-2-2 2-2"/></svg></button>
     <span id="locBox" class="grp" hidden>
     <button id="bGoL" title="Na ľavý lokátor (Num 1)">L</button><input type="text" id="locL" class="lcdIn" title="Ľavý lokátor – takt.doba.krok (Ctrl+Num 1 = nastaviť)">
     <button id="bGoR" title="Na pravý lokátor (Num 2)">R</button><input type="text" id="locR" class="lcdIn" title="Pravý lokátor – takt.doba.krok (Ctrl+Num 2 = nastaviť)">
@@ -1768,6 +1773,7 @@ function clipMenu(tr,p,x,y){
     ['Normalizovať',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'norm'}; nat('clipPeak',{req,id:p.aid,off:p.off||0,dur:p.dur}); }],
     ['Otočiť (spätný chod)',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'rev'}; nat('reverseAudio',{req,id:p.aid}); }],
     ['Stíšiť úsek medzi lokátormi L – R',()=>clipMuteRange(tr,p)],
+    ['Doladiť spev (autotune)…',()=>clipAutotune(tr,p)],
     ['Oddeliť spev a hudbu (AI)…',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'sep'}; nat('separate',{req,id:p.aid,off:p.off||0,dur:p.dur}); }],
     [(p.bpm?'✓ ':'')+'Prispôsobovať tempu piesne',()=>{ pushUndo(); if(p.bpm) delete p.bpm; else p.bpm=song.tempo; updateAudioLens(); renderAll(); save(); }],
   ]);
@@ -1777,6 +1783,21 @@ function clipTranspose(tr,p){
   dialog('Transpozícia klipu',`<p>Posun výšky tónu – dĺžka a tempo zostanú rovnaké.</p><div class="frow"><label>Posun</label><select id="semiSel" style="flex:1">${o}</select></div><div class="row"><span style="flex:1"></span><button id="semiOk">OK</button></div>`);
   $('semiOk').onclick=()=>{ const v=+$('semiSel').value; pushUndo(); if(v) p.semi=v; else delete p.semi; $('dlgBack').hidden=true; drawArrange(); save();
     if(v) toast('Prepočítavam výšku tónu… klip chvíľu nebude hrať.'); };
+}
+const KEYN=['C','C#','D','D#','E','F','F#','G','G#','A','B','H'];
+let atLast={key:-1,scale:-1,speed:1};
+function clipAutotune(tr,p){
+  const ko='<option value="-1">Automaticky</option>'+KEYN.map((k,i)=>`<option value="${i}"${atLast.key===i?' selected':''}>${k}</option>`).join('');
+  const so=[[-1,'Automaticky'],[0,'Dur'],[1,'Mol'],[2,'Chromatická (všetky poltóny)']].map(([v,n])=>`<option value="${v}"${atLast.scale===v?' selected':''}>${n}</option>`).join('');
+  const sp=[[0,'Prirodzene'],[1,'Stredne'],[2,'Robot (efekt)']].map(([v,n])=>`<option value="${v}"${atLast.speed===v?' selected':''}>${n}</option>`).join('');
+  dialog('Doladiť spev',`<p>Falošné tóny sa posunú na najbližší tón stupnice. Klip má obsahovať jeden hlas (spev bez hudby).</p>
+    <div class="frow"><label>Tónina</label><select id="atKey" style="flex:1">${ko}</select></div>
+    <div class="frow"><label>Stupnica</label><select id="atScale" style="flex:1">${so}</select></div>
+    <div class="frow"><label>Rýchlosť</label><select id="atSpeed" style="flex:1">${sp}</select></div>
+    <div class="row"><span style="flex:1"></span><button id="atOk">Doladiť</button></div>`);
+  $('atKey').value=atLast.key; $('atScale').value=atLast.scale; $('atSpeed').value=atLast.speed;
+  $('atOk').onclick=()=>{ atLast={key:+$('atKey').value,scale:+$('atScale').value,speed:+$('atSpeed').value}; $('dlgBack').hidden=true;
+    const req=uid(); clipReq[req]={tr,p,kind:'at'}; nat('autotune',{req,id:p.aid,off:p.off||0,dur:p.dur,...atLast}); };
 }
 function clipMuteRange(tr,p){
   const L=song.locL, R=song.locR, a=p.start*SPB, b=(p.start+p.len)*SPB;
@@ -1804,6 +1825,9 @@ function clipResult(e){
   const j=clipReq[e.req]; if(!j) return; delete clipReq[e.req];
   if(j.kind==='norm'){ if(!(e.peak>0)){ toast('Klip je tichý.'); return; } pushUndo(); j.p.gain=Math.min(16,Math.round(0.966/e.peak*1000)/1000); drawArrange(); save();
     toast('Normalizované: '+(20*Math.log10(j.p.gain)>=0?'+':'')+(20*Math.log10(j.p.gain)).toFixed(1)+' dB.'); }
+  if(j.kind==='at'){ if(e.error){ if(e.error!=='cancel') dialog('Doladiť spev','<p>'+esc(e.error)+'</p>'); return; }
+    pushUndo(); j.p.aid=e.id; j.p.off=0; drawArrange(); save();
+    toast('Spev doladený ('+KEYN[e.key]+' '+(['dur','mol','chromaticky'][e.scale]||'')+'). Ctrl+Z vráti späť.'); }
   if(j.kind==='rev'){ if(!e.id){ toast('Otočenie sa nepodarilo.'); return; } pushUndo(); const full=e.full||((audioBufs[j.p.aid]||{}).duration)||(j.p.off+j.p.dur);
     j.p.off=Math.max(0,full-(j.p.off||0)-j.p.dur); j.p.aid=e.id; const fi=j.p.fi, fo=j.p.fo; if(fo) j.p.fi=fo; else delete j.p.fi; if(fi) j.p.fo=fi; else delete j.p.fo;
     drawArrange(); save(); toast('Klip otočený (spätný chod). Ctrl+Z vráti späť.'); }

@@ -29,6 +29,8 @@ target_sources(KorgusSequencer PRIVATE
     Source/AudioStore.cpp
     Source/Melody.cpp
     Source/Separator.cpp
+    Source/BuiltinFx.cpp
+    Source/Autotune.cpp
     Source/UiCommon.cpp
     Source/MainView.cpp)
 
@@ -51,6 +53,7 @@ endif()
 target_link_libraries(KorgusSequencer
     PRIVATE
         KorgusData
+        juce::juce_dsp
         juce::juce_audio_utils
         juce::juce_audio_processors
         juce::juce_audio_devices

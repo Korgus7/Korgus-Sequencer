@@ -1,4 +1,6 @@
 #include "MainView.h"
+#include "BuiltinFx.h"
+#include "Autotune.h"
 #include "BinaryData.h"
 #include "SongParse.h"
 #include "Melody.h"
@@ -218,6 +220,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("exportStems", [this] (const juce::var& v) { onExportStems (v); })
         .withEventListener ("autoRec",     [this] (const juce::var& v) { autoRecOn = (bool) v["on"]; })
         .withEventListener ("separate",    [this] (const juce::var& v) { onSeparate (v); })
+        .withEventListener ("autotune",    [this] (const juce::var& v) { onAutotune (v); })
         .withEventListener ("clipPeak",    [this] (const juce::var& v)
                             {
                                 auto b = store->get (v["id"].toString());
@@ -387,7 +390,7 @@ void MainView::onTrackPlugin (const juce::var& v)
         saveSession();
         return;
     }
-    for (const auto& d : knownPlugins.getTypes())
+    for (const auto& d : allPluginTypes())
         if (d.createIdentifierString() == uid)
         {
             if (loadPluginForTrack (trackId, d, nullptr) && ! (bool) v.getProperty ("quiet", false))
@@ -411,7 +414,7 @@ void MainView::onTrackFx (const juce::var& v)
         saveSession();
         return;
     }
-    for (const auto& d : knownPlugins.getTypes())
+    for (const auto& d : allPluginTypes())
         if (d.createIdentifierString() == uid)
         {
             if (loadFxForTrack (trackId, idx, d, nullptr))
@@ -425,7 +428,7 @@ std::unique_ptr<juce::AudioPluginInstance> MainView::createInstance (const juce:
     double sr = 44100; int bs = 512;
     if (auto* dev = deviceManager.getCurrentAudioDevice()) { sr = dev->getCurrentSampleRate(); bs = dev->getCurrentBufferSizeSamples(); }
     juce::String err;
-    auto inst = formatManager.createPluginInstance (d, sr, bs, err);
+    auto inst = BuiltinFx::isBuiltin (d) ? BuiltinFx::create (d) : formatManager.createPluginInstance (d, sr, bs, err);
     if (inst == nullptr)
     {
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, sk ("Plugin sa nedá načítať"),
@@ -730,13 +733,21 @@ void MainView::onAiRequest (const juce::var& v)
     });
 }
 
+juce::Array<juce::PluginDescription> MainView::allPluginTypes() const
+{
+    auto list = BuiltinFx::descriptions();
+    for (const auto& d : knownPlugins.getTypes()) list.add (d);
+    return list;
+}
+
 void MainView::sendPluginList()
 {
-    juce::Array<juce::PluginDescription> list;
-    for (const auto& d : knownPlugins.getTypes()) list.add (d);
+    auto list = allPluginTypes();
     std::sort (list.begin(), list.end(), [] (const juce::PluginDescription& a, const juce::PluginDescription& b)
     {
         if (a.isInstrument != b.isInstrument) return a.isInstrument;
+        const bool ba = BuiltinFx::isBuiltin (a), bb = BuiltinFx::isBuiltin (b);
+        if (ba != bb) return ba;
         return a.name.compareIgnoreCase (b.name) < 0;
     });
     juce::Array<juce::var> arr;
@@ -1545,6 +1556,65 @@ namespace
         juce::String error;
         bool ok = false;
     };
+}
+
+namespace
+{
+    struct AutotuneJob : juce::ThreadWithProgressWindow
+    {
+        AutotuneJob (juce::AudioBuffer<float> clip, double sr, int k, int s, int sp,
+                     std::function<void (bool, AutotuneResult, juce::AudioBuffer<float>&)> onDone)
+            : ThreadWithProgressWindow (juce::String::fromUTF8 ("Dolaďujem spev"), true, true),
+              src (std::move (clip)), rate (sr), key (k), scale (s), speed (sp), done (std::move (onDone)) {}
+
+        void run() override
+        {
+            setStatusMessage (juce::String::fromUTF8 ("Dolaďujem spev…"));
+            res = autotune (src, rate, key, scale, speed, out, [this] (double p) { setProgress (p); return ! threadShouldExit(); });
+        }
+        void threadComplete (bool cancelled) override
+        {
+            if (done) done (res.ok && ! cancelled, res, out);
+            delete this;
+        }
+
+        juce::AudioBuffer<float> src, out;
+        double rate;
+        int key, scale, speed;
+        AutotuneResult res;
+        std::function<void (bool, AutotuneResult, juce::AudioBuffer<float>&)> done;
+    };
+}
+
+void MainView::onAutotune (const juce::var& v)
+{
+    const auto req = v["req"].toString();
+    auto src = store->get (v["id"].toString());
+    auto fail = [this, req] (const juce::String& msg) { auto o = obj(); put (o, "req", req); put (o, "error", msg); emit ("clipResult", o); };
+    if (src == nullptr) { fail (sk ("Zvuk klipu sa nenašiel.")); return; }
+    const double sr = store->getSampleRate();
+    const int a0 = juce::jlimit (0, src->getNumSamples(), (int) ((double) v.getProperty ("off", 0.0) * sr));
+    const int len = juce::jlimit (0, src->getNumSamples() - a0, (int) ((double) v.getProperty ("dur", 0.0) * sr));
+    if (len < (int) (sr * 0.3)) { fail (sk ("Klip je príliš krátky.")); return; }
+    const int ch = juce::jlimit (1, 2, src->getNumChannels());
+    juce::AudioBuffer<float> clip (ch, len);
+    for (int c = 0; c < ch; ++c) clip.copyFrom (c, 0, *src, c, a0, len);
+    juce::Component::SafePointer<MainView> sp (this);
+    auto* job = new AutotuneJob (std::move (clip), sr, (int) v.getProperty ("key", -1), (int) v.getProperty ("scale", -1), (int) v.getProperty ("speed", 1),
+        [sp, req, sr] (bool ok, AutotuneResult r, juce::AudioBuffer<float>& out)
+        {
+            if (sp == nullptr) return;
+            auto o = obj(); put (o, "req", req);
+            if (! ok) { put (o, "error", juce::String ("cancel")); sp->emit ("clipResult", o); return; }
+            const auto nid = sp->store->addRecording (out.getReadPointer (0), out.getNumChannels() > 1 ? out.getReadPointer (1) : nullptr,
+                                                      out.getNumSamples(), sr);
+            if (nid.isEmpty()) { put (o, "error", sk ("Výsledok sa nepodarilo uložiť.")); sp->emit ("clipResult", o); return; }
+            sp->emit ("audioPeaks", sp->store->peaksFor (nid));
+            put (o, "id", nid); put (o, "dur", out.getNumSamples() / sr);
+            put (o, "key", r.key); put (o, "scale", r.scale);
+            sp->emit ("clipResult", o);
+        });
+    job->launchThread();
 }
 
 void MainView::onSeparate (const juce::var& v)

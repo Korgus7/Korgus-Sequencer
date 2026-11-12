@@ -79,6 +79,7 @@ private:
     void onExportWav (const juce::var&);
     void onExportStems (const juce::var&);
     void onSeparate (const juce::var&);
+    void onAutotune (const juce::var&);
     void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);
     void finishRecording();
     std::unique_ptr<SongData> parseCurrent (const juce::var&);
@@ -89,6 +90,7 @@ private:
     void timerCallback() override;
 
     void sendPluginList();
+    juce::Array<juce::PluginDescription> allPluginTypes() const;
     void sendTrackPlugins();
     bool loadPluginForTrack (const juce::String& trackId, const juce::PluginDescription&, const juce::MemoryBlock* state);
     void showSettings();
