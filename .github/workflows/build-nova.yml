@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -S Nova -B build -A x64
+        run: cmake -S Nova -B build -A x64 -DNOVA_HOSTTEST=ON
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -30,6 +30,12 @@ jobs:
           test -n "$DLL"
           cp "$DLL" "out/Korgus Nova.vst3"
           ls -la out
+
+      - name: Test plugin (zahra tony)
+        shell: bash
+        run: |
+          EXE=$(find build -name "NovaHostTest.exe" | head -1)
+          "$EXE" "out/Korgus Nova.vst3"
 
       - uses: actions/upload-artifact@v4
         with:
