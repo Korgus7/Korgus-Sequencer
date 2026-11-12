@@ -95,14 +95,8 @@ namespace
             {
                 if (std::abs (scale - 1.0f) > 0.01f) ed->setScaleFactor (scale);
                 fitToScreen();
-                if (tooBig())
-                {
-                    vp = std::make_unique<juce::Viewport>();
-                    vp->setViewedComponent (ed, false);
-                    vp->setScrollBarsShown (true, true);
-                    addAndMakeVisible (*vp);
-                }
-                else addAndMakeVisible (ed);
+                box.addAndMakeVisible (ed);
+                addAndMakeVisible (box);
                 ed->addComponentListener (this);
                 updateSize();
             }
@@ -126,7 +120,7 @@ namespace
             label.setBounds (bar.removeFromLeft (110));
             size.setBounds (bar.removeFromLeft (90));
             if (vp != nullptr) vp->setBounds (r);
-            else if (ed != nullptr) ed->setTopLeftPosition (0, barH);
+            else box.setTopLeftPosition (r.getPosition());
         }
 
     private:
@@ -136,10 +130,13 @@ namespace
             a.removeFromTop (40 + barH);
             return a;
         }
+        // velkost editora po zvacseni (setScaleFactor meni transformaciu, nie getWidth)
+        juce::Rectangle<int> edSize() const { return ed->getLocalBounds().transformedBy (ed->getTransform()).withZeroOrigin(); }
         bool tooBig() const
         {
             const auto a = screenArea();
-            return ed->getWidth() > a.getWidth() || ed->getHeight() > a.getHeight();
+            const auto e = edSize();
+            return e.getWidth() > a.getWidth() || e.getHeight() > a.getHeight();
         }
         // plugin s menitelnou velkostou zmensime na obrazovku
         void fitToScreen()
@@ -154,14 +151,37 @@ namespace
             ed->setScaleFactor (s);
             fitToScreen();
             updateSize();
+            if (auto* w = findParentComponentOfClass<juce::ResizableWindow>()) w->setContentComponentSize (getWidth(), getHeight());
             if (save && onScaleFn) onScaleFn (s);
         }
         void updateSize()
         {
+            if (ed == nullptr) return;
+            // editor so zmenenou mierkou je v obale velkom ako jeho skutocny obraz
+            const auto es = edSize();
+            ed->setTopLeftPosition (0, 0);
+            box.setSize (es.getWidth(), es.getHeight());
+            const bool big = tooBig();
+            if (big && vp == nullptr)
+            {
+                removeChildComponent (&box);
+                vp = std::make_unique<juce::Viewport>();
+                vp->setViewedComponent (&box, false);
+                vp->setScrollBarsShown (true, true);
+                addAndMakeVisible (*vp);
+            }
+            else if (! big && vp != nullptr)
+            {
+                vp->setViewedComponent (nullptr, false);
+                vp = nullptr;
+                addAndMakeVisible (box);
+            }
             const auto a = screenArea();
-            const int w = juce::jmax (300, vp != nullptr ? juce::jmin (ed->getWidth() + 16, a.getWidth()) : ed->getWidth());
-            const int h = (vp != nullptr ? juce::jmin (ed->getHeight() + 16, a.getHeight()) : ed->getHeight()) + barH;
+            const auto e = edSize();
+            const int w = juce::jmax (300, vp != nullptr ? juce::jmin (e.getWidth() + 16, a.getWidth()) : e.getWidth());
+            const int h = (vp != nullptr ? juce::jmin (e.getHeight() + 16, a.getHeight()) : e.getHeight()) + barH;
             setSize (w, h);
+            resized();
         }
         void componentMovedOrResized (juce::Component&, bool, bool wasResized) override
         {
@@ -169,6 +189,7 @@ namespace
         }
 
         juce::AudioProcessorEditor* ed = nullptr;
+        juce::Component box;
         std::unique_ptr<juce::Viewport> vp;
         juce::Label label;
         juce::ComboBox size;

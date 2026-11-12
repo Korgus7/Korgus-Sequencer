@@ -48,9 +48,14 @@ juce::String AudioStore::importFile (const juce::File& src)
 
 juce::String AudioStore::addRecording (const float* left, const float* right, int n, double sr)
 {
-    if (n <= 0 || left == nullptr) return {};
+    return addRecordingAs (newId(), left, right, n, sr);
+}
+
+juce::String AudioStore::addRecordingAs (const juce::String& id, const float* left, const float* right, int n, double sr)
+{
+    if (n <= 0 || left == nullptr || id.isEmpty()) return {};
+    if (fileFor (id).existsAsFile()) return id;   // rovnaky zvuk uz je v sklade
     const int ch = right != nullptr ? 2 : 1;
-    const auto id = newId();
     const auto f = dir.getChildFile (id + ".wav");
     {
         std::unique_ptr<juce::OutputStream> os (f.createOutputStream().release());

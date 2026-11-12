@@ -323,7 +323,9 @@ button.ico svg{display:block}
 
 /* ---------------- Korgus: prepojenie so zvukovym motorom (C++) ---------------- */
 const NATIVE=!!(window.__JUCE__&&window.__JUCE__.backend);
-function nat(ev,o){ if(NATIVE) window.__JUCE__.backend.emitEvent(ev,o||{}); }
+// spravy do programu ako cisty ASCII JSON (diakritika ako \uXXXX) – niektore WebView ju inak strácajú
+function nat(ev,o){ if(!NATIVE) return; const t=JSON.stringify({eventId:ev,payload:o||{}}).replace(/[\u007f-\uffff]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
+  if(window.__JUCE__.postMessage) window.__JUCE__.postMessage(t); else window.__JUCE__.backend.emitEvent(ev,o||{}); }
 function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn); }
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
@@ -331,7 +333,7 @@ function songForEngine(){
     tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,sc:!!t.sc,send:t.send||[0,0],mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},auto:(t.autoR===false?[]:(t.auto||[])).filter(a=>!a.rec).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.parts}))};
 }
 function auxArr(){ if(!Array.isArray(song.aux)) song.aux=[{vol:.8},{vol:.8}]; return song.aux; }
-function pushSong(now){ if(!NATIVE) return; clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
+function pushSong(now){ if(!NATIVE) return; midiMapSync(); clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
 let keyPHinfo=null;
 // plynula ciara prehravania (posuva sa kazdy snimok obrazovky, platno sa neprekresluje)
 function natPH(){
@@ -456,6 +458,8 @@ function setupNative(){
   $('bRef').oncontextmenu=e=>{ e.preventDefault(); refDialog(); };
   setTimeout(refSync,1500);
   onNat('meters',meterIn);
+  onNat('midiCC',midiCcIn);
+  onNat('drumKitLoaded',drumKitLoaded);
   // bez systemoveho menu WebView2 (prekryvalo nase menu, napr. na audio klipe)
   document.addEventListener('contextmenu',e=>{ if(!(e.target.closest&&e.target.closest('input[type=text],input[type=number],textarea'))) e.preventDefault(); },true);
   onNat('hostKey',e=>{ if(e&&e.code==='Space') playing?stop():play(); });
@@ -1220,6 +1224,8 @@ function renderTracksNative(L){
     r.addEventListener('contextmenu',e=>{ e.preventDefault(); selectTrack(i); ctxMenu(e.clientX,e.clientY,[
       [(tr.sc?'✓ ':'')+'Kľúčová stopa (sidechain)',()=>{ pushUndo(); tr.sc=!tr.sc; renderTracks(); save(); if(tr.sc) toast('Stopa <b>'+esc(tr.name)+'</b> riadi kompresor / PulseDip s voľbou <b>Sidechain</b>.'); }],
       ...(tr.type==='synth'?(hasArp(tr)?[['Otvoriť arpeggiátor (Korgus Arp)',()=>openArp(tr)],['Odstrániť arpeggiátor',()=>nat('trackArp',{track:tr.id,on:false,name:tr.name})]]:[['Pridať arpeggiátor (Korgus Arp)…',()=>nat('trackArp',{track:tr.id,on:true,name:tr.name})]]):[]),
+      ...(tr.type==='drum'&&NATIVE?[['Súprava zvukov bicích…',()=>drumKitDialog(tr)]]:[]),
+      ...(tr.type==='audio'&&NATIVE?[['Hlasová predvoľba (efekty na spev)…',()=>voicePresetDialog(tr)]]:[]),
       ...(tr.type!=='audio'?[[tr.type==='drum'?'Vložiť rytmus z knižnice…':'Vložiť basovú linku z knižnice…',()=>patternDialog(tr)],['Bounce do audia',()=>bounceTrack(tr)]]:[]),
       ['Zmazať stopu',()=>deleteTrack(i)]]); });
     L.appendChild(r);
@@ -1622,6 +1628,7 @@ function autoAddDialog(){
   };
 }
 function autoParams(e){
+  if(autoParamReq&&autoParamReq.ml&&e.track===autoParamReq.track){ midiParamsIn(e); return; }
   if(!autoParamReq||e.track!==autoParamReq.track) return; const sel=$('apSel'); if(!sel) return;
   if(e.list&&e.list.length){ const g=document.createElement('optgroup'); g.label=(e.w===0?'Nástroj: ':'Efekt '+e.w+': ')+e.plugin;
     e.list.forEach(p=>{ const o=document.createElement('option'); o.value=e.w+':'+p.i; o.textContent=p.name; o.dataset.v=p.v; o.dataset.n=e.plugin+': '+p.name; g.appendChild(o); }); sel.appendChild(g); }
@@ -1703,6 +1710,8 @@ function renderMixer(){
     fd.append(mt,th); fd.title='Hlasitosť (dvojklik = 0 dB)';
     fd.onmousedown=e=>dragV(e,fd,(ev,rc)=>{ o.vol(clamp(1-(ev.clientY-rc.top-12)/(rc.height-24),0,1)); showF(); save(); },renderTracks);
     fd.ondblclick=()=>{ o.vol(1); showF(); save(); renderTracks(); };
+    fd.oncontextmenu=e=>{ e.preventDefault(); e.stopPropagation(); if(!NATIVE) return; const t=o.id==='__master'?{t:'mvol'}:(o.id.startsWith('__')?null:{t:'vol',tr:o.id});
+      if(t) ctxMenu(e.clientX,e.clientY,[['Priradiť MIDI ovládač (learn)…',()=>midiStartLearn(t)],['Všetky MIDI priradenia…',()=>midiDialog()]]); };
     const nm=el('div','nm',(o.num?'<span>'+o.num+'</span>':'')+esc(o.name)); nm.title=o.name;
     st.append(fd,db,nm);
     if(!o.master) mixShow[o.id]=(v,p)=>{ const h=fd.clientHeight||200;
@@ -1930,6 +1939,7 @@ function clipMenu(tr,p,x,y){
     ['Otočiť (spätný chod)',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'rev'}; nat('reverseAudio',{req,id:p.aid}); }],
     ['Stíšiť úsek medzi lokátormi L – R',()=>clipMuteRange(tr,p)],
     ['Doladiť spev (autotune)…',()=>clipAutotune(tr,p)],
+    ['Odšumiť nahrávku…',()=>clipDenoise(tr,p)],
     ['Oddeliť spev a hudbu (AI)…',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'sep'}; nat('separate',{req,id:p.aid,off:p.off||0,dur:p.dur}); }],
     null,
     ['Zarovnať na takty (tempo z nahrávky)',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'beats'}; nat('analyze',{req,id:p.aid,off:p.off||0,dur:p.dur,what:1}); }],
@@ -1960,6 +1970,21 @@ function clipAutotune(tr,p){
   $('atKey').value=atLast.key; $('atScale').value=atLast.scale; $('atSpeed').value=atLast.speed;
   $('atOk').onclick=()=>{ atLast={key:+$('atKey').value,scale:+$('atScale').value,speed:+$('atSpeed').value}; $('dlgBack').hidden=true;
     const req=uid(); clipReq[req]={tr,p,kind:'at'}; nat('autotune',{req,id:p.aid,off:p.off||0,dur:p.dur,...atLast}); };
+}
+let dnLast={src:0,amt:14};
+function clipDenoise(tr,p){
+  const L=song.locL, R=song.locR, a=p.start*SPB, b=(p.start+p.len)*SPB, hasLR=R>L&&R>a&&L<b;
+  const so=`<option value="0">Automaticky (najtichšie miesta v klipe)</option><option value="1"${hasLR?'':' disabled'}>Úsek medzi lokátormi L – R${hasLR?'':' (nie je nastavený v klipe)'}</option>`;
+  const ao=[[8,'Jemne'],[14,'Stredne'],[22,'Silno']].map(([v,n])=>`<option value="${v}">${n}</option>`).join('');
+  dialog('Odšumiť nahrávku',`<p>Odstráni stály šum (hučanie, šum mikrofónu, ventilátor). Program sa naučí, ako šum znie, z miesta, kde nikto nespieva ani nehrá.</p>
+    <div class="frow"><label>Vzorka šumu</label><select id="dnSrc" style="flex:1">${so}</select></div>
+    <div class="frow"><label>Sila</label><select id="dnAmt" style="flex:1">${ao}</select></div>
+    <div class="row"><span style="flex:1"></span><button id="dnOk">Odšumiť</button></div>`);
+  $('dnSrc').value=hasLR?dnLast.src:0; $('dnAmt').value=dnLast.amt;
+  $('dnOk').onclick=()=>{ dnLast={src:+$('dnSrc').value,amt:+$('dnAmt').value}; $('dlgBack').hidden=true;
+    const req=uid(), bd=barDur()/clipK(p); let p0=-1,p1=-1;
+    if(dnLast.src===1&&hasLR){ p0=Math.max(0,(L/SPB-p.start)*bd); p1=Math.min(p.dur,(R/SPB-p.start)*bd); }
+    clipReq[req]={tr,p,kind:'dn'}; nat('denoise',{req,id:p.aid,off:p.off||0,dur:p.dur,amount:dnLast.amt,p0,p1}); };
 }
 function clipMuteRange(tr,p){
   const L=song.locL, R=song.locR, a=p.start*SPB, b=(p.start+p.len)*SPB;
@@ -2074,6 +2099,8 @@ function clipResult(e){
   if(j.kind==='at'){ if(e.error){ if(e.error!=='cancel') dialog('Doladiť spev','<p>'+esc(e.error)+'</p>'); return; }
     pushUndo(); j.p.aid=e.id; j.p.off=0; drawArrange(); save();
     toast('Spev doladený ('+KEYN[e.key]+' '+(['dur','mol','chromaticky'][e.scale]||'')+'). Ctrl+Z vráti späť.'); }
+  if(j.kind==='dn'){ if(e.error){ if(e.error!=='cancel') dialog('Odšumiť nahrávku','<p>'+esc(e.error)+'</p>'); return; }
+    pushUndo(); j.p.aid=e.id; j.p.off=0; drawArrange(); save(); toast('Nahrávka odšumená. Ctrl+Z vráti späť.'); }
   if(j.kind==='rev'){ if(!e.id){ toast('Otočenie sa nepodarilo.'); return; } pushUndo(); const full=e.full||((audioBufs[j.p.aid]||{}).duration)||(j.p.off+j.p.dur);
     j.p.off=Math.max(0,full-(j.p.off||0)-j.p.dur); j.p.aid=e.id; const fi=j.p.fi, fo=j.p.fo; if(fo) j.p.fi=fo; else delete j.p.fi; if(fi) j.p.fo=fi; else delete j.p.fo;
     drawArrange(); save(); toast('Klip otočený (spätný chod). Ctrl+Z vráti späť.'); }
@@ -2742,7 +2769,45 @@ const TEMPLATES=[
    tracks:[{t:'drum',sc:true},{t:'synth',n:'Bas',fx:['comp']},{t:'synth',n:'Pad',fx:['pulse'],send:[.3,0]},{t:'synth',n:'Lead',send:[.15,.3]}]},
   {k:'voice',n:'Nahrávanie hlasu',d:'Jedna audio stopa s EQ a kompresorom – hovorené slovo, podcast.',tempo:100,master:['limiter'],
    tracks:[{t:'audio',n:'Hlas',fx:['eq','comp']}]}];
-const FXRE={eq:/^korgus eq$/i,comp:/korgus kompresor/i,reverb:/korgus dozvuk/i,delay:/korgus ozvena/i,limiter:/korgus limiter/i,pulse:/korgus pulsedip/i};
+const FXRE={deesser:/korgus de-esser/i,harmony:/korgus dvojhlas/i,eq:/^korgus eq$/i,comp:/korgus kompresor/i,reverb:/korgus dozvuk/i,delay:/korgus ozvena/i,limiter:/korgus limiter/i,pulse:/korgus pulsedip/i};
+const VOXP=[
+  {n:'Rádio',d:'Čistý, blízky pop spev: EQ, de-esser, kompresor a krátky dozvuk.',fx:[
+    ['eq',{lowcut:100,midgain:-2,midfreq:350,midq:1,highgain:4,highfreq:10000}],['deesser',{freq:6500,threshold:-30,range:8}],
+    ['comp',{threshold:-20,ratio:4,attack:5,release:100,makeup:5}],['reverb',{size:35,damping:50,width:100,mix:12}]]},
+  {n:'Balada',d:'Mäkký spev s dlhým dozvukom a jemnejšou kompresiou.',fx:[
+    ['eq',{lowcut:80,midgain:-1.5,midfreq:400,midq:1,highgain:3,highfreq:9000}],['deesser',{freq:6000,threshold:-30,range:6}],
+    ['comp',{threshold:-18,ratio:3,attack:15,release:200,makeup:4}],['reverb',{size:75,damping:40,width:100,mix:25}]]},
+  {n:'Rap',d:'Výrazný, hustý hlas vpredu: silná kompresia, zvýraznená zrozumiteľnosť, krátka ozvena.',fx:[
+    ['eq',{lowcut:120,midgain:2.5,midfreq:2500,midq:1.2,highgain:3,highfreq:9000}],['deesser',{freq:6500,threshold:-28,range:10}],
+    ['comp',{threshold:-24,ratio:6,attack:3,release:80,makeup:8}],['delay',{sync:3,feedback:20,tone:6000,mix:10,pingpong:0}]]},
+  {n:'Telefón',d:'Úzky zvuk ako z telefónu alebo starého rádia – efekt na časť skladby.',fx:[
+    ['eq',{lowcut:500,midgain:6,midfreq:1500,midq:1.5,highgain:-15,highfreq:3500}],['comp',{threshold:-25,ratio:8,attack:2,release:60,makeup:9}]]}];
+const NKITS=[['Akustické','Klasická bicia súprava – kopák, malý bubon, prechody, činely.'],['808 / Trap','Dlhý dunivý kopák 808, ostré hi-haty – hip-hop, trap.'],
+  ['Elektronické (909)','Úderný kopák a tlieskanie 909 – house, techno, pop.'],['Perkusie','Djembe, konga, bongo, shaker, tamburína, claves, triangel.'],['Ľudová','Veľký bubon, bubienok, tlieskanie, lyžice, rolničky, drievko.']];
+let kitReq={};
+function drumKitDialog(tr){
+  dialog('Súprava zvukov bicích – '+esc(tr.name),`<p>Nahradí zvuky všetkých 10 riadkov krokového sekvencera. Jednotlivý riadok môžeš potom zmeniť tlačidlom ♪ / ×.</p><div id="tplList">${NKITS.map((k,i)=>`<button class="tplc" data-i="${i}"><b>${esc(k[0])}</b><span>${esc(k[1])}</span><i>${tr.nkit===k[0]?'✓ použitá':'10 zvukov'}</i></button>`).join('')}<button class="tplc" data-i="-1"><b>Bez súpravy</b><span>Bicie hrá nástroj stopy (VST, GM noty).</span><i></i></button></div>`);
+  document.querySelectorAll('#tplList .tplc').forEach(b=>b.onclick=()=>{ $('dlgBack').hidden=true; const i=+b.dataset.i;
+    if(i<0){ pushUndo(); tr.smp={}; tr.smpN={}; delete tr.nkit; save(); renderEditor(); drawArrange(); toast('Súprava odstránená.'); return; }
+    kitReq[tr.id]=1; nat('drumKit',{track:tr.id,kit:i}); });
+}
+function drumKitLoaded(e){
+  const tr=song.tracks.find(t=>t.id===e.track); if(!tr||!kitReq[e.track]) return; delete kitReq[e.track];
+  pushUndo(); tr.smp={}; tr.smpN={}; (e.ids||[]).forEach((id,l)=>{ if(id){ tr.smp[l]=id; tr.smpN[l]=String(e.names[l]||'').slice(0,24); } });
+  tr.nkit=e.name; save(); if(edGet()&&edGet().tr===tr) renderEditor(); drawArrange(); previewDrum(tr,0,1);
+  toast('Súprava <b>'+esc(e.name)+'</b> je na stope <b>'+esc(tr.name)+'</b>.');
+}
+function voicePresetDialog(tr){
+  dialog('Hlasová predvoľba – '+esc(tr.name),`<p>Nahradí efekty na stope (4 sloty) hotovým reťazcom. Každý efekt potom môžeš doladiť dvojklikom.</p><div id="tplList">${VOXP.map((t,i)=>`<button class="tplc" data-i="${i}"><b>${esc(t.n)}</b><span>${esc(t.d)}</span><i>${t.fx.length} efekty</i></button>`).join('')}</div>`);
+  document.querySelectorAll('#tplList .tplc').forEach(b=>b.onclick=()=>{ $('dlgBack').hidden=true; applyVoicePreset(tr,VOXP[+b.dataset.i]); });
+}
+function applyVoicePreset(tr,pr){
+  const cur=((natTrackPlugins[tr.id]||{}).fx||[]);
+  for(let i=0;i<4;i++){ const f=pr.fx[i];
+    if(!f){ if(cur[i]) nat('trackFx',{track:tr.id,idx:i,uid:'',quiet:true}); continue; }
+    const p=natPlugins.find(x=>!x.inst&&FXRE[f[0]].test(x.name)); if(p) nat('trackFx',{track:tr.id,idx:i,uid:p.uid,name:tr.name,quiet:true,params:f[1]}); }
+  toast('Predvoľba <b>'+esc(pr.n)+'</b> je na stope <b>'+esc(tr.name)+'</b>.');
+}
 function newFromTemplate(tp){
   pushUndo(); stopIfPlaying(); const s=baseSong(); song=s; s.tempo=tp.tempo; s.aux=[{vol:.8},{vol:.8}];
   const loads=[];
@@ -2771,13 +2836,96 @@ $('audIn').onchange=e=>{const f=e.target.files[0]; e.target.value=''; if(f&&audT
 function deleteTrack(i){ if(!song.tracks[i]) return; pushUndo(); const tr=song.tracks.splice(i,1)[0];
   if(ed&&tr.parts.some(p=>p.id===ed.pId)) closeEditor(); selT=clamp(selT>i?selT-1:selT,0,Math.max(0,song.tracks.length-1)); renderAll(); save(); if(NATIVE) natSel();}
 $('bUndo').onclick=undo;
+/* ---------------- MIDI learn (ovladace CC) ---------------- */
+// globalne (prehravanie, master) su v pocitaci, stopy a efekty v piesni
+const LSMIDI='korgusMidiMap';
+let midiMapG=[]; try{ midiMapG=JSON.parse(localStorage.getItem(LSMIDI)||'[]')||[]; }catch(e){ midiMapG=[]; }
+let midiLearn=null, midiMapSent='';
+const MIDI_GLOBAL={play:'Prehrávanie / pauza',stop:'Stop',rec:'Nahrávanie',loop:'Slučka (L – R)',rew:'Na začiatok',mvol:'Master – hlasitosť'};
+function midiMaps(){ return midiMapG.concat(song.midiMap||[]); }
+function midiMapSync(){ const k=JSON.stringify(midiMaps().map(m=>(m.ch-1)*128+m.cc).sort((a,b)=>a-b)); if(k===midiMapSent) return; midiMapSent=k; nat('midiMap',{keys:JSON.parse(k)}); }
+function midiTargetName(m){
+  if(MIDI_GLOBAL[m.t]) return MIDI_GLOBAL[m.t];
+  const tr=song.tracks.find(t=>t.id===m.tr), tn=tr?tr.name:'(zmazaná stopa)';
+  return tn+' – '+({vol:'hlasitosť',pan:'panoráma',mute:'stlmiť',solo:'sólo'}[m.t]||m.name||'parameter');
+}
+function midiStartLearn(target){
+  midiLearn=target; toast('<b>MIDI learn:</b> pohni gombíkom / fádrom alebo stlač tlačidlo na MIDI ovládači… (Esc zruší)');
+  const st=$('mlStatus'); if(st) st.textContent='Čakám na ovládač: '+midiTargetName(target)+' – pohni ním…';
+}
+function midiAssign(ch,cc){
+  const t=midiLearn; midiLearn=null;
+  const same=m=>m.ch===ch&&m.cc===cc, sameT=m=>m.t===t.t&&(m.tr||'')===(t.tr||'')&&(m.w||0)===(t.w||0)&&(m.i||0)===(t.i||0);
+  pushUndo();
+  midiMapG=midiMapG.filter(m=>!same(m)&&!sameT(m)); if(song.midiMap) song.midiMap=song.midiMap.filter(m=>!same(m)&&!sameT(m));
+  const e={...t,ch,cc};
+  if(MIDI_GLOBAL[t.t]){ midiMapG.push(e); try{localStorage.setItem(LSMIDI,JSON.stringify(midiMapG));}catch(_){} }
+  else (song.midiMap||(song.midiMap=[])).push(e);
+  save(); toast('Priradené: <b>'+esc(midiTargetName(e))+'</b> ← CC '+cc+' (kanál '+ch+')');
+  if($('mlList')) midiDialog();
+}
+let midiUiT=null;
+function midiApply(m,val){
+  const on=val>=64, f=val/127;
+  switch(m.t){
+    case 'play': if(on) playing?stop():play(); return;
+    case 'stop': if(on) stop(); return;
+    case 'rec': if(on) toggleRec(); return;
+    case 'rew': if(on) setPos(0); return;
+    case 'loop': if(on){ song.loopOn=!song.loopOn; updTransport(); drawArrange(); save(); } return;
+    case 'mvol': song.masterVol=f; break;
+    case 'param': nat('setParam',{track:m.tr,w:m.w||0,i:m.i||0,v:f}); return;
+    default: {
+      const tr=song.tracks.find(t=>t.id===m.tr); if(!tr) return;
+      if(m.t==='vol'){ tr.vol=f; autoRecPoint(tr,'vol',0,0,'Hlasitosť',f); if(mixShow[tr.id]) mixShow[tr.id](f,null); }
+      else if(m.t==='pan'){ const p=Math.abs(val-64)<=1?0:clamp((val-64)/63,-1,1); tr.pan=p; autoRecPoint(tr,'pan',0,0,'Panoráma',(p+1)/2); if(mixShow[tr.id]) mixShow[tr.id](null,p); }
+      else if(m.t==='mute'){ if(!on) return; tr.mute=!tr.mute; }
+      else if(m.t==='solo'){ if(!on) return; tr.solo=!tr.solo; }
+    }
+  }
+  save(); clearTimeout(midiUiT); midiUiT=setTimeout(()=>{ renderTracks(); if(mixOpen()&&(m.t==='mute'||m.t==='solo'||m.t==='mvol')) renderMixer(); },120);
+}
+function midiCcIn(e){
+  (e.list||[]).forEach(([ch,cc,val])=>{
+    if(midiLearn){ midiAssign(ch,cc); return; }
+    midiMaps().forEach(m=>{ if(m.ch===ch&&m.cc===cc) midiApply(m,val); });
+  });
+}
+let mlParams=[];
+function midiDialog(){
+  const tr=song.tracks[selT], maps=midiMaps();
+  const tOpts=Object.entries(MIDI_GLOBAL).map(([k,n])=>`<option value="g:${k}">${esc(n)}</option>`).join('');
+  const trOpts=song.tracks.map(t=>`<optgroup label="${esc(t.name)}">${[['vol','hlasitosť'],['pan','panoráma'],['mute','stlmiť'],['solo','sólo']].map(([k,n])=>`<option value="t:${k}:${t.id}">${esc(t.name)} – ${n}</option>`).join('')}</optgroup>`).join('');
+  dialog('MIDI ovládače (learn)',`<p>Priraď gombíky, fádre a tlačidlá MIDI ovládača k hlasitosti, efektom a prehrávaniu. Vyber, čo chceš ovládať, klikni <b>Učiť sa</b> a pohni ovládačom.</p>
+    <div class="frow"><label>Ovládať</label><select id="mlSel" style="flex:1;min-width:320px"><optgroup label="Prehrávanie a Master">${tOpts}</optgroup>${trOpts}<optgroup id="mlPar" label="Efekty a nástroj – ${esc(tr?tr.name:'')}"></optgroup></select><button id="mlGo">Učiť sa</button></div>
+    <p id="mlStatus" style="color:#2d4362;margin:4px 0 8px">${midiLearn?'Čakám na ovládač…':'&nbsp;'}</p>
+    <div id="mlList" style="max-height:260px;overflow:auto">${maps.length?maps.map((m,k)=>`<div class="row" style="gap:8px;padding:2px 0"><span style="width:110px;color:#2d4362">CC ${m.cc} · kanál ${m.ch}</span><span style="flex:1">${esc(midiTargetName(m))}</span><button class="mlDel" data-k="${k}" title="Zrušiť priradenie">×</button></div>`).join(''):'<p style="color:#2d4362">Zatiaľ nič nie je priradené.</p>'}</div>
+    <div class="row"><span style="flex:1"></span><button id="mlClose">Zavrieť</button></div>`);
+  mlParams=[];
+  if(tr&&NATIVE){ const tp=natTrackPlugins[tr.id]||{}; autoParamReq={track:tr.id,left:0,ml:true};
+    if(tp.uid){ autoParamReq.left++; nat('getParams',{track:tr.id,w:0}); }
+    (tp.fx||[]).forEach((f,k)=>{ if(f){ autoParamReq.left++; nat('getParams',{track:tr.id,w:k+1}); } }); }
+  $('mlGo').onclick=()=>{ const v=$('mlSel').value, o=$('mlSel').selectedOptions[0]; let t;
+    if(v.startsWith('g:')) t={t:v.slice(2)};
+    else if(v.startsWith('t:')){ const [,k,id]=v.split(':'); t={t:k,tr:id}; }
+    else if(v.startsWith('p:')){ const [,w,i]=v.split(':'); t={t:'param',tr:tr.id,w:+w,i:+i,name:o.dataset.n||o.textContent}; }
+    if(t) midiStartLearn(t); };
+  document.querySelectorAll('.mlDel').forEach(b=>b.onclick=()=>{ const m=midiMaps()[+b.dataset.k]; pushUndo();
+    midiMapG=midiMapG.filter(x=>x!==m); try{localStorage.setItem(LSMIDI,JSON.stringify(midiMapG));}catch(_){}
+    if(song.midiMap) song.midiMap=song.midiMap.filter(x=>x!==m); save(); midiDialog(); });
+  $('mlClose').onclick=()=>{ midiLearn=null; $('dlgBack').hidden=true; };
+}
+function midiParamsIn(e){
+  const g=$('mlPar'); if(!g||!e.list) return;
+  e.list.forEach(p=>{ const o=document.createElement('option'); o.value='p:'+e.w+':'+p.i; o.textContent=(e.w===0?'Nástroj':'Efekt '+e.w)+' '+e.plugin+': '+p.name; o.dataset.n=e.plugin+': '+p.name; g.appendChild(o); });
+}
 /* hlavne menu (Subor, + Stopa) */
 function menuAt(btn,items){ const r=btn.getBoundingClientRect(); btn.classList.add('on'); ctxMenu(r.left,r.bottom+2,items); const off=()=>{ btn.classList.remove('on'); removeEventListener('mousedown',off,true); }; setTimeout(()=>addEventListener('mousedown',off,true),0); }
 const clk=id=>()=>$(id).click();
 $('mFile').onclick=e=>{ e.stopPropagation(); menuAt($('mFile'),[
-  ['Nový…',clk('bNew')],['Otvoriť…  (Ctrl+O)',clk('bOpen')],['Uložiť…  (Ctrl+S)',clk('bSave')],...(NATIVE?[['Obnoviť zálohu…',()=>nat('listBackups')]]:[]),null,
+  ['Nový…',clk('bNew')],['Otvoriť…  (Ctrl+O)',clk('bOpen')],['Uložiť…  (Ctrl+S)',clk('bSave')],...(NATIVE?[['Zbaliť projekt (pre iný počítač)…',()=>{ stopIfPlaying(); nat('packProject',{name:song.name||'projekt',text:JSON.stringify(song)}); }],['Obnoviť zálohu…',()=>nat('listBackups')]]:[]),null,
   ['Import MIDI…',clk('bImpMidi')],['Import audio…',clk('bImpA')],null,
-  ...(NATIVE?[['Referenčná pesnička (A/B)…',()=>refDialog()],null]:[]),['Export MIDI',clk('bMidi')],['Export WAV',clk('bWav')],['Export MP3',clk('bMp3')],['Export videa (MP4)…',()=>window.exportVideo&&window.exportVideo()],['Export stôp',clk('bStems')]]); };
+  ...(NATIVE?[['Referenčná pesnička (A/B)…',()=>refDialog()],['MIDI ovládače (learn)…',()=>midiDialog()],null]:[]),['Export MIDI',clk('bMidi')],['Export WAV',clk('bWav')],['Export MP3',clk('bMp3')],['Export videa (MP4)…',()=>window.exportVideo&&window.exportVideo()],['Export stôp',clk('bStems')]]); };
 $('mTrack').onclick=e=>{ e.stopPropagation(); menuAt($('mTrack'),[
   ['Bicie (krokový sekvencer)',clk('bAddD')],[NATIVE?'Nástroj (VST)':'Syntezátor',clk('bAddS')],['Audio (nahrávanie, wav)',clk('bAddA')]]); };
 $('barsIn').onchange=e=>{const mx=Math.max(4,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len))); song.bars=clamp(+e.target.value||32,mx,256);
@@ -3025,6 +3173,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='F3'&&NATIVE){ e.preventDefault(); toggleMixer(); return; }
   if(e.ctrlKey&&e.code==='KeyI'&&NATIVE&&$('dlgBack').hidden){ e.preventDefault(); openAi(); return; }
   if(e.target.matches('input[type=text],input[type=number],input[type=password],textarea')) return;
+  if(midiLearn&&e.code==='Escape'){ midiLearn=null; toast('MIDI learn zrušený.'); const st=$('mlStatus'); if(st) st.innerHTML='&nbsp;'; return; }
   if(!$('dlgBack').hidden){ if(e.code==='Escape') $('dlgBack').hidden=true; return; }
   if(!$('setBack').hidden){ if(e.code==='Escape') $('setBack').hidden=true; return; }
   if(e.code==='Space'){e.preventDefault(); if(!e.repeat) playing?stop():play(); return;}

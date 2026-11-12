@@ -54,7 +54,7 @@ private:
     void onSelTrack (const juce::var&);
     void sendDevices();
     std::unique_ptr<juce::AudioPluginInstance> createInstance (const juce::PluginDescription&, const juce::MemoryBlock* state, bool instrument);
-    bool loadFxForTrack (const juce::String& trackId, int idx, const juce::PluginDescription&, const juce::MemoryBlock* state);
+    bool loadFxForTrack (const juce::String& trackId, int idx, const juce::PluginDescription&, const juce::MemoryBlock* state, const juce::var& params = {});
     void openWindow (const juce::String& key, juce::AudioPluginInstance*, const juce::String& title);
     void onOpenPlugin (const juce::var&);
     void onSaveFile (const juce::var&);
@@ -102,6 +102,9 @@ private:
     juce::Time lastBackupTime;
     void onSeparate (const juce::var&);
     void onAutotune (const juce::var&);
+    void onDenoise (const juce::var&);
+    void onPackProject (const juce::var&);
+    void sendMidiCc();
     void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);
     void finishRecording();
     std::unique_ptr<SongData> parseCurrent (const juce::var&);

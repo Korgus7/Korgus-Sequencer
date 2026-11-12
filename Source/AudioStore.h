@@ -23,6 +23,8 @@ public:
     juce::String importFile (const juce::File& src);
     // ulozi nahravku ako WAV (right = nullptr -> mono)
     juce::String addRecording (const float* left, const float* right, int n, double sr);
+    // to iste pod pevnym id (ak uz existuje, len vrati id)
+    juce::String addRecordingAs (const juce::String& id, const float* left, const float* right, int n, double sr);
     // ulozi data zo suboru piesne (.s92) pod danym id
     void addFromData (const juce::String& id, const juce::String& name, const juce::MemoryBlock& data);
 

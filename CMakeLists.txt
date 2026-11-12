@@ -31,6 +31,8 @@ target_sources(KorgusSequencer PRIVATE
     Source/Separator.cpp
     Source/BuiltinFx.cpp
     Source/Autotune.cpp
+    Source/Denoise.cpp
+    Source/DrumKits.cpp
     Source/VideoExport.cpp
     Source/AudioAnalysis.cpp
     Source/Mp3Export.cpp

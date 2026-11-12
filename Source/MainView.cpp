@@ -1,6 +1,8 @@
 #include "MainView.h"
 #include "BuiltinFx.h"
 #include "Autotune.h"
+#include "Denoise.h"
+#include "DrumKits.h"
 #include "VideoExport.h"
 #include "AudioAnalysis.h"
 #include "Mp3Export.h"
@@ -177,6 +179,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("showPlugins", [this] (const juce::var&)   { showPluginManager(); })
         .withEventListener ("saveFile",    [this] (const juce::var& v) { onSaveFile (v); })
         .withEventListener ("openSong",    [this] (const juce::var& v) { onOpenSong (v); })
+        .withEventListener ("packProject", [this] (const juce::var& v) { onPackProject (v); })
         .withEventListener ("importAudio", [this] (const juce::var& v) { onImportAudio (v); })
         .withEventListener ("audioChunk",  [this] (const juce::var& v) { onAudioChunk (v); })
         .withEventListener ("needPeaks",   [this] (const juce::var& v) { onNeedPeaks (v); })
@@ -230,6 +233,40 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("autoRec",     [this] (const juce::var& v) { autoRecOn = (bool) v["on"]; })
         .withEventListener ("separate",    [this] (const juce::var& v) { onSeparate (v); })
         .withEventListener ("autotune",    [this] (const juce::var& v) { onAutotune (v); })
+        .withEventListener ("denoise",     [this] (const juce::var& v) { onDenoise (v); })
+        .withEventListener ("drumKit",     [this] (const juce::var& v)
+                            {
+                                const int kit = (int) v.getProperty ("kit", 0);
+                                auto o = obj(); put (o, "track", v["track"].toString()); put (o, "kit", kit);
+                                juce::Array<juce::var> ids, names;
+                                for (int l = 0; l < DrumKits::numLanes; ++l)
+                                {
+                                    juce::AudioBuffer<float> b;
+                                    juce::String id;
+                                    const auto fixed = "kitv1_" + juce::String (kit) + "_" + juce::String (l);
+                                    if (store->fileFor (fixed).existsAsFile()) id = fixed;
+                                    else if (DrumKits::make (kit, l, store->getSampleRate(), b))
+                                        id = store->addRecordingAs (fixed, b.getReadPointer (0), nullptr, b.getNumSamples(), store->getSampleRate());
+                                    ids.add (id); names.add (DrumKits::laneName (kit, l));
+                                }
+                                put (o, "ids", ids); put (o, "names", names); put (o, "name", DrumKits::kitName (kit));
+                                emit ("drumKitLoaded", o);
+                            })
+        .withEventListener ("midiMap",     [this] (const juce::var& v)
+                            {
+                                juce::Array<int> keys;
+                                if (auto* a = v["keys"].getArray()) for (auto& k : *a) keys.add ((int) k);
+                                engine.setCcMapped (keys);
+                            })
+        .withEventListener ("setParam",    [this] (const juce::var& v)
+                            {
+                                const int slot = engine.getOrCreateSlot (v["track"].toString());
+                                const int which = (int) v.getProperty ("w", 0);
+                                auto* p = which == 0 ? engine.getPlugin (slot) : engine.getFx (slot, which - 1);
+                                const int i = (int) v.getProperty ("i", -1);
+                                if (p != nullptr && juce::isPositiveAndBelow (i, p->getParameters().size()))
+                                    p->getParameters()[i]->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, (float) (double) v.getProperty ("v", 0.0)));
+                            })
         .withEventListener ("bounce",      [this] (const juce::var& v) { onBounce (v); })
         .withEventListener ("exportMp3",   [this] (const juce::var& v) { onExportMp3 (v); })
         .withEventListener ("exportVideo", [this] (const juce::var& v) { onExportVideo (v); })
@@ -474,7 +511,7 @@ void MainView::onTrackFx (const juce::var& v)
     for (const auto& d : allPluginTypes())
         if (d.createIdentifierString() == uid)
         {
-            if (loadFxForTrack (trackId, idx, d, nullptr) && ! (bool) v.getProperty ("quiet", false))
+            if (loadFxForTrack (trackId, idx, d, nullptr, v["params"]) && ! (bool) v.getProperty ("quiet", false))
                 onOpenFx (v);
             return;
         }
@@ -516,10 +553,16 @@ bool MainView::loadPluginForTrack (const juce::String& trackId, const juce::Plug
     return true;
 }
 
-bool MainView::loadFxForTrack (const juce::String& trackId, int idx, const juce::PluginDescription& d, const juce::MemoryBlock* state)
+bool MainView::loadFxForTrack (const juce::String& trackId, int idx, const juce::PluginDescription& d, const juce::MemoryBlock* state, const juce::var& params)
 {
     auto inst = createInstance (d, state, false);
     if (inst == nullptr) return false;
+    // predvolba: hodnoty parametrov podla ID (v jednotkach parametra, pri vybere index)
+    if (auto* po = params.getDynamicObject())
+        for (auto* pr : inst->getParameters())
+            if (auto* hp = dynamic_cast<juce::AudioPluginInstance::HostedParameter*> (pr))
+                if (po->hasProperty (hp->getParameterID()))
+                    hp->setValue (hp->getValueForText (po->getProperty (hp->getParameterID()).toString()));
     pluginWindows.erase (trackId + "#fx" + juce::String (idx));
     unwatchPlugin (trackId, idx + 1);
     auto* raw = inst.get();
@@ -924,13 +967,26 @@ juce::var MainView::collectPluginStates()
 
 void MainView::restorePluginStates (const juce::var& vst)
 {
-    auto load = [this] (const juce::var& t, juce::PluginDescription& desc, juce::MemoryBlock& mb)
+    juce::StringArray missing;
+    auto load = [this, &missing] (const juce::var& t, juce::PluginDescription& desc, juce::MemoryBlock& mb)
     {
         const auto xml = juce::parseXML (t["desc"].toString());
         if (xml == nullptr || ! desc.loadFromXml (*xml)) return false;
         if (juce::File::isAbsolutePath (desc.fileOrIdentifier) && ! juce::File (desc.fileOrIdentifier).exists())
-            for (const auto& k : knownPlugins.getTypes())   // plugin sa presunul (napr. vedla programu)
-                if (k.uniqueId == desc.uniqueId && k.name == desc.name && k.pluginFormatName == desc.pluginFormatName) { desc = k; break; }
+        {
+            // plugin sa presunul (napr. vedla programu alebo iny pocitac)
+            bool found = false;
+            for (const auto& k : knownPlugins.getTypes())
+                if (k.uniqueId == desc.uniqueId && k.name == desc.name && k.pluginFormatName == desc.pluginFormatName) { desc = k; found = true; break; }
+            if (! found)
+                for (const auto& k : knownPlugins.getTypes())
+                    if (k.name == desc.name && k.pluginFormatName == desc.pluginFormatName) { desc = k; found = true; break; }
+            if (! found)
+            {
+                missing.addIfNotAlreadyThere (desc.name + (desc.manufacturerName.isNotEmpty() ? " (" + desc.manufacturerName + ")" : juce::String()));
+                return false;
+            }
+        }
         mb.fromBase64Encoding (t["state"].toString());
         return true;
     };
@@ -958,6 +1014,10 @@ void MainView::restorePluginStates (const juce::var& vst)
                 }
         }
     }
+    if (! missing.isEmpty())
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, sk ("Chýbajúce pluginy"),
+                                                sk ("Tieto pluginy sa na tomto počítači nenašli – nainštaluj ich a nechaj program vyhľadať pluginy:") + "\n\n- "
+                                                + missing.joinIntoString ("\n- "));
 }
 
 void MainView::saveSession()
@@ -1051,16 +1111,176 @@ void MainView::onSaveFile (const juce::var& v)
                           });
 }
 
+namespace
+{
+    // zbaleny projekt (.kpack = zip): project.json + audio/ (WAV prevedene do FLAC) + info.txt
+    struct PackJob : juce::ThreadWithProgressWindow
+    {
+        PackJob (juce::File target, juce::String json, juce::String info, std::vector<std::pair<juce::String, juce::File>> files)
+            : ThreadWithProgressWindow (juce::String::fromUTF8 ("Balím projekt"), true, true),
+              out (std::move (target)), projectJson (std::move (json)), infoTxt (std::move (info)), audio (std::move (files)) {}
+
+        void run() override
+        {
+            juce::AudioFormatManager fm;
+            fm.registerBasicFormats();
+            juce::FlacAudioFormat flac;
+            juce::ZipFile::Builder zb;
+            int k = 0;
+            for (const auto& [id, f] : audio)
+            {
+                if (threadShouldExit()) return;
+                setStatusMessage (juce::String::fromUTF8 ("Balím zvuk ") + juce::String (k + 1) + " / " + juce::String ((int) audio.size()) + "…");
+                setProgress (0.8 * k / juce::jmax (1, (int) audio.size()));
+                ++k;
+                juce::MemoryBlock mb;
+                juce::String name = f.getFileName();
+                bool done = false;
+                if (f.hasFileExtension ("wav"))
+                    if (std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (f)); r != nullptr && r->numChannels <= 8
+                        && r->sampleRate >= 8000 && r->sampleRate <= 192000)
+                    {
+                        auto* ms = new juce::MemoryOutputStream (mb, false);
+                        std::unique_ptr<juce::OutputStream> os (ms);
+                        const int bits = juce::jlimit (16, 24, (int) r->bitsPerSample);
+                        if (auto w = flac.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (r->sampleRate)
+                                                                    .withNumChannels ((int) r->numChannels).withBitsPerSample (bits)))
+                        {
+                            done = w->writeFromAudioReader (*r, 0, r->lengthInSamples);
+                            w.reset();
+                            name = id + ".flac";
+                        }
+                    }
+                if (! done) { mb.reset(); if (! f.loadFileAsData (mb)) continue; name = id + f.getFileExtension(); }
+                zb.addEntry (new juce::MemoryInputStream (mb, true), 0, "audio/" + name, juce::Time::getCurrentTime());
+            }
+            zb.addEntry (new juce::MemoryInputStream (projectJson.toRawUTF8(), projectJson.getNumBytesAsUTF8(), true), 6, "project.json", juce::Time::getCurrentTime());
+            zb.addEntry (new juce::MemoryInputStream (infoTxt.toRawUTF8(), infoTxt.getNumBytesAsUTF8(), true), 6, "info.txt", juce::Time::getCurrentTime());
+            setStatusMessage (juce::String::fromUTF8 ("Zapisujem súbor…"));
+            const auto tmp = out.getSiblingFile (out.getFileName() + ".tmp");
+            {
+                juce::FileOutputStream fos (tmp);
+                if (! fos.openedOk()) { error = juce::String::fromUTF8 ("Súbor sa nedá zapísať."); return; }
+                fos.setPosition (0); fos.truncate();
+                double prog = 0;
+                if (! zb.writeToStream (fos, &prog)) { error = juce::String::fromUTF8 ("Zápis sa nepodaril."); return; }
+            }
+            ok = tmp.moveFileTo (out);
+            if (! ok) error = juce::String::fromUTF8 ("Súbor sa nedá zapísať.");
+        }
+        void threadComplete (bool cancelled) override
+        {
+            if (! cancelled)
+            {
+                if (ok) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, juce::String::fromUTF8 ("Projekt je zbalený"),
+                                                               out.getFullPathName() + "\n" + juce::String (out.getSize() / 1048576.0, 1) + " MB\n\n"
+                                                               + juce::String::fromUTF8 ("Na inom počítači ho otvor cez Súbor → Otvoriť."));
+                else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, juce::String::fromUTF8 ("Zbaliť projekt"), error);
+            }
+            out.getSiblingFile (out.getFileName() + ".tmp").deleteFile();
+            delete this;
+        }
+
+        juce::File out;
+        juce::String projectJson, infoTxt, error;
+        std::vector<std::pair<juce::String, juce::File>> audio;
+        bool ok = false;
+    };
+}
+
+void MainView::onPackProject (const juce::var& v)
+{
+    auto j = juce::JSON::parse (v["text"].toString());
+    auto* d = j.getDynamicObject();
+    if (d == nullptr) return;
+    const auto vst = collectPluginStates();
+    d->setProperty ("vst", vst);
+    // vsetky pouzite zvuky (klipy, vzorky bicich, referencia)
+    std::vector<std::pair<juce::String, juce::File>> files;
+    juce::StringArray seen;
+    auto addId = [&] (const juce::String& id)
+    {
+        if (id.isEmpty() || seen.contains (id)) return;
+        seen.add (id);
+        const auto f = store->fileFor (id);
+        if (f.existsAsFile()) files.push_back ({ id, f });
+    };
+    if (const auto* tracks = j["tracks"].getArray())
+        for (const auto& t : *tracks)
+        {
+            if (const auto* parts = t["parts"].getArray())
+                for (const auto& p : *parts) addId (p["aid"].toString());
+            if (auto* sm = t["smp"].getDynamicObject())
+                for (const auto& prop : sm->getProperties()) addId (prop.value.toString());
+        }
+    addId (j["ref"]["id"].toString());
+    // zoznam pluginov do info.txt
+    juce::StringArray plugs;
+    auto addPlug = [&] (const juce::var& t)
+    {
+        juce::PluginDescription pd;
+        if (auto x = juce::parseXML (t["desc"].toString()); x != nullptr && pd.loadFromXml (*x) && pd.pluginFormatName != BuiltinFx::formatName)
+            plugs.addIfNotAlreadyThere (pd.name + (pd.manufacturerName.isNotEmpty() ? " (" + pd.manufacturerName + ")" : juce::String()) + " – " + pd.pluginFormatName);
+    };
+    if (auto* vo = vst.getDynamicObject())
+        for (const auto& prop : vo->getProperties())
+        {
+            if (prop.value.hasProperty ("desc")) addPlug (prop.value);
+            if (const auto* fx = prop.value["fx"].getArray()) for (const auto& f : *fx) addPlug (f);
+        }
+    juce::String info = juce::String::fromUTF8 ("Korgus Sequencer – zbalený projekt\r\n\r\nOtvor ho v programe: Súbor → Otvoriť (súbor .kpack).\r\n\r\n");
+    info << juce::String::fromUTF8 ("Zvukové súbory: ") << (int) files.size() << "\r\n\r\n";
+    info << (plugs.isEmpty() ? juce::String::fromUTF8 ("Projekt nepotrebuje žiadne ďalšie VST pluginy.\r\n")
+                             : juce::String::fromUTF8 ("Potrebné VST pluginy (musia byť nainštalované aj na druhom počítači):\r\n- ") + plugs.joinIntoString ("\r\n- ") + "\r\n");
+    const auto json = juce::JSON::toString (j, true);
+    auto name = juce::File::createLegalFileName (v["name"].toString().trim());
+    if (name.isEmpty()) name = "projekt";
+    chooser = std::make_unique<juce::FileChooser> (sk ("Zbaliť projekt"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (name + ".kpack"), "*.kpack");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [json, info, files] (const juce::FileChooser& fc)
+                          {
+                              auto f = fc.getResult();
+                              if (f == juce::File()) return;
+                              if (! f.hasFileExtension ("kpack")) f = f.withFileExtension ("kpack");
+                              (new PackJob (f, json, info, files))->launchThread();
+                          });
+}
+
 void MainView::onOpenSong (const juce::var&)
 {
-    chooser = std::make_unique<juce::FileChooser> (sk ("Otvoriť pieseň"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.s92;*.json");
+    chooser = std::make_unique<juce::FileChooser> (sk ("Otvoriť pieseň"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.s92;*.kpack;*.json");
     juce::Component::SafePointer<MainView> sp (this);
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [sp] (const juce::FileChooser& fc)
                           {
                               auto f = fc.getResult();
                               if (sp == nullptr || ! f.existsAsFile()) return;
-                              auto j = juce::JSON::parse (f.loadFileAsString());
+                              juce::var j;
+                              if (f.hasFileExtension ("kpack"))
+                              {
+                                  // zbaleny projekt: zvuky do skladu, potom ako bezna piesen
+                                  juce::ZipFile zf (f);
+                                  for (int i = 0; i < zf.getNumEntries(); ++i)
+                                  {
+                                      const auto* e = zf.getEntry (i);
+                                      std::unique_ptr<juce::InputStream> in (zf.createStreamForEntry (i));
+                                      if (e == nullptr || in == nullptr) continue;
+                                      if (e->filename == "project.json") j = juce::JSON::parse (in->readEntireStreamAsString());
+                                      else if (e->filename.startsWith ("audio/"))
+                                      {
+                                          const auto fn = e->filename.fromFirstOccurrenceOf ("audio/", false, false);
+                                          juce::MemoryBlock mb;
+                                          in->readIntoMemoryBlock (mb);
+                                          sp->store->addFromData (fn.upToLastOccurrenceOf (".", false, false), fn, mb);
+                                      }
+                                  }
+                                  if (! j.isObject())
+                                  {
+                                      juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, sk ("Otvoriť"), sk ("Súbor nie je platný zbalený projekt."));
+                                      return;
+                                  }
+                              }
+                              else j = juce::JSON::parse (f.loadFileAsString());
                               if (! j.isObject()) return;
                               const auto vst = j["vst"];
                               for (auto key : { "audioData", "sampleData" })
@@ -1182,6 +1402,25 @@ void MainView::sendMeters()
     emit ("meters", o);
 }
 
+void MainView::sendMidiCc()
+{
+    Engine::CcIn buf[512];
+    const int n = engine.takeCcIn (buf, 512);
+    if (n == 0) return;
+    // pohyb jedneho ovladaca zlucime (posledna hodnota), stlacenie a pustenie tlacidla zostane
+    juce::Array<juce::var> arr;
+    int lastKey = -1, lastVal = 0;
+    for (int k = 0; k < n; ++k)
+    {
+        const int key = (buf[k].ch - 1) * 128 + buf[k].cc, val = buf[k].val;
+        if (key == lastKey && (val >= 64) == (lastVal >= 64) && ! arr.isEmpty()) arr.removeLast();
+        arr.add (juce::Array<juce::var> { key / 128 + 1, key % 128, val });
+        lastKey = key; lastVal = val;
+    }
+    auto o = obj(); put (o, "list", arr);
+    emit ("midiCC", o);
+}
+
 void MainView::timerCallback()
 {
     if (recOn || recFinishing)
@@ -1191,6 +1430,7 @@ void MainView::timerCallback()
     if (exporting.load()) return;
 
     sendMeters();
+    sendMidiCc();
 
     const double p = engine.getPosition();
     const bool pl = engine.isPlaying(), cn = engine.isCounting();
@@ -2443,6 +2683,73 @@ void MainView::onAutotune (const juce::var& v)
             sp->emit ("audioPeaks", sp->store->peaksFor (nid));
             put (o, "id", nid); put (o, "dur", out.getNumSamples() / sr);
             put (o, "key", r.key); put (o, "scale", r.scale);
+            sp->emit ("clipResult", o);
+        });
+    job->launchThread();
+}
+
+namespace
+{
+    struct DenoiseJob : juce::ThreadWithProgressWindow
+    {
+        DenoiseJob (juce::AudioBuffer<float> clip, double sr, float amt, int ps, int pl,
+                    std::function<void (bool, juce::AudioBuffer<float>&)> onDone)
+            : ThreadWithProgressWindow (juce::String::fromUTF8 ("Odšumujem nahrávku"), true, true),
+              src (std::move (clip)), rate (sr), amount (amt), pStart (ps), pLen (pl), done (std::move (onDone)) {}
+
+        void run() override
+        {
+            setStatusMessage (juce::String::fromUTF8 ("Odšumujem nahrávku…"));
+            ok = denoise (src, rate, amount, pStart, pLen, out, [this] (double p) { setProgress (p); return ! threadShouldExit(); });
+        }
+        void threadComplete (bool cancelled) override
+        {
+            if (done) done (ok && ! cancelled, out);
+            delete this;
+        }
+
+        juce::AudioBuffer<float> src, out;
+        double rate;
+        float amount;
+        int pStart, pLen;
+        bool ok = false;
+        std::function<void (bool, juce::AudioBuffer<float>&)> done;
+    };
+}
+
+void MainView::onDenoise (const juce::var& v)
+{
+    const auto req = v["req"].toString();
+    auto src = store->get (v["id"].toString());
+    auto fail = [this, req] (const juce::String& msg) { auto o = obj(); put (o, "req", req); put (o, "error", msg); emit ("clipResult", o); };
+    if (src == nullptr) { fail (sk ("Zvuk klipu sa nenašiel.")); return; }
+    const double sr = store->getSampleRate();
+    const int a0 = juce::jlimit (0, src->getNumSamples(), (int) ((double) v.getProperty ("off", 0.0) * sr));
+    const int len = juce::jlimit (0, src->getNumSamples() - a0, (int) ((double) v.getProperty ("dur", 0.0) * sr));
+    if (len < (int) (sr * 0.3)) { fail (sk ("Klip je príliš krátky.")); return; }
+    const int ch = juce::jlimit (1, 2, src->getNumChannels());
+    juce::AudioBuffer<float> clip (ch, len);
+    for (int c = 0; c < ch; ++c) clip.copyFrom (c, 0, *src, c, a0, len);
+    const double p0 = (double) v.getProperty ("p0", -1.0), p1 = (double) v.getProperty ("p1", -1.0);
+    int ps = 0, pl = 0;
+    if (p0 >= 0.0 && p1 > p0)
+    {
+        ps = juce::jlimit (0, len, (int) (p0 * sr));
+        pl = juce::jlimit (0, len - ps, (int) ((p1 - p0) * sr));
+        if (pl < 2048) { fail (sk ("Úsek so šumom medzi lokátormi je príliš krátky (treba aspoň 0,1 s v klipe).")); return; }
+    }
+    juce::Component::SafePointer<MainView> sp (this);
+    auto* job = new DenoiseJob (std::move (clip), sr, (float) (double) v.getProperty ("amount", 12.0), ps, pl,
+        [sp, req, sr] (bool ok, juce::AudioBuffer<float>& out)
+        {
+            if (sp == nullptr) return;
+            auto o = obj(); put (o, "req", req);
+            if (! ok) { put (o, "error", juce::String ("cancel")); sp->emit ("clipResult", o); return; }
+            const auto nid = sp->store->addRecording (out.getReadPointer (0), out.getNumChannels() > 1 ? out.getReadPointer (1) : nullptr,
+                                                      out.getNumSamples(), sr);
+            if (nid.isEmpty()) { put (o, "error", sk ("Výsledok sa nepodarilo uložiť.")); sp->emit ("clipResult", o); return; }
+            sp->emit ("audioPeaks", sp->store->peaksFor (nid));
+            put (o, "id", nid); put (o, "dur", out.getNumSamples() / sr);
             sp->emit ("clipResult", o);
         });
     job->launchThread();

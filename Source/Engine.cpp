@@ -243,6 +243,15 @@ void Engine::liveNote (int slot, int pitch, float vel, bool on)
 
 void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMessage& m)
 {
+    if (m.isController() && m.getChannel() >= 1)
+    {
+        // MIDI learn / priradene ovladace (z akehokolvek zariadenia)
+        const CcIn c { (uint8_t) m.getChannel(), (uint8_t) m.getControllerNumber(), (uint8_t) m.getControllerValue() };
+        const auto sc = ccFifo.write (1);
+        if (sc.blockSize1 > 0) ccBuf[(size_t) sc.startIndex1] = c;
+        else if (sc.blockSize2 > 0) ccBuf[(size_t) sc.startIndex2] = c;
+        if (ccMapped[(size_t) ((c.ch - 1) * 128 + c.cc)].load()) return;
+    }
     {
         // stopa moze mat vybrane, z ktorych klaves hra
         const juce::SpinLock::ScopedLockType l (filterLock);

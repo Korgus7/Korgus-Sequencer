@@ -547,6 +547,90 @@ private:
 
 
 //==============================================================================
+// De-esser - stisi sykavky (s, s, c) v speve
+class DeEsserFx final : public FxBase
+{
+public:
+    DeEsserFx() : FxBase ("Korgus De-esser", "deesser")
+    {
+        freq  = add ("freq", "Frekvencia", 3000, 10000, 6000, "Hz", 0.6f, 0);
+        thr   = add ("threshold", "Prah", -50, 0, -28, "dB");
+        range = add ("range", "Max. stíšenie", 0, 24, 10, "dB");
+        listen = add ("listen", "Počúvať sykavky", 0, 1, 0, "", 1.0f, 0);
+        listen->range.interval = 1.0f;
+        listen->toggle = true;
+    }
+    std::atomic<float> grDb { 0.0f };   // aktualne stisenie pre zobrazenie
+    std::unique_ptr<Component> makeDisplay() override;
+    int displayHeight() const override { return 44; }
+
+private:
+    void prepare() override
+    {
+        xo.prepare (spec); xo.setType (dsp::LinkwitzRileyFilterType::lowpass);
+        xo.setCutoffFrequency (lastF = freq->get()); xo.reset();
+        env = 0.0f;
+        att = std::exp (-1.0f / (0.0008f * (float) rate));
+        relC = std::exp (-1.0f / (0.06f * (float) rate));
+    }
+    void process (AudioBuffer<float>& b) override
+    {
+        const float f = freq->get();
+        if (std::abs (f - lastF) > 1.0f) { xo.setCutoffFrequency (f); lastF = f; }
+        const float t = thr->get(), maxR = range->get();
+        const bool lis = listen->get() > 0.5f;
+        const int nch = b.getNumChannels(), n = b.getNumSamples();
+        float peakGr = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            float lo[2], hi[2], det = 0.0f;
+            for (int c = 0; c < nch && c < 2; ++c)
+            {
+                xo.processSample (c, b.getSample (c, i), lo[c], hi[c]);
+                det = jmax (det, std::abs (hi[c]));
+            }
+            env = det > env ? att * env + (1.0f - att) * det : relC * env + (1.0f - relC) * det;
+            const float over = Decibels::gainToDecibels (env, -100.0f) - t;
+            const float gr = over > 0.0f ? jmin (maxR, over * 0.75f) : 0.0f;
+            peakGr = jmax (peakGr, gr);
+            const float g = Decibels::decibelsToGain (-gr);
+            for (int c = 0; c < nch && c < 2; ++c)
+                b.setSample (c, i, lis ? hi[c] : lo[c] + hi[c] * g);
+        }
+        grDb.store (jmax (peakGr, grDb.load() * 0.85f));
+    }
+
+    FxParam *freq, *thr, *range, *listen;
+    dsp::LinkwitzRileyFilter<float> xo;
+    float lastF = 6000.0f, env = 0.0f, att = 0.9f, relC = 0.999f;
+};
+
+class DeEssMeter final : public Component, private Timer
+{
+public:
+    explicit DeEssMeter (DeEsserFx& p) : fx (p) { startTimerHz (30); }
+    ~DeEssMeter() override { stopTimer(); }
+    void paint (Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat().reduced (12, 10);
+        g.setColour (Colour (0xffe4e9ef));
+        g.setFont (FontOptions (13.0f));
+        g.drawText (String::fromUTF8 ("Stíšenie sykaviek"), r.removeFromLeft (130), Justification::centredLeft);
+        const float v = jlimit (0.0f, 24.0f, fx.grDb.load());
+        auto bar = r.reduced (0, 4);
+        g.setColour (Colour (0xff1c2430)); g.fillRoundedRectangle (bar, 3.0f);
+        g.setColour (Colour (0xff6f8fb8)); g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * v / 24.0f), 3.0f);
+        g.setColour (Colour (0xffe4e9ef));
+        g.drawText ("-" + String (v, 1) + " dB", bar.reduced (6, 0), Justification::centredRight);
+    }
+private:
+    void timerCallback() override { repaint(); }
+    DeEsserFx& fx;
+};
+std::unique_ptr<Component> DeEsserFx::makeDisplay() { return std::make_unique<DeEssMeter> (*this); }
+
+
+//==============================================================================
 // PulseDip - rytmicke stisenie hlasitosti synchronizovane s tempom
 namespace Pulse
 {
@@ -1082,64 +1166,101 @@ public:
         mode = add ("mode", "Režim", 0, 2, 0, "", 1.0f, 0);
         mode->range.interval = 1.0f;
         mode->choices = StringArray::fromTokens (String::fromUTF8 ("Dvojhlas|Harmonizér|Oboje"), "|", "");
+        voices = add ("voices", "Hlasy", 0, 2, 1, "", 1.0f, 0);
+        voices->range.interval = 1.0f;
+        voices->choices = StringArray::fromTokens (String::fromUTF8 ("2 hlasy|4 hlasy|6 hlasov"), "|", "");
         interval = add ("interval", "Interval", 0, 7, 4, "", 1.0f, 0);
         interval->range.interval = 1.0f;
         interval->choices = StringArray::fromTokens (String::fromUTF8 ("−12 oktáva dole|−7 kvinta dole|−5 kvarta dole|+3 malá terca|+4 veľká terca|+5 kvarta|+7 kvinta|+12 oktáva"), "|", "");
-        detune = add ("detune", "Rozladenie", 0, 30, 9, "cent", 1.0f, 0);
-        delayMs = add ("delay", "Oneskorenie", 5, 60, 20, "ms", 1.0f, 0);
-        width = add ("width", "Šírka", 0, 100, 80, "%", 1.0f, 0);
-        level = add ("level", "Hlasitosť", -24, 0, -6, "dB");
+        interval2 = add ("interval2", "Interval 2", 0, 8, 0, "", 1.0f, 0);
+        interval2->range.interval = 1.0f;
+        interval2->choices = StringArray::fromTokens (String::fromUTF8 ("žiadny|−12 oktáva dole|−7 kvinta dole|−5 kvarta dole|+3 malá terca|+4 veľká terca|+5 kvarta|+7 kvinta|+12 oktáva"), "|", "");
+        detune = add ("detune", "Rozladenie", 0, 40, 14, "cent", 1.0f, 0);
+        delayMs = add ("delay", "Oneskorenie", 5, 60, 25, "ms", 1.0f, 0);
+        width = add ("width", "Šírka", 0, 100, 100, "%", 1.0f, 0);
+        mix = add ("mix", "Mix", 0, 100, 50, "%", 1.0f, 0);
     }
 
 private:
+    static constexpr int maxV = 6;
     void prepare() override
     {
-        for (auto* d : { &dl, &dr, &hv }) d->prepare (rate);
-        const int maxD = (int) (rate * 0.1) + 4;
-        lineL.assign ((size_t) maxD, 0.0f); lineR.assign ((size_t) maxD, 0.0f); lw = 0;
+        for (auto& d : dv) d.prepare (rate);
+        h1.prepare (rate); h2.prepare (rate);
+        const int maxD = (int) (rate * 0.12) + 4;
+        for (auto& l : line) l.assign ((size_t) maxD, 0.0f);
+        lw = 0;
+        for (int v = 0; v < maxV; ++v) lfo[v] = v * 0.37;
+        hpL = hpR = hpX = 0;
     }
 
     void process (AudioBuffer<float>& b) override
     {
         static const int semis[8] = { -12, -7, -5, 3, 4, 5, 7, 12 };
+        // hlasy: rozladenie (nasobok), oneskorenie (nasobok), panorama
+        static const float vDet[maxV] = { 1.0f, -1.0f, 0.55f, -0.6f, 0.3f, -0.35f };
+        static const float vDel[maxV] = { 1.0f, 1.31f, 0.62f, 0.83f, 1.55f, 0.45f };
+        static const float vPan[maxV] = { -1.0f, 1.0f, -0.55f, 0.6f, -0.25f, 0.3f };
         const int md = roundToInt (mode->get());
         const bool dbl = md != 1, har = md != 0;
+        const int nv = 2 + 2 * jlimit (0, 2, roundToInt (voices->get()));
         const double cents = detune->get();
-        const double rUp = std::pow (2.0, cents / 1200.0), rDn = 1.0 / rUp;
-        const double rH = std::pow (2.0, semis[jlimit (0, 7, roundToInt (interval->get()))] / 12.0);
-        const float g = Decibels::decibelsToGain (level->get()), wd = width->get() * 0.01f;
-        const int d1 = jlimit (1, (int) lineL.size() - 1, (int) (delayMs->get() * 0.001 * rate)), d2 = jlimit (1, (int) lineL.size() - 1, (int) (delayMs->get() * 0.00135 * rate));
+        const double rH1 = std::pow (2.0, semis[jlimit (0, 7, roundToInt (interval->get()))] / 12.0);
+        const int i2 = roundToInt (interval2->get());
+        const double rH2 = i2 > 0 ? std::pow (2.0, semis[jlimit (0, 7, i2 - 1)] / 12.0) : 0.0;
+        const float wd = width->get() * 0.01f, m = mix->get() * 0.01f;
+        const float dryG = jlimit (0.0f, 1.0f, 2.0f * (1.0f - m)), wetG = jlimit (0.0f, 1.0f, 2.0f * m);
+        const int sz = (int) line[0].size();
+        const double baseDel = delayMs->get() * 0.001 * rate;
+        const double lfoInc = 2.0 * MathConstants<double>::pi / rate;
+        const float hpA = (float) std::exp (-2.0 * MathConstants<double>::pi * 140.0 / rate);   // basy z hlasov prec
         const int n = b.getNumSamples(), ch = b.getNumChannels();
         float* L = b.getWritePointer (0);
         float* R = ch > 1 ? b.getWritePointer (1) : nullptr;
-        const int sz = (int) lineL.size();
+        const float voiceNorm = 1.1f / std::sqrt ((float) nv);
         for (int i = 0; i < n; ++i)
         {
-            const float x = R != nullptr ? 0.5f * (L[i] + R[i]) : L[i];
-            float outL = 0, outR = 0;
+            const float x0 = R != nullptr ? 0.5f * (L[i] + R[i]) : L[i];
+            hpX = x0 + (hpX - x0) * hpA;
+            const float x = x0 - hpX;
+            float wl = 0, wr = 0;
             if (dbl)
-            {
-                const float a = dl.process (x, rUp), c = dr.process (x, rDn);
-                lineL[(size_t) lw] = a; lineR[(size_t) lw] = c;
-                const float va = lineL[(size_t) ((lw - d1 + sz) % sz)], vc = lineR[(size_t) ((lw - d2 + sz) % sz)];
-                outL += va * (0.5f + 0.5f * wd) + vc * (0.5f - 0.5f * wd);
-                outR += vc * (0.5f + 0.5f * wd) + va * (0.5f - 0.5f * wd);
-            }
+                for (int v = 0; v < nv; ++v)
+                {
+                    lfo[v] += lfoInc * (0.13 + 0.07 * v);
+                    const double c = cents * vDet[v] * (0.75 + 0.25 * std::sin (lfo[v]));
+                    const float y = dv[v].process (x, std::pow (2.0, c / 1200.0));
+                    line[(size_t) v][(size_t) lw] = y;
+                    const int dd = jlimit (1, sz - 1, (int) (baseDel * vDel[v] + 0.0015 * rate * std::sin (lfo[v] * 0.7)));
+                    const float out = line[(size_t) v][(size_t) ((lw - dd + sz) % sz)] * voiceNorm;
+                    const float pan = vPan[v] * wd;
+                    wl += out * (0.5f - 0.5f * pan) * 1.41f;
+                    wr += out * (0.5f + 0.5f * pan) * 1.41f;
+                }
             if (har)
             {
-                const float h = hv.process (x, rH);
-                outL += h * 0.7f; outR += h * 0.7f;
+                const float y1 = h1.process (x0, rH1) * 0.85f;
+                wl += y1 * (0.5f + 0.25f * wd); wr += y1 * (0.5f - 0.25f * wd);
+                if (rH2 > 0)
+                {
+                    const float y2 = h2.process (x0, rH2) * 0.75f;
+                    wl += y2 * (0.5f - 0.25f * wd); wr += y2 * (0.5f + 0.25f * wd);
+                }
             }
             if (++lw >= sz) lw = 0;
-            L[i] += outL * g;
-            if (R != nullptr) R[i] += outR * g;
+            const float dl = L[i], dr = R != nullptr ? R[i] : L[i];
+            L[i] = dl * dryG + wl * wetG;
+            if (R != nullptr) R[i] = dr * dryG + wr * wetG;
         }
+        for (auto& f : lfo) if (f > 1.0e6) f = std::fmod (f, 2.0 * MathConstants<double>::pi);
     }
 
-    FxParam *mode, *interval, *detune, *delayMs, *width, *level;
-    DelayShifter dl, dr, hv;
-    std::vector<float> lineL, lineR;
+    FxParam *mode, *voices, *interval, *interval2, *detune, *delayMs, *width, *mix;
+    DelayShifter dv[maxV], h1, h2;
+    std::vector<float> line[maxV];
+    double lfo[maxV] {};
     int lw = 0;
+    float hpL = 0, hpR = 0, hpX = 0;
 };
 
 //==============================================================================
@@ -1616,6 +1737,7 @@ const std::vector<Entry>& entries()
         { "limiter", "Korgus Limiter",   [] { return std::unique_ptr<AudioPluginInstance> (new LimiterFx()); } },
         { "pulse",   "Korgus PulseDip",  [] { return std::unique_ptr<AudioPluginInstance> (new PulseFx()); } },
         { "harmony", "Korgus Dvojhlas",  [] { return std::unique_ptr<AudioPluginInstance> (new HarmonyFx()); } },
+        { "deesser", "Korgus De-esser",  [] { return std::unique_ptr<AudioPluginInstance> (new DeEsserFx()); } },
         { "sampler", "Korgus Sampler",   [] { return std::unique_ptr<AudioPluginInstance> (new SamplerInst()); }, true },
         { "arp",     "Korgus Arp",       [] { return std::unique_ptr<AudioPluginInstance> (new ArpFx()); } },
     };

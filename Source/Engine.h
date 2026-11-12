@@ -199,6 +199,25 @@ public:
     void audioDeviceStopped() override;
     void handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage&) override;
 
+    // MIDI learn: prijate CC (kanal 1..16, cislo, hodnota) pre UI a CC, ktore uz nejdu do nastroja
+    struct CcIn { uint8_t ch, cc, val; };
+    int takeCcIn (CcIn* out, int max)
+    {
+        const auto sc = ccFifo.read (juce::jmin (max, ccFifo.getNumReady()));
+        int n = 0;
+        for (int k = 0; k < sc.blockSize1; ++k) out[n++] = ccBuf[(size_t) (sc.startIndex1 + k)];
+        for (int k = 0; k < sc.blockSize2; ++k) out[n++] = ccBuf[(size_t) (sc.startIndex2 + k)];
+        return n;
+    }
+    void setCcMapped (const juce::Array<int>& keys)
+    {
+        for (auto& a : ccMapped) a.store (false);
+        for (int k : keys) if (juce::isPositiveAndBelow (k, 16 * 128)) ccMapped[(size_t) k].store (true);
+    }
+    juce::AbstractFifo ccFifo { 512 };
+    std::array<CcIn, 512> ccBuf {};
+    std::array<std::atomic<bool>, 16 * 128> ccMapped {};
+
 private:
     enum State { stopped, counting, playing };
 
