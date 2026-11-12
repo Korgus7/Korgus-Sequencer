@@ -132,6 +132,7 @@ juce::AudioPluginInstance* Engine::getFx (int slot, int index)
 
 void Engine::setTrackPlugin (int slot, std::unique_ptr<juce::AudioPluginInstance> p)
 {
+    if (p != nullptr) p->setPlayHead (&head);
     preparePlugin (p.get(), sampleRate, blockSize);   // mimo zamku, aby audio nezavahalo
     std::unique_ptr<juce::AudioPluginInstance> old;
     {
@@ -149,6 +150,7 @@ void Engine::setTrackPlugin (int slot, std::unique_ptr<juce::AudioPluginInstance
 void Engine::setTrackFx (int slot, int index, std::unique_ptr<juce::AudioPluginInstance> p)
 {
     if (! juce::isPositiveAndBelow (index, numFx)) return;
+    if (p != nullptr) p->setPlayHead (&head);
     preparePlugin (p.get(), sampleRate, blockSize);
     std::unique_ptr<juce::AudioPluginInstance> old;
     {
@@ -536,6 +538,12 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     }
 
     auto* sd = forced != nullptr ? forced : song.load();
+
+    head.bpm = sd != nullptr && sd->tempo > 0 ? sd->tempo : 120.0;
+    head.ppq = pos / 4.0;
+    head.sr = sampleRate;
+    head.samples = (juce::int64) (pos * sampleRate * 60.0 / (head.bpm * 4.0));
+    head.playing = state == playing;
 
     // pracovne buffre stop
     if (sd != nullptr)

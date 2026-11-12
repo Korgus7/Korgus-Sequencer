@@ -25,14 +25,22 @@ struct FxParam final : public AudioPluginInstance::HostedParameter
     String getText (float v, int) const override
     {
         const auto x = range.convertFrom0to1 (v);
+        if (textFn) if (auto t = textFn (x); t.isNotEmpty()) return t;
+        if (! choices.isEmpty()) return choices[jlimit (0, choices.size() - 1, roundToInt (x))];
         return (dec == 0 ? String (roundToInt (x)) : String (x, dec)) + (unit.isEmpty() ? "" : " " + unit);
     }
+    bool isDiscrete() const override { return toggle || ! choices.isEmpty(); }
+    bool isBoolean() const override { return toggle; }
+    int getNumSteps() const override { return toggle ? 2 : (choices.isEmpty() ? AudioProcessor::getDefaultNumParameterSteps() : choices.size()); }
     float getValueForText (const String& t) const override { return range.convertTo0to1 (jlimit (range.start, range.end, t.getFloatValue())); }
 
     const String id, name, unit;
     NormalisableRange<float> range;
     const int dec;
     float defNorm = 0;
+    StringArray choices;                     // vyber zo zoznamu (rozbalovaci zoznam)
+    bool toggle = false;                     // zap/vyp (prepinac)
+    std::function<String (float)> textFn;    // vlastny text hodnoty
     std::atomic<float> value { 0 };
 };
 
@@ -51,26 +59,43 @@ public:
         g.setColour (Colour (0xffc9d2dc));
         g.setFont (FontOptions (13.0f));
         for (size_t i = 0; i < labels.size(); ++i)
-            g.drawFittedText (labels[i], knobs[i]->getBounds().withY (8).withHeight (18), Justification::centred, 1);
+            if (! params[i]->toggle)
+                g.drawFittedText (labels[i], comps[i]->getBounds().withY (8).withHeight (18), Justification::centred, 1);
     }
 
     void resized() override
     {
         auto r = getLocalBounds().reduced (8, 0).withTrimmedTop (28).withTrimmedBottom (8);
-        const int w = r.getWidth() / jmax (1, (int) knobs.size());
-        for (auto& k : knobs) k->setBounds (r.removeFromLeft (w).reduced (4, 0));
+        const int w = r.getWidth() / jmax (1, (int) comps.size());
+        for (size_t i = 0; i < comps.size(); ++i)
+        {
+            auto cell = r.removeFromLeft (w).reduced (4, 0);
+            if (params[i]->toggle) comps[i]->setBounds (cell.withY (4).withHeight (26));
+            else if (! params[i]->choices.isEmpty()) comps[i]->setBounds (cell.withHeight (26).withY (cell.getCentreY() - 20));
+            else comps[i]->setBounds (cell);
+        }
     }
 
 private:
     void timerCallback() override
     {
-        for (size_t i = 0; i < knobs.size(); ++i)
-            if (! knobs[i]->isMouseButtonDown())
-                knobs[i]->setValue (params[i]->get(), dontSendNotification);
+        for (size_t i = 0; i < comps.size(); ++i)
+        {
+            auto* p = params[i];
+            if (auto* k = dynamic_cast<Slider*> (comps[i].get()))
+            {
+                if (! k->isMouseButtonDown()) k->setValue (p->get(), dontSendNotification);
+                k->updateText();
+            }
+            else if (auto* c = dynamic_cast<ComboBox*> (comps[i].get()))
+                c->setSelectedId (roundToInt (p->get()) + 1, dontSendNotification);
+            else if (auto* t = dynamic_cast<ToggleButton*> (comps[i].get()))
+                t->setToggleState (p->get() > 0.5f, dontSendNotification);
+        }
     }
 
     std::vector<FxParam*> params;
-    std::vector<std::unique_ptr<Slider>> knobs;
+    std::vector<std::unique_ptr<Component>> comps;
     std::vector<String> labels;
 };
 
@@ -176,31 +201,59 @@ private:
 
 KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProcessorEditor (p), params (ps)
 {
+    const Colour text (0xffc9d2dc), steel (0xff2d4362), fill (0xff6f8fb3);
     for (auto* prm : params)
     {
-        auto k = std::make_unique<Slider> (Slider::RotaryHorizontalVerticalDrag, Slider::TextBoxBelow);
-        k->setTextBoxStyle (Slider::TextBoxBelow, false, 74, 18);
-        k->setRange (prm->range.start, prm->range.end, 0.0);
-        k->setSkewFactor (prm->range.skew);
-        k->setValue (prm->get(), dontSendNotification);
-        k->setDoubleClickReturnValue (true, prm->range.convertFrom0to1 (prm->defNorm));
-        k->textFromValueFunction = [prm] (double v) { return prm->getText (prm->range.convertTo0to1 ((float) v), 0); };
-        k->valueFromTextFunction = [] (const String& t) { return t.getDoubleValue(); };
-        k->setColour (Slider::rotarySliderFillColourId, Colour (0xff6f8fb3));
-        k->setColour (Slider::rotarySliderOutlineColourId, Colour (0xff2d4362));
-        k->setColour (Slider::thumbColourId, Colour (0xffc9d2dc));
-        k->setColour (Slider::textBoxOutlineColourId, Colours::transparentBlack);
-        k->setColour (Slider::textBoxTextColourId, Colour (0xffc9d2dc));
-        auto* raw = k.get();
-        k->onDragStart = [prm] { prm->beginChangeGesture(); };
-        k->onDragEnd   = [prm] { prm->endChangeGesture(); };
-        k->onValueChange = [prm, raw] { prm->setValueNotifyingHost (prm->range.convertTo0to1 ((float) raw->getValue())); };
-        k->updateText();
-        addAndMakeVisible (*k);
+        std::unique_ptr<Component> comp;
+        if (prm->toggle)
+        {
+            auto t = std::make_unique<ToggleButton> (prm->name);
+            t->setColour (ToggleButton::textColourId, text);
+            t->setColour (ToggleButton::tickColourId, text);
+            t->setToggleState (prm->get() > 0.5f, dontSendNotification);
+            auto* raw = t.get();
+            t->onClick = [prm, raw] { prm->setValueNotifyingHost (raw->getToggleState() ? 1.0f : 0.0f); };
+            comp = std::move (t);
+        }
+        else if (! prm->choices.isEmpty())
+        {
+            auto c = std::make_unique<ComboBox>();
+            for (int i = 0; i < prm->choices.size(); ++i) c->addItem (prm->choices[i], i + 1);
+            c->setSelectedId (roundToInt (prm->get()) + 1, dontSendNotification);
+            c->setColour (ComboBox::backgroundColourId, steel);
+            c->setColour (ComboBox::textColourId, text);
+            c->setColour (ComboBox::outlineColourId, Colours::transparentBlack);
+            auto* raw = c.get();
+            c->onChange = [prm, raw] { prm->setValueNotifyingHost (prm->range.convertTo0to1 ((float) (raw->getSelectedId() - 1))); };
+            comp = std::move (c);
+        }
+        else
+        {
+            auto k = std::make_unique<Slider> (Slider::RotaryHorizontalVerticalDrag, Slider::TextBoxBelow);
+            k->setTextBoxStyle (Slider::TextBoxBelow, false, 74, 18);
+            k->setRange (prm->range.start, prm->range.end, 0.0);
+            k->setSkewFactor (prm->range.skew);
+            k->setValue (prm->get(), dontSendNotification);
+            k->setDoubleClickReturnValue (true, prm->range.convertFrom0to1 (prm->defNorm));
+            k->textFromValueFunction = [prm] (double v) { return prm->getText (prm->range.convertTo0to1 ((float) v), 0); };
+            k->valueFromTextFunction = [] (const String& t) { return t.getDoubleValue(); };
+            k->setColour (Slider::rotarySliderFillColourId, fill);
+            k->setColour (Slider::rotarySliderOutlineColourId, steel);
+            k->setColour (Slider::thumbColourId, text);
+            k->setColour (Slider::textBoxOutlineColourId, Colours::transparentBlack);
+            k->setColour (Slider::textBoxTextColourId, text);
+            auto* raw = k.get();
+            k->onDragStart = [prm] { prm->beginChangeGesture(); };
+            k->onDragEnd   = [prm] { prm->endChangeGesture(); };
+            k->onValueChange = [prm, raw] { prm->setValueNotifyingHost (prm->range.convertTo0to1 ((float) raw->getValue())); };
+            k->updateText();
+            comp = std::move (k);
+        }
+        addAndMakeVisible (*comp);
         labels.push_back (prm->name);
-        knobs.push_back (std::move (k));
+        comps.push_back (std::move (comp));
     }
-    setSize (jmax (260, 92 * (int) knobs.size() + 16), 150);
+    setSize (jmax (260, 92 * (int) comps.size() + 16), 150);
     startTimerHz (20);
 }
 
@@ -347,11 +400,16 @@ class DelayFx final : public FxBase
 public:
     DelayFx() : FxBase ("Korgus Ozvena", "delay")
     {
+        sync = add ("sync", "Synchro", 0, 5, 2, "", 1.0f, 0);
+        sync->range.interval = 1.0f;
+        sync->choices = StringArray::fromTokens (String::fromUTF8 ("Voľne|1/4|1/8 s bodkou|1/8|1/8 triola|1/16"), "|", "");
         time = add ("time", "Čas", 10, 2000, 375, "ms", 0.5f, 0);
+        time->textFn = [this] (float) { const int sy = roundToInt (sync->get()); return sy > 0 ? sync->choices[sy] : String(); };
         fb   = add ("feedback", "Opakovanie", 0, 95, 35, "%", 1.0f, 0);
         tone = add ("tone", "Farba", 1000, 20000, 8000, "Hz", 0.4f, 0);
-        pp   = add ("pingpong", "Ping-pong", 0, 1, 0, "", 1.0f, 0);
         mix  = add ("mix", "Mix", 0, 100, 25, "%", 1.0f, 0);
+        pp   = add ("pingpong", "Ping-pong", 0, 1, 0, "", 1.0f, 0);
+        pp->toggle = true;
         tail = 4.0;
     }
 
@@ -362,12 +420,23 @@ private:
         line.setSize (2, size); line.clear();
         w = 0; lp[0] = lp[1] = 0;
         curD = (float) (time->get() * 0.001 * rate);
+        jumpD = true;
     }
 
     void process (AudioBuffer<float>& b) override
     {
         const int n = b.getNumSamples(), ch = b.getNumChannels();
-        const float target = (float) jlimit (1.0, (double) size - 3, time->get() * 0.001 * rate);
+        double ms = time->get();
+        if (const int sy = roundToInt (sync->get()); sy > 0)
+        {
+            static const double beats[6] = { 0, 1.0, 0.75, 0.5, 1.0 / 3.0, 0.25 };
+            double bpm = 120;
+            if (auto* ph = getPlayHead())
+                if (auto pos = ph->getPosition())
+                    if (auto b = pos->getBpm()) bpm = jlimit (20.0, 400.0, *b);
+            ms = jmin (2000.0, 60000.0 / bpm * beats[sy]);
+        }
+        const float target = (float) jlimit (1.0, (double) size - 3, ms * 0.001 * rate);
         const float f = fb->get() * 0.01f, m = mix->get() * 0.01f;
         const float a = (float) std::exp (-MathConstants<double>::twoPi * tone->get() / rate);
         const bool ping = pp->get() > 0.5f && ch > 1;
@@ -375,6 +444,7 @@ private:
         auto* dr = line.getWritePointer (1);
         auto* bl = b.getWritePointer (0);
         auto* br = ch > 1 ? b.getWritePointer (1) : nullptr;
+        if (jumpD) { curD = target; jumpD = false; }
         for (int i = 0; i < n; ++i)
         {
             curD += (target - curD) * 0.0005f;
@@ -403,7 +473,8 @@ private:
         }
     }
 
-    FxParam *time, *fb, *tone, *pp, *mix;
+    FxParam *sync, *time, *fb, *tone, *pp, *mix;
+    bool jumpD = true;
     AudioBuffer<float> line;
     int size = 1, w = 0;
     float lp[2] {}, curD = 0;

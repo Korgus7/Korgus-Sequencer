@@ -421,6 +421,7 @@ function setupNative(){
   onNat('paramTouched',autoParamTouched);
   onNat('clipResult',clipResult);
   onNat('separated',separated);
+  onNat('hostKey',e=>{ if(e&&e.code==='Space') playing?stop():play(); });
   onNat('recPeaks',e=>{ const p=natRecPk[e.track]||(natRecPk[e.track]={mn:[],mx:[]}); p.B=e.B; p.sr=e.sr; p.start=e.start; p.mn.push(...e.mn); p.mx.push(...e.mx); });
   onNat('midiImported',midiImported);
   $('bImpMidi').onclick=()=>nat('importMidi');
@@ -2464,6 +2465,9 @@ $('bHelp').onclick=()=>dialog('Pomoc – Korgus Sequencer',`
 
 /* ---------------- klavesnica ---------------- */
 document.addEventListener('click',e=>{const b=e.target.closest('button'); if(b) b.blur();});
+/* po kliknuti tlacidlo / prepinac / zoznam nedrzi klavesnicu - medzernik vzdy spusta/zastavuje */
+document.addEventListener('click',e=>{ const b=e.target&&e.target.closest&&e.target.closest('button,input[type=checkbox],input[type=radio]'); if(b&&!b.closest('#dlgBack,#setBack')) setTimeout(()=>b.blur(),0); });
+document.addEventListener('change',e=>{ const t=e.target; if(t&&t.tagName==='SELECT'&&!t.closest('#dlgBack,#setBack')) t.blur(); });
 document.addEventListener('keydown',e=>{
   if(e.key==='F3'&&NATIVE){ e.preventDefault(); toggleMixer(); return; }
   if(e.ctrlKey&&e.code==='KeyI'&&NATIVE&&$('dlgBack').hidden){ e.preventDefault(); openAi(); return; }

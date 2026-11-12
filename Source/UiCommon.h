@@ -30,8 +30,10 @@ public:
     bool keyPressed (const juce::KeyPress& k) override
     {
         if (k == juce::KeyPress::escapeKey) { closeButtonPressed(); return true; }
+        if (k == juce::KeyPress::spaceKey && hostKey) { hostKey (k); return true; }   // play/stop aj z okna pluginu
         return DocumentWindow::keyPressed (k);
     }
+    static inline std::function<void (const juce::KeyPress&)> hostKey;
 private:
     std::function<void()> onCloseFn;
 };

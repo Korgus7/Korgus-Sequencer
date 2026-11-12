@@ -82,6 +82,16 @@ public:
             setVisible (true);
         }
         void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
+        void activeWindowStatusChanged() override
+        {
+            // po navrate z okna pluginu / ineho programu dostane klavesnicu hlavne okno (medzernik = play)
+            if (isActiveWindow())
+                if (auto* mv = dynamic_cast<MainView*> (getContentComponent()))
+                {
+                    juce::Component::SafePointer<MainView> sp (mv);
+                    juce::MessageManager::callAsync ([sp] { if (sp != nullptr) sp->focusWeb(); });
+                }
+        }
     };
 
 private:

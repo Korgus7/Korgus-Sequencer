@@ -28,6 +28,7 @@ class MainView : public juce::Component,
                  private juce::Timer
 {
 public:
+    void focusWeb() { if (web != nullptr && web->isShowing()) web->grabKeyboardFocus(); }
     explicit MainView (juce::ApplicationProperties&);
     ~MainView() override;
     void resized() override;

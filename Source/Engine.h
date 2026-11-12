@@ -185,6 +185,26 @@ private:
     std::atomic<int> state { stopped }, selectedSlot { -1 }, countBeat { 0 }, countTotal { 0 };
     std::atomic<double> publicPos { 0 };
     double pos = 0, sampleRate = 44100, startAfterCount = 0;
+
+    // poloha a tempo pre pluginy (synchronizacia s tempom)
+    struct HostHead : juce::AudioPlayHead
+    {
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo i;
+            i.setBpm (bpm);
+            i.setTimeSignature (TimeSignature { 4, 4 });
+            i.setPpqPosition (ppq);
+            i.setPpqPositionOfLastBarStart (std::floor (ppq / 4.0) * 4.0);
+            i.setTimeInSamples (samples);
+            i.setTimeInSeconds (sr > 0 ? (double) samples / sr : 0.0);
+            i.setIsPlaying (playing);
+            return i;
+        }
+        double bpm = 120, ppq = 0, sr = 44100;
+        juce::int64 samples = 0;
+        bool playing = false;
+    } head;
     int blockSize = 512;
     double countSamples = 0, beatSamples = 0;
     int countBeatsLeft = 0;

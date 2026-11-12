@@ -109,6 +109,11 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     loadSession();
 
     web = std::make_unique<juce::WebBrowserComponent> (makeOptions());
+    web->setWantsKeyboardFocus (true);
+    PluginWindow::hostKey = [this] (const juce::KeyPress& k)
+    {
+        if (k == juce::KeyPress::spaceKey) { auto o = obj(); put (o, "code", juce::String ("Space")); emit ("hostKey", o); }
+    };
     addAndMakeVisible (*web);
    #if JUCE_LINUX
     // na Linuxe velke stranky cez resource provider padaju - nacitame subor z disku
@@ -129,6 +134,7 @@ MainView::~MainView()
     stopTimer();
     saveSession();
     saveSettings();
+    PluginWindow::hostKey = nullptr;
     pluginWindows.clear();
     for (auto& [k, w] : watches) if (w->proc != nullptr) w->proc->removeListener (w.get());
     watches.clear();
