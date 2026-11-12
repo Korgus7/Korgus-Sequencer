@@ -414,6 +414,7 @@ function setupNative(){
   onNat('melodyNotes',melodyResult);
   onNat('params',autoParams);
   onNat('paramTouched',autoParamTouched);
+  onNat('clipResult',clipResult);
   onNat('recPeaks',e=>{ const p=natRecPk[e.track]||(natRecPk[e.track]={mn:[],mx:[]}); p.B=e.B; p.sr=e.sr; p.start=e.start; p.mn.push(...e.mn); p.mx.push(...e.mx); });
   onNat('midiImported',midiImported);
   $('bImpMidi').onclick=()=>nat('importMidi');
@@ -801,6 +802,7 @@ function drawClipFx(c,p,x0,y0,w,h,sel){
     c.fillText((g>0?(20*Math.log10(g)).toFixed(1):'−∞')+' dB',x0+w/2+6,y0+14); }
   if(sel||clipHover===p.id){ const H=clipFxHandles(p,x0,y0,w); c.fillStyle='#e4e9ef';
     c.fillRect(H.fi-3,H.y,6,6); c.fillRect(H.fo-3,H.y,6,6); c.fillStyle='#9ccf8a'; c.fillRect(H.g-3,H.y,6,6); }
+  if(p.semi&&w>40){ c.fillStyle='#e4e9ef'; c.font='bold 9px Tahoma,Arial,sans-serif'; c.fillText((p.semi>0?'+':'')+p.semi+' st',x0+w-28,y0+h-4); }
   if(p.bpm&&Math.abs(p.bpm-song.tempo)>.05&&w>60){ c.fillStyle='#e4e9ef'; c.font='9px Tahoma,Arial,sans-serif'; c.fillText(p.bpm+' → '+song.tempo+' BPM',x0+3,y0+h-4); }
   c.font='10px Tahoma,Arial,sans-serif';
 }
@@ -1706,7 +1708,7 @@ function findPart(id){for(const tr of song.tracks){const p=tr.parts.find(x=>x.id
 arrCv.addEventListener('mousedown',e=>{
   lastArea='arr';
   if(e.button===2){ const q=arrXY(e); if(q.y<RULH) return; e.preventDefault();
-    drag={src:'arr',type:'box',right:true,moved:false,x0:q.x,y0:q.y,x1:q.x,y1:q.y,base:e.shiftKey?new Set(selParts):new Set()}; return; }
+    drag={src:'arr',type:'box',right:true,moved:false,x0:q.x,y0:q.y,x1:q.x,y1:q.y,cx:e.clientX,cy:e.clientY,base:e.shiftKey?new Set(selParts):new Set()}; return; }
   if(e.button!==0) return; e.preventDefault();
   const {x,y}=arrXY(e), bw=zoomA;
   if(arrTool!=='arrow'&&y>=RULH){ const ti0=Math.floor((y-RULH)/ROWH), tr0=song.tracks[ti0], p0=tr0&&tr0.parts.find(q=>x/bw>=q.start&&x/bw<q.start+q.len);
@@ -1755,6 +1757,41 @@ function arrRightClick(d){
   if(!p){selParts.clear(); drawArrange(); return;}
   // pravy klik casti nemaze (na mazanie je guma) - len ju oznaci
   if(!selParts.has(p.id)){ selParts.clear(); selParts.add(p.id); } selT=ti; drawArrange(); renderTracks();
+  if(NATIVE&&tr.type==='audio'&&d.cx!=null) clipMenu(tr,p,d.cx,d.cy);
+}
+/* ponuka audio klipu (pravy klik) */
+let clipReq={};
+function clipMenu(tr,p,x,y){
+  ctxMenu(x,y,[
+    ['Transpozícia…',()=>clipTranspose(tr,p)],
+    ['Normalizovať',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'norm'}; nat('clipPeak',{req,id:p.aid,off:p.off||0,dur:p.dur}); }],
+    ['Otočiť (spätný chod)',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'rev'}; nat('reverseAudio',{req,id:p.aid}); }],
+    ['Stíšiť úsek medzi lokátormi L – R',()=>clipMuteRange(tr,p)],
+    [(p.bpm?'✓ ':'')+'Prispôsobovať tempu piesne',()=>{ pushUndo(); if(p.bpm) delete p.bpm; else p.bpm=song.tempo; updateAudioLens(); renderAll(); save(); }],
+  ]);
+}
+function clipTranspose(tr,p){
+  const cur=p.semi||0; let o=''; for(let k=12;k>=-12;k--) o+=`<option value="${k}"${k===cur?' selected':''}>${k>0?'+':''}${k} ${Math.abs(k)===1?'poltón':(Math.abs(k)>=2&&Math.abs(k)<=4?'poltóny':'poltónov')}</option>`;
+  dialog('Transpozícia klipu',`<p>Posun výšky tónu – dĺžka a tempo zostanú rovnaké.</p><div class="frow"><label>Posun</label><select id="semiSel" style="flex:1">${o}</select></div><div class="row"><span style="flex:1"></span><button id="semiOk">OK</button></div>`);
+  $('semiOk').onclick=()=>{ const v=+$('semiSel').value; pushUndo(); if(v) p.semi=v; else delete p.semi; $('dlgBack').hidden=true; drawArrange(); save();
+    if(v) toast('Prepočítavam výšku tónu… klip chvíľu nebude hrať.'); };
+}
+function clipMuteRange(tr,p){
+  const L=song.locL, R=song.locR, a=p.start*SPB, b=(p.start+p.len)*SPB;
+  if(!(R>L)||R<=a||L>=b){ toast('Nastav lokátory L a R tak, aby zasahovali do klipu.'); return; }
+  pushUndo(); let mid=p;
+  if(L>a+.01) mid=splitPartAt(tr,p,L);
+  if(R<b-.01) splitPartAt(tr,mid,R);
+  mid.gain=0; selParts.clear(); selParts.add(mid.id); drawArrange(); save();
+  toast('Úsek L – R v klipe je stíšený. Ctrl+Z vráti späť.');
+}
+function clipResult(e){
+  const j=clipReq[e.req]; if(!j) return; delete clipReq[e.req];
+  if(j.kind==='norm'){ if(!(e.peak>0)){ toast('Klip je tichý.'); return; } pushUndo(); j.p.gain=Math.min(16,Math.round(0.966/e.peak*1000)/1000); drawArrange(); save();
+    toast('Normalizované: '+(20*Math.log10(j.p.gain)>=0?'+':'')+(20*Math.log10(j.p.gain)).toFixed(1)+' dB.'); }
+  if(j.kind==='rev'){ if(!e.id){ toast('Otočenie sa nepodarilo.'); return; } pushUndo(); const full=e.full||((audioBufs[j.p.aid]||{}).duration)||(j.p.off+j.p.dur);
+    j.p.off=Math.max(0,full-(j.p.off||0)-j.p.dur); j.p.aid=e.id; const fi=j.p.fi, fo=j.p.fo; if(fo) j.p.fi=fo; else delete j.p.fi; if(fi) j.p.fo=fi; else delete j.p.fo;
+    drawArrange(); save(); toast('Klip otočený (spätný chod). Ctrl+Z vráti späť.'); }
 }
 function keyRightClick(d){
   const p=d.p, hit=d.hit;

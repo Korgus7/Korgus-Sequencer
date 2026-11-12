@@ -8,6 +8,8 @@ using AudioBufPtr = std::shared_ptr<const juce::AudioBuffer<float>>;
 // Zvukove subory audio stop: ulozene v priecinku programu, dekodovane a prevzorkovane na frekvenciu zvukovky
 // WSOLA: zmena dlzky bez zmeny vysky tonu
 AudioBufPtr timeStretch (const juce::AudioBuffer<float>& in, double alpha);
+// tempo (alpha) aj vyska tonu (semi = poltony) naraz
+AudioBufPtr stretchAndShift (const juce::AudioBuffer<float>& in, double alpha, int semi);
 
 class AudioStore
 {
@@ -31,9 +33,10 @@ public:
     bool detectTempo (const juce::String& id, double& bpm, double& phase);
 
     // nahravka natiahnuta / skratena na iny cas bez zmeny vysky tonu (alpha = nova dlzka / povodna)
-    AudioBufPtr peekStretched (const juce::String& id, double alpha) const;
-    void putStretched (const juce::String& id, double alpha, AudioBufPtr b);
-    static juce::String stretchKey (const juce::String& id, double alpha) { return id + "@" + juce::String (alpha, 4); }
+    AudioBufPtr peekStretched (const juce::String& id, double alpha, int semi) const;
+    void putStretched (const juce::String& id, double alpha, int semi, AudioBufPtr b);
+    static juce::String stretchKey (const juce::String& id, double alpha, int semi) { return id + "@" + juce::String (alpha, 4) + "#" + juce::String (semi); }
+    juce::String addReversed (const juce::String& id);   // otocena kopia nahravky (nove id)
 
 private:
     juce::String newId() const;

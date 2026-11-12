@@ -253,18 +253,63 @@ bool AudioStore::detectTempo (const juce::String& id, double& bpmOut, double& ph
 }
 
 //==============================================================================
-AudioBufPtr AudioStore::peekStretched (const juce::String& id, double alpha) const
+AudioBufPtr AudioStore::peekStretched (const juce::String& id, double alpha, int semi) const
 {
-    auto it = stretched.find (stretchKey (id, alpha));
+    auto it = stretched.find (stretchKey (id, alpha, semi));
     return it != stretched.end() ? it->second : nullptr;
 }
 
-void AudioStore::putStretched (const juce::String& id, double alpha, AudioBufPtr b)
+void AudioStore::putStretched (const juce::String& id, double alpha, int semi, AudioBufPtr b)
 {
-    // pre kazdu nahravku drzime len poslednu verziu (setri pamat)
-    for (auto it = stretched.begin(); it != stretched.end();)
-        if (it->first.upToFirstOccurrenceOf ("@", false, false) == id) it = stretched.erase (it); else ++it;
-    stretched[stretchKey (id, alpha)] = std::move (b);
+    // obmedzime pamat: najviac 4 verzie jednej nahravky
+    int count = 0;
+    for (const auto& kv : stretched) if (kv.first.upToFirstOccurrenceOf ("@", false, false) == id) ++count;
+    if (count >= 4)
+        for (auto it = stretched.begin(); it != stretched.end();)
+            if (it->first.upToFirstOccurrenceOf ("@", false, false) == id) it = stretched.erase (it); else ++it;
+    stretched[stretchKey (id, alpha, semi)] = std::move (b);
+}
+
+juce::String AudioStore::addReversed (const juce::String& id)
+{
+    const auto f = fileFor (id);
+    std::unique_ptr<juce::AudioFormatReader> r (formats.createReaderFor (f));
+    if (r == nullptr || r->lengthInSamples <= 0) return {};
+    const int ch = juce::jlimit (1, 2, (int) r->numChannels), len = (int) r->lengthInSamples;
+    juce::AudioBuffer<float> b (ch, len);
+    r->read (&b, 0, len, 0, true, ch > 1);
+    b.reverse (0, len);
+    const auto nid = newId();
+    const auto nf = dir.getChildFile (nid + ".wav");
+    {
+        std::unique_ptr<juce::OutputStream> os (nf.createOutputStream().release());
+        if (os == nullptr) return {};
+        juce::WavAudioFormat wav;
+        auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (r->sampleRate).withNumChannels (ch).withBitsPerSample (24));
+        if (w == nullptr) return {};
+        w->writeFromAudioSampleBuffer (b, 0, len);
+    }
+    return get (nid) != nullptr ? nid : juce::String();
+}
+
+AudioBufPtr stretchAndShift (const juce::AudioBuffer<float>& in, double alpha, int semi)
+{
+    if (semi == 0) return timeStretch (in, alpha);
+    // vyska tonu: natiahnut o r a potom zrychlit o r (dlzka sa nezmeni)
+    const double r = std::pow (2.0, semi / 12.0);
+    auto st = timeStretch (in, alpha * r);
+    const int ch = st->getNumChannels(), len = st->getNumSamples();
+    juce::AudioBuffer<float> pad (ch, len + 256);
+    pad.clear();
+    for (int c = 0; c < ch; ++c) pad.copyFrom (c, 0, *st, c, 0, len);
+    const int outLen = juce::jmax (1, (int) (len / r));
+    auto out = std::make_shared<juce::AudioBuffer<float>> (ch, outLen);
+    for (int c = 0; c < ch; ++c)
+    {
+        juce::WindowedSincInterpolator ip;
+        ip.process (r, pad.getReadPointer (c), out->getWritePointer (c), outLen);
+    }
+    return out;
 }
 
 AudioBufPtr timeStretch (const juce::AudioBuffer<float>& in, double alpha)

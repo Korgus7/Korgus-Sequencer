@@ -216,6 +216,32 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                             })
         .withEventListener ("exportStems", [this] (const juce::var& v) { onExportStems (v); })
         .withEventListener ("autoRec",     [this] (const juce::var& v) { autoRecOn = (bool) v["on"]; })
+        .withEventListener ("clipPeak",    [this] (const juce::var& v)
+                            {
+                                auto b = store->get (v["id"].toString());
+                                float pk = 0;
+                                if (b != nullptr)
+                                {
+                                    const double sr = store->getSampleRate();
+                                    const int a0 = juce::jlimit (0, b->getNumSamples(), (int) ((double) v.getProperty ("off", 0.0) * sr));
+                                    const int a1 = juce::jlimit (a0, b->getNumSamples(), a0 + (int) ((double) v.getProperty ("dur", 0.0) * sr));
+                                    for (int c = 0; c < b->getNumChannels(); ++c) pk = juce::jmax (pk, b->getMagnitude (c, a0, a1 - a0));
+                                }
+                                auto o = obj(); put (o, "req", v["req"]); put (o, "peak", pk);
+                                emit ("clipResult", o);
+                            })
+        .withEventListener ("reverseAudio",[this] (const juce::var& v)
+                            {
+                                const auto nid = store->addReversed (v["id"].toString());
+                                auto o = obj(); put (o, "req", v["req"]);
+                                if (nid.isNotEmpty())
+                                {
+                                    put (o, "id", nid);
+                                    if (auto b = store->get (nid)) put (o, "full", b->getNumSamples() / store->getSampleRate());
+                                    emit ("audioPeaks", store->peaksFor (nid));
+                                }
+                                emit ("clipResult", o);
+                            })
         .withEventListener ("melody",      [this] (const juce::var& v)
                             {
                                 const auto req = v["req"].toString();
@@ -315,7 +341,7 @@ void MainView::emit (const juce::String& id, const juce::var& v)
 std::unique_ptr<SongData> MainView::parseCurrent (const juce::var& v)
 {
     return parseSong (v, [this] (const juce::String& id) { return engine.getOrCreateSlot (id); },
-                         [this] (const juce::String& id, double alpha) { return clipBuffer (id, alpha); });
+                         [this] (const juce::String& id, double alpha, int semi) { return clipBuffer (id, alpha, semi); });
 }
 
 void MainView::onSong (const juce::var& v)
@@ -1394,25 +1420,26 @@ void MainView::sendLivePeaks()
 
 //==============================================================================
 // zvuk klipu; pri inom tempe natiahnuty na pozadi (kym nie je hotovy, klip mlci)
-AudioBufPtr MainView::clipBuffer (const juce::String& id, double alpha)
+AudioBufPtr MainView::clipBuffer (const juce::String& id, double alpha, int semi)
 {
-    if (booting) return std::abs (alpha - 1.0) < 1.0e-6 ? store->peek (id) : nullptr;
-    if (std::abs (alpha - 1.0) < 1.0e-6) return store->get (id);
-    if (auto b = store->peekStretched (id, alpha)) return b;
-    const auto key = AudioStore::stretchKey (id, alpha);
+    const bool plain = std::abs (alpha - 1.0) < 1.0e-6 && semi == 0;
+    if (booting) return plain ? store->peek (id) : nullptr;
+    if (plain) return store->get (id);
+    if (auto b = store->peekStretched (id, alpha, semi)) return b;
+    const auto key = AudioStore::stretchKey (id, alpha, semi);
     if (stretchPending.count (key) > 0) return nullptr;
     auto src = store->get (id);
     if (src == nullptr) return nullptr;
     stretchPending.insert (key);
     juce::Component::SafePointer<MainView> sp (this);
-    juce::Thread::launch ([sp, src, id, alpha, key]
+    juce::Thread::launch ([sp, src, id, alpha, semi, key]
     {
-        auto b = timeStretch (*src, alpha);
-        juce::MessageManager::callAsync ([sp, b, id, alpha, key]
+        auto b = stretchAndShift (*src, alpha, semi);
+        juce::MessageManager::callAsync ([sp, b, id, alpha, semi, key]
         {
             if (sp == nullptr) return;
             sp->stretchPending.erase (key);
-            sp->store->putStretched (id, alpha, b);
+            sp->store->putStretched (id, alpha, semi, b);
             if (! sp->lastSong.isVoid()) { const auto copy = sp->lastSong; sp->onSong (copy); }
         });
     });

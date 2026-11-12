@@ -3,7 +3,7 @@
 static const int GM_DRUMS[] = { 36, 38, 39, 42, 46, 45, 50, 37, 49, 56 };
 
 std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int (const juce::String&)>& slotFor,
-                                     const std::function<AudioBufPtr (const juce::String&, double)>& clipFor)
+                                     const std::function<AudioBufPtr (const juce::String&, double, int)>& clipFor)
 {
     const juce::var j = v.isString() ? juce::JSON::parse (v.toString()) : v;
     if (! j.isObject()) return nullptr;
@@ -68,7 +68,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                     for (const auto& prop : sm->getProperties())
                     {
                         const int l = prop.name.toString().getIntValue();
-                        if (juce::isPositiveAndBelow (l, 10)) laneBuf[(size_t) l] = clipFor (prop.value.toString(), 1.0);
+                        if (juce::isPositiveAndBelow (l, 10)) laneBuf[(size_t) l] = clipFor (prop.value.toString(), 1.0, 0);
                     }
 
             if (const auto* parts = t["parts"].getArray())
@@ -90,7 +90,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                         c.fi = juce::jmax (0.0, (double) p.getProperty ("fi", 0.0));
                         c.fo = juce::jmax (0.0, (double) p.getProperty ("fo", 0.0));
                         c.gain = (float) (double) p.getProperty ("gain", 1.0);
-                        c.buf = clipFor (p["aid"].toString(), alpha);
+                        c.buf = clipFor (p["aid"].toString(), alpha, juce::jlimit (-24, 24, (int) p.getProperty ("semi", 0)));
                         if (c.buf != nullptr && c.dur > 0) td.clips.push_back (c);
                     }
                     else if (type == "drum")

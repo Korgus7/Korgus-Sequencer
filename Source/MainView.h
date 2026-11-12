@@ -81,7 +81,7 @@ private:
     void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);
     void finishRecording();
     std::unique_ptr<SongData> parseCurrent (const juce::var&);
-    AudioBufPtr clipBuffer (const juce::String& id, double alpha);
+    AudioBufPtr clipBuffer (const juce::String& id, double alpha, int semi);
     std::set<juce::String> stretchPending;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
