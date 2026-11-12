@@ -3,7 +3,7 @@
 static const int GM_DRUMS[] = { 36, 38, 39, 42, 46, 45, 50, 37, 49, 56 };
 
 std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int (const juce::String&)>& slotFor,
-                                     const std::function<AudioBufPtr (const juce::String&)>& clipFor)
+                                     const std::function<AudioBufPtr (const juce::String&, double)>& clipFor)
 {
     const juce::var j = v.isString() ? juce::JSON::parse (v.toString()) : v;
     if (! j.isObject()) return nullptr;
@@ -68,7 +68,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                     for (const auto& prop : sm->getProperties())
                     {
                         const int l = prop.name.toString().getIntValue();
-                        if (juce::isPositiveAndBelow (l, 10)) laneBuf[(size_t) l] = clipFor (prop.value.toString());
+                        if (juce::isPositiveAndBelow (l, 10)) laneBuf[(size_t) l] = clipFor (prop.value.toString(), 1.0);
                     }
 
             if (const auto* parts = t["parts"].getArray())
@@ -80,9 +80,17 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                     {
                         ClipEv c;
                         c.start = a;
-                        c.off = juce::jmax (0.0, (double) p.getProperty ("off", 0.0));
-                        c.dur = (double) p.getProperty ("dur", 0.0);
-                        c.buf = clipFor (p["aid"].toString());
+                        // klip s povodnym tempom sa prisposobi tempu piesne (bez zmeny vysky tonu)
+                        const double bpm = (double) p.getProperty ("bpm", 0.0);
+                        double alpha = bpm > 0 ? bpm / sd->tempo : 1.0;
+                        if (std::abs (alpha - 1.0) < 0.002 || alpha < 0.25 || alpha > 4.0) alpha = 1.0;
+                        alpha = std::round (alpha * 10000.0) / 10000.0;
+                        c.off = juce::jmax (0.0, (double) p.getProperty ("off", 0.0)) * alpha;
+                        c.dur = (double) p.getProperty ("dur", 0.0) * alpha;
+                        c.fi = juce::jmax (0.0, (double) p.getProperty ("fi", 0.0));
+                        c.fo = juce::jmax (0.0, (double) p.getProperty ("fo", 0.0));
+                        c.gain = (float) (double) p.getProperty ("gain", 1.0);
+                        c.buf = clipFor (p["aid"].toString(), alpha);
                         if (c.buf != nullptr && c.dur > 0) td.clips.push_back (c);
                     }
                     else if (type == "drum")

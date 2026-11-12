@@ -315,7 +315,7 @@ void MainView::emit (const juce::String& id, const juce::var& v)
 std::unique_ptr<SongData> MainView::parseCurrent (const juce::var& v)
 {
     return parseSong (v, [this] (const juce::String& id) { return engine.getOrCreateSlot (id); },
-                         [this] (const juce::String& id) { return booting ? store->peek (id) : store->get (id); });
+                         [this] (const juce::String& id, double alpha) { return clipBuffer (id, alpha); });
 }
 
 void MainView::onSong (const juce::var& v)
@@ -1390,4 +1390,31 @@ void MainView::sendLivePeaks()
         put (o, "start", engine.getRecStartStep()); put (o, "mn", mn); put (o, "mx", mx);
         emit ("recPeaks", o);
     }
+}
+
+//==============================================================================
+// zvuk klipu; pri inom tempe natiahnuty na pozadi (kym nie je hotovy, klip mlci)
+AudioBufPtr MainView::clipBuffer (const juce::String& id, double alpha)
+{
+    if (booting) return std::abs (alpha - 1.0) < 1.0e-6 ? store->peek (id) : nullptr;
+    if (std::abs (alpha - 1.0) < 1.0e-6) return store->get (id);
+    if (auto b = store->peekStretched (id, alpha)) return b;
+    const auto key = AudioStore::stretchKey (id, alpha);
+    if (stretchPending.count (key) > 0) return nullptr;
+    auto src = store->get (id);
+    if (src == nullptr) return nullptr;
+    stretchPending.insert (key);
+    juce::Component::SafePointer<MainView> sp (this);
+    juce::Thread::launch ([sp, src, id, alpha, key]
+    {
+        auto b = timeStretch (*src, alpha);
+        juce::MessageManager::callAsync ([sp, b, id, alpha, key]
+        {
+            if (sp == nullptr) return;
+            sp->stretchPending.erase (key);
+            sp->store->putStretched (id, alpha, b);
+            if (! sp->lastSong.isVoid()) { const auto copy = sp->lastSong; sp->onSong (copy); }
+        });
+    });
+    return nullptr;
 }

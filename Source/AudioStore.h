@@ -6,6 +6,9 @@
 using AudioBufPtr = std::shared_ptr<const juce::AudioBuffer<float>>;
 
 // Zvukove subory audio stop: ulozene v priecinku programu, dekodovane a prevzorkovane na frekvenciu zvukovky
+// WSOLA: zmena dlzky bez zmeny vysky tonu
+AudioBufPtr timeStretch (const juce::AudioBuffer<float>& in, double alpha);
+
 class AudioStore
 {
 public:
@@ -27,6 +30,11 @@ public:
     juce::var peaksFor (const juce::String& id);   // tvar vlny pre rozhranie
     bool detectTempo (const juce::String& id, double& bpm, double& phase);
 
+    // nahravka natiahnuta / skratena na iny cas bez zmeny vysky tonu (alpha = nova dlzka / povodna)
+    AudioBufPtr peekStretched (const juce::String& id, double alpha) const;
+    void putStretched (const juce::String& id, double alpha, AudioBufPtr b);
+    static juce::String stretchKey (const juce::String& id, double alpha) { return id + "@" + juce::String (alpha, 4); }
+
 private:
     juce::String newId() const;
     AudioBufPtr decode (const juce::File&);
@@ -36,4 +44,5 @@ private:
     double sampleRate = 44100;
     std::map<juce::String, AudioBufPtr> cache;
     std::map<juce::String, juce::var> peaks;
+    std::map<juce::String, AudioBufPtr> stretched;
 };

@@ -10,7 +10,8 @@ void AudioStore::setSampleRate (double sr)
 {
     if (sr <= 0 || std::abs (sr - sampleRate) < 0.5) return;
     sampleRate = sr;
-    cache.clear();   // pri dalsom pouziti sa prevzorkuje znova
+    cache.clear();
+    stretched.clear();   // pri dalsom pouziti sa prevzorkuje znova
 }
 
 juce::String AudioStore::newId() const
@@ -249,4 +250,81 @@ bool AudioStore::detectTempo (const juce::String& id, double& bpmOut, double& ph
     bpmOut = bpm;
     phaseOut = std::fmod (bestPh / fr, T);
     return true;
+}
+
+//==============================================================================
+AudioBufPtr AudioStore::peekStretched (const juce::String& id, double alpha) const
+{
+    auto it = stretched.find (stretchKey (id, alpha));
+    return it != stretched.end() ? it->second : nullptr;
+}
+
+void AudioStore::putStretched (const juce::String& id, double alpha, AudioBufPtr b)
+{
+    // pre kazdu nahravku drzime len poslednu verziu (setri pamat)
+    for (auto it = stretched.begin(); it != stretched.end();)
+        if (it->first.upToFirstOccurrenceOf ("@", false, false) == id) it = stretched.erase (it); else ++it;
+    stretched[stretchKey (id, alpha)] = std::move (b);
+}
+
+AudioBufPtr timeStretch (const juce::AudioBuffer<float>& in, double alpha)
+{
+    const int ch = in.getNumChannels(), n = in.getNumSamples();
+    const int N = 2048, Hs = N / 2, delta = 512;
+    const double Ha = Hs / alpha;
+    const int outLen = juce::jmax (1, (int) (n * alpha));
+    auto out = std::make_shared<juce::AudioBuffer<float>> (ch, outLen + N);
+    out->clear();
+    if (n < N * 2) { for (int c = 0; c < ch; ++c) out->copyFrom (c, 0, in, c, 0, juce::jmin (n, outLen)); out->setSize (ch, outLen, true); return out; }
+
+    std::vector<float> win ((size_t) N);
+    for (int i = 0; i < N; ++i) win[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) N);
+    std::vector<float> mono ((size_t) n);
+    for (int i = 0; i < n; ++i)
+    {
+        float v = 0;
+        for (int c = 0; c < ch; ++c) v += in.getSample (c, i);
+        mono[(size_t) i] = v;
+    }
+
+    int prev = 0;
+    for (int k = 0;; ++k)
+    {
+        const int op = k * Hs;
+        if (op >= outLen) break;
+        int best = juce::jlimit (0, n - N - 1, (int) (k * Ha));
+        if (k > 0)
+        {
+            // najlepsie pokracovanie predosleho ramca (podobnost priebehu)
+            const int tgt = prev + Hs;
+            if (tgt + Hs < n)
+            {
+                double bestC = -1.0e30;
+                const int nominal = (int) (k * Ha);
+                for (int d = -delta; d <= delta; d += 2)
+                {
+                    const int cand = nominal + d;
+                    if (cand < 0 || cand + N >= n) continue;
+                    double cc = 0, e = 1.0e-9;
+                    for (int j = 0; j < Hs; j += 4)
+                    {
+                        const float a = mono[(size_t) (tgt + j)], b = mono[(size_t) (cand + j)];
+                        cc += a * b; e += b * b;
+                    }
+                    const double score = cc / std::sqrt (e);
+                    if (score > bestC) { bestC = score; best = cand; }
+                }
+            }
+        }
+        for (int c = 0; c < ch; ++c)
+        {
+            const float* src = in.getReadPointer (c) + best;
+            float* dst = out->getWritePointer (c) + op;
+            const int cnt = juce::jmin (N, n - best);
+            for (int j = 0; j < cnt; ++j) dst[j] += src[j] * win[(size_t) j];
+        }
+        prev = best;
+    }
+    out->setSize (ch, outLen, true);
+    return out;
 }

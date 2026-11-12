@@ -19,6 +19,8 @@ struct ClipEv
     double start = 0;     // krok zaciatku
     double off = 0;       // posun v subore (s)
     double dur = 0;       // dlzka (s)
+    double fi = 0, fo = 0; // nabeh / dobeh (s)
+    float gain = 1;
     AudioBufPtr buf;
 };
 

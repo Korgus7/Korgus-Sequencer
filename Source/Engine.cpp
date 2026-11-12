@@ -311,8 +311,27 @@ void Engine::mixClips (const TrackData& td, juce::AudioBuffer<float>& dst, doubl
         if (cnt <= 0) continue;
         const float* l = c.buf->getReadPointer (0) + sp;
         const float* r = c.buf->getNumChannels() > 1 ? c.buf->getReadPointer (1) + sp : l;
-        dst.addFrom (0, off + a, l, cnt);
-        dst.addFrom (1, off + a, r, cnt);
+        if (c.fi <= 0 && c.fo <= 0)
+        {
+            dst.addFrom (0, off + a, l, cnt, c.gain);
+            dst.addFrom (1, off + a, r, cnt, c.gain);
+        }
+        else
+        {
+            // nabeh a dobeh klipu
+            const double fiS = c.fi * sampleRate, foS = c.fo * sampleRate;
+            float* oL = dst.getWritePointer (0) + off + a;
+            float* oR = dst.getWritePointer (1) + off + a;
+            for (int i = 0; i < cnt; ++i)
+            {
+                const double t = into + a + i;
+                double g = c.gain;
+                if (fiS > 0 && t < fiS) g *= juce::jmax (0.0, t / fiS);
+                if (foS > 0 && t > durS - foS) g *= juce::jmax (0.0, (durS - t) / foS);
+                oL[i] += l[i] * (float) g;
+                oR[i] += r[i] * (float) g;
+            }
+        }
     }
 }
 
