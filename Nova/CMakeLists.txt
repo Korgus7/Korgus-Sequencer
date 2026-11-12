@@ -39,7 +39,8 @@ if(WIN32)
     file(TO_NATIVE_PATH "${NOVA_PACK}" NOVA_PACK_NATIVE)
     string(REPLACE "\\" "\\\\" NOVA_PACK_ESC "${NOVA_PACK_NATIVE}")
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nova_res.rc" "PIANO RCDATA \"${NOVA_PACK_ESC}\"\n")
-    target_sources(KorgusNova PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nova_res.rc")
+    # .rc musi byt v samotnom DLL (KorgusNova je len staticka kniznica so spolocnym kodom)
+    target_sources(KorgusNova_VST3 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nova_res.rc")
 endif()
 
 target_compile_definitions(KorgusNova PUBLIC

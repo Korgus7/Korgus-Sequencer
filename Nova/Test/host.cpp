@@ -15,7 +15,8 @@ int main (int argc, char** argv)
     printf ("plugin: %s, programov %d\n", p->getName().toRawUTF8(), p->getNumPrograms());
     p->setPlayConfigDetails (0, 2, 48000, 512);
     p->prepareToPlay (48000, 512);
-    Thread::sleep (4000);   // klavir sa nacitava na pozadi
+    printf ("velkost suboru %.1f MB\n", File (argv[1]).getSize() / 1048576.0);
+    Thread::sleep (8000);   // klavir sa nacitava na pozadi
     int fails = 0;
     for (int prog : { 0, 3, 7 })
     {
