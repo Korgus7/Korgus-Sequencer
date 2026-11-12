@@ -3,6 +3,7 @@
 #include <vector>
 #include <array>
 #include <algorithm>
+#include <cstdint>
 
 // Male DSP stavebne kamene pre Korgus Nova
 namespace nova
@@ -116,42 +117,47 @@ namespace nova
         }
     };
 
-    // dozvuk: difuzia (4 allpass) + FDN s 8 linkami a Hadamardovou maticou, tlmenie vysok
+    // dozvuk: vstupna difuzia (4 allpass) + FDN s 8 linkami (Hadamard), v kazdej linke allpass (hustota ozvien),
+    // jemna modulacia vsetkych liniek a tlmenie vysok - bez kovoveho "spievania"
     struct Reverb
     {
-        struct Line { std::vector<float> b; int w = 0, len = 1; float lp = 0; };
-        struct Ap { std::vector<float> b; int w = 0; };
+        struct Ap { std::vector<float> b; int w = 0, len = 1; float g = 0.6f;
+            void init (int n, float gain) { b.assign ((size_t) n + 1, 0); len = n; w = 0; g = gain; }
+            float process (float x) { const float y = b[(size_t) w]; const float v = x + g * y; b[(size_t) w] = v; if (++w >= len) w = 0; return y - g * v; } };
+        struct Line { std::vector<float> b; int w = 0, len = 1; float lp = 0, ph = 0, rate = 0.3f; Ap ap; };
         std::array<Line, 8> lines; std::array<Ap, 4> aps; std::vector<float> pre; int pw = 0, preLen = 1;
-        float sr = 48000, size = 0.5f, damp = 0.4f, g[8] {}, dampA = 0.5f, lfo = 0;
+        float sr = 48000, size = -1, damp = 0.4f, g[8] {}, dampA = 0.5f;
         void prepare (float rate)
         {
             sr = rate;
-            static const float apMs[4] = { 3.2f, 2.4f, 8.6f, 6.3f };
-            for (int i = 0; i < 4; ++i) { aps[(size_t) i].b.assign ((size_t) (apMs[i] * 0.001f * sr) + 1, 0); aps[(size_t) i].w = 0; }
-            for (auto& l : lines) { l.b.assign ((size_t) (0.25f * sr), 0); l.w = 0; l.lp = 0; }
+            static const float apMs[4] = { 4.77f, 3.59f, 12.73f, 9.31f };
+            for (int i = 0; i < 4; ++i) aps[(size_t) i].init ((int) (apMs[i] * 0.001f * sr), 0.7f);
+            static const float rates[8] = { 0.13f, 0.21f, 0.29f, 0.37f, 0.17f, 0.43f, 0.11f, 0.33f };
+            static const float inAp[8] = { 2.31f, 3.17f, 1.93f, 4.07f, 2.71f, 3.61f, 1.57f, 4.43f };
+            for (int i = 0; i < 8; ++i)
+            {
+                auto& l = lines[(size_t) i];
+                l.b.assign ((size_t) (0.25f * sr), 0); l.w = 0; l.lp = 0; l.ph = (float) i / 8.0f; l.rate = rates[i];
+                l.ap.init ((int) (inAp[i] * 0.001f * sr), 0.5f);
+            }
             pre.assign ((size_t) (0.06f * sr) + 2, 0); pw = 0;
-            setSize (size, damp);
+            const float s0 = size < 0 ? 0.5f : size; size = -1;
+            setSize (s0, damp);
         }
         void setSize (float s, float d)
         {
             size = s; damp = d;
-            static const float ms[8] = { 29.7f, 37.1f, 41.1f, 43.7f, 53.3f, 59.9f, 67.1f, 73.1f };
-            const float scale = 0.55f + 1.25f * s, t60 = 0.8f + 4.2f * s * s + 0.6f * s;
+            static const float ms[8] = { 31.3f, 37.9f, 44.9f, 51.1f, 58.7f, 66.3f, 73.9f, 83.1f };
+            const float scale = 0.5f + 1.1f * s, t60 = 0.8f + 4.2f * s * s + 0.6f * s;
             for (int i = 0; i < 8; ++i)
             {
                 auto& l = lines[(size_t) i];
                 l.len = std::min ((int) l.b.size() - 16, (int) (ms[i] * scale * 0.001f * sr));
-                g[i] = std::pow (10.0f, -3.0f * (float) l.len / (t60 * sr));
+                const float total = (float) (l.len + l.ap.len);
+                g[i] = std::pow (10.0f, -3.0f * total / (t60 * sr));
             }
             dampA = 1.0f - std::exp (-twoPi * (9000.0f - 7000.0f * d) / sr);
             preLen = std::min ((int) pre.size() - 1, (int) ((0.008f + 0.02f * s) * sr));
-        }
-        float ap (Ap& a, float x)
-        {
-            const float gc = 0.6f; const float y = a.b[(size_t) a.w];
-            const float v = x + gc * y; a.b[(size_t) a.w] = v;
-            if (++a.w >= (int) a.b.size()) a.w = 0;
-            return y - gc * v;
         }
         void process (float inL, float inR, float& outL, float& outR)
         {
@@ -159,34 +165,35 @@ namespace nova
             int rp = pw - preLen; if (rp < 0) rp += (int) pre.size();
             float x = pre[(size_t) rp]; if (++pw >= (int) pre.size()) pw = 0;
             const float side = 0.5f * (inL - inR);
-            for (auto& a : aps) x = ap (a, x);
-            lfo += 0.27f / sr; if (lfo >= 1) lfo -= 1;
-            const float mod = 6.0f * std::sin (twoPi * lfo);
+            for (auto& a : aps) x = a.process (x);
             float o[8];
             for (int i = 0; i < 8; ++i)
             {
                 auto& l = lines[(size_t) i];
-                float d = (float) l.len + (i == 2 ? mod : (i == 5 ? -mod : 0.0f));
+                l.ph += l.rate / sr; if (l.ph >= 1) l.ph -= 1;
+                const float d = (float) l.len + 2.5f * std::sin (twoPi * l.ph);
                 float r = (float) l.w - d; while (r < 0) r += (float) l.b.size();
                 const int i0 = (int) r; const float f = r - (float) i0;
                 const float s = l.b[(size_t) i0] + f * (l.b[(size_t) ((i0 + 1) % (int) l.b.size())] - l.b[(size_t) i0]);
                 l.lp += dampA * (s - l.lp);
-                o[i] = l.lp * g[i];
+                o[i] = l.ap.process (l.lp) * g[i];
             }
-            // Hadamard 8x8 (rychla), normalizacia 1/sqrt(8)
             float h[8];
             for (int i = 0; i < 8; i += 2) { h[i] = o[i] + o[i + 1]; h[i + 1] = o[i] - o[i + 1]; }
             for (int i = 0; i < 8; i += 4) { float a = h[i], b = h[i + 1], c = h[i + 2], e = h[i + 3]; h[i] = a + c; h[i + 1] = b + e; h[i + 2] = a - c; h[i + 3] = b - e; }
             for (int i = 0; i < 4; ++i) { float a = h[i], b = h[i + 4]; h[i] = a + b; h[i + 4] = a - b; }
             const float nrm = 0.35355339f;
+            // vstup s roznymi znamienkami: rovnaky vstup do vsetkych liniek je vlastny vektor Hadamardovej matice
+            static const float inG[8] = { 0.62f, -0.48f, 0.55f, 0.41f, -0.6f, 0.52f, -0.45f, -0.58f };
+            static const float sdG[8] = { 0.3f, 0.25f, -0.28f, 0.22f, 0.3f, -0.26f, -0.24f, 0.29f };
             for (int i = 0; i < 8; ++i)
             {
                 auto& l = lines[(size_t) i];
-                l.b[(size_t) l.w] = h[i] * nrm + (i & 1 ? x + side * 0.3f : x - side * 0.3f) * 0.5f;
+                l.b[(size_t) l.w] = h[i] * nrm + x * inG[i] + side * sdG[i];
                 if (++l.w >= (int) l.b.size()) l.w = 0;
             }
-            outL = (o[0] + o[2] + o[4] + o[6]) * 0.5f;
-            outR = (o[1] + o[3] + o[5] + o[7]) * 0.5f;
+            outL = (o[0] - 0.8f * o[1] + o[2] + 0.6f * o[3] - o[4] + 0.7f * o[5] + o[6] - 0.5f * o[7]) * 0.42f;
+            outR = (0.6f * o[0] + o[1] - 0.7f * o[2] + o[3] + 0.5f * o[4] - o[5] - 0.8f * o[6] + o[7]) * 0.42f;
         }
     };
 }
