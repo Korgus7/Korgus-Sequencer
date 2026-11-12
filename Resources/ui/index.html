@@ -228,6 +228,9 @@ button.ico svg{display:block}
 .dlgb .row{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap}
 .dlgb h4{margin:10px 0 4px}
 .dlgb ul{margin:0;padding-left:18px}
+#tplList{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:60vh;overflow:auto}
+.tplc{display:grid;grid-template-columns:1fr auto;text-align:left;padding:8px 10px;border-radius:3px;min-height:0;height:auto;gap:2px 10px}
+.tplc b{grid-column:1}.tplc span{grid-column:1;font-size:11px;opacity:.8}.tplc i{grid-column:2;grid-row:1/3;align-self:center;font-style:normal;font-size:11px;opacity:.7}
 </style>
 </head>
 <body>
@@ -259,7 +262,7 @@ button.ico svg{display:block}
 </div>
 
 <div class="win" id="mixWin" hidden>
-  <div class="tb">Mixpult<span class="sp"></span><button id="mixClose" title="Zavrieť (F3)">×</button></div>
+  <div class="tb">Mixpult<span class="sp"></span><button id="bMaster" title="Mastering asistent – vypočuje mix a nastaví EQ, kompresor a limiter na Masteri">Mastering…</button><span style="width:6px"></span><button id="mixClose" title="Zavrieť (F3)">×</button></div>
   <div id="mixBody"><div id="mixStrips"></div></div>
 </div>
 
@@ -457,6 +460,25 @@ function setupNative(){
       <div class="frow"><label>Kvalita</label><select id="mp3K" style="flex:1"><option value="320">320 kbps (najlepšia)</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps (menší súbor)</option></select></div>
       <div class="row"><span style="flex:1"></span><button id="mp3Ok">Uložiť MP3…</button></div>`);
     $('mp3Ok').onclick=()=>{ const l=+$('mp3L').value, k=+$('mp3K').value; song.mp3L=l; $('dlgBack').hidden=true; stopIfPlaying(); nat('exportMp3',{end,lufs:l,kbps:k}); }; };
+  $('bMaster').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
+    dialog('Mastering asistent',`<p>Asistent si vypočuje celý mix a na Master vloží <b>EQ, kompresor a limiter</b> s nastavením pre tvoju pieseň. Doterajšie efekty na Masteri sa nahradia. Potom ich môžeš ručne doladiť.</p>
+      <div class="frow"><label>Hlasitosť</label><select id="msL" style="flex:1"><option value="-9">Hlasno (TikTok, Reels) −9 LUFS</option><option value="-14">Štandard (Spotify, YouTube) −14 LUFS</option><option value="-16">Jemne, dynamicky −16 LUFS</option></select></div>
+      <div class="frow"><label>Charakter</label><select id="msC" style="flex:1"><option value="0">Neutrálny</option><option value="1">Teplý (viac basov)</option><option value="2">Jasný (viac výšok)</option></select></div>
+      <div class="row"><span style="flex:1"></span><button id="msOk">Spustiť</button></div>`);
+    const m=song.master||{}; $('msL').value=String(m.lufs??-14); $('msC').value=String(m.ch??0);
+    $('msOk').onclick=()=>{ song.master={lufs:+$('msL').value,ch:+$('msC').value}; save(); $('dlgBack').hidden=true; stopIfPlaying(); nat('mastering',{end,lufs:song.master.lufs,character:song.master.ch}); }; };
+  onNat('backups',e=>{ const L=e.list||[];
+    if(!L.length){ dialog('Zálohy','<p>Zatiaľ nie sú žiadne zálohy. Program ukladá verziu piesne automaticky každých 5 minút, keď sa niečo zmení.</p>'); return; }
+    const fmt=t=>{ const m=String(t).match(/^(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)/); return m?(+m[3])+'. '+(+m[2])+'. '+m[1]+'  '+m[4]+':'+m[5]:t; };
+    dialog('Obnoviť zálohu',`<p>Automatické zálohy (najnovšie hore, uchováva sa posledných 60). Obnovenie nahradí otvorenú pieseň – Ctrl+Z ju vráti.</p><div id="tplList" style="max-height:340px;overflow:auto">${L.map((b,i)=>`<button class="tplc" data-i="${i}"><b>${esc(fmt(b.time))}</b><span>${b.tracks} ${b.tracks===1?'stopa':b.tracks<5?'stopy':'stôp'}</span><i>${b.tempo?Math.round(b.tempo)+' BPM':''}</i></button>`).join('')}</div>`);
+    document.querySelectorAll('#tplList .tplc').forEach(b=>b.onclick=()=>{ $('dlgBack').hidden=true; nat('loadBackup',{name:L[+b.dataset.i].name}); toast('Záloha obnovená ('+fmt(L[+b.dataset.i].time)+').'); }); });
+  onNat('mastered',e=>{ if(!e.ok){ if(e.error&&e.error!=='cancel') dialog('Mastering asistent','<p>'+esc(e.error)+'</p>'); return; }
+    if(song.byp&&song.byp.__master){ delete song.byp.__master; save(); }
+    const sg=v=>(v>0?'+':'')+v;
+    dialog('Mastering hotový',`<p>Na Masteri sú teraz <b>Korgus EQ → Kompresor → Limiter</b>.</p><ul>
+      <li>Hlasitosť: ${e.before} → <b>${e.after} LUFS</b></li><li>EQ: basy ${sg(e.eqLow)} dB, výšky ${sg(e.eqHigh)} dB, odrezané pod 30 Hz</li>
+      <li>Kompresor: prah ${e.thr} dB, pomer 2:1</li><li>Limiter: zisk ${sg(e.gain)} dB, strop −1 dB</li></ul><p>Fader Mastra nechaj na 0 dB. Efekty otvoríš ikonou okna v mixpulte.</p>`);
+    if(mixOpen()) renderMixer(); });
   window.exportVideo=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
     const v=song.video||{title:'',subtitle:'',style:0,portrait:true,img:false};
     dialog('Export videa (MP4)',`<p>Pieseň sa uloží ako video s názvom, pohyblivou vizualizáciou a časom – pripravené na TikTok alebo YouTube. Hlasitosť sa dorovná na −14 LUFS.</p>
@@ -1187,7 +1209,7 @@ function renderTracksNative(L){
     r.addEventListener('mousedown',()=>selectTrack(i));
     r.addEventListener('contextmenu',e=>{ e.preventDefault(); selectTrack(i); ctxMenu(e.clientX,e.clientY,[
       [(tr.sc?'✓ ':'')+'Kľúčová stopa (sidechain)',()=>{ pushUndo(); tr.sc=!tr.sc; renderTracks(); save(); if(tr.sc) toast('Stopa <b>'+esc(tr.name)+'</b> riadi kompresor / PulseDip s voľbou <b>Sidechain</b>.'); }],
-      ...(tr.type!=='audio'?[['Bounce do audia',()=>bounceTrack(tr)]]:[]),
+      ...(tr.type!=='audio'?[[tr.type==='drum'?'Vložiť rytmus z knižnice…':'Vložiť basovú linku z knižnice…',()=>patternDialog(tr)],['Bounce do audia',()=>bounceTrack(tr)]]:[]),
       ['Zmazať stopu',()=>deleteTrack(i)]]); });
     L.appendChild(r);
   });
@@ -1639,7 +1661,7 @@ function renderMixer(){
       if(f){ const pw=el('b','pw',ICO_PWR); pw.title=off?'Efekt je vypnutý – klik = zapnúť':'Vypnúť efekt (bypass)';
         pw.onmousedown=e=>e.stopPropagation(); pw.onclick=e=>{ e.stopPropagation(); fxSetOff(o.id,k,!fxIsOff(o.id,k)); renderMixer(); }; d.appendChild(pw);
         const op=el('b','op',ICO_WIN); op.title='Otvoriť okno efektu'; op.onmousedown=e=>e.stopPropagation(); op.onclick=e=>{ e.stopPropagation(); nat('openFx',{track:o.id,idx:k,name:o.name}); }; d.appendChild(op); }
-      sl.innerHTML='<option value="">–</option>'+fxList.map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
+      sl.innerHTML='<option value="">–</option>'+fxList.map(p=>`<option value="${esc(p.uid)}">${esc(String(p.name).replace(/^Korgus /,''))}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
       sl.value=f?f.uid:''; sl.title=f?f.name+' (dvojklik = okno efektu)':'Efekt '+(k+1);
       sl.onmousedown=e=>e.stopPropagation();
       sl.onchange=()=>{ if(sl.value==='__scan'){ sl.value=f?f.uid:''; nat('showPlugins'); sl.blur(); return; } nat('trackFx',{track:o.id,idx:k,uid:sl.value,name:o.name}); sl.blur(); };
@@ -2213,6 +2235,65 @@ function chordPitches(c){
   ps.unshift(r.bass!=null?36+r.bass+(r.bass>7?-12:0)+12:base);   // bas
   return [...new Set(ps)].filter(x=>x>=0&&x<=127).sort((a,b)=>a-b);
 }
+/* knizica vzorov: rytmy bicich a basove linky */
+const DRUM_PATS=[
+  ['Pop','Základný popový rytmus',{0:'X.......X.x.....',1:'....X.......X...',3:'x.x.x.x.x.x.x.x.'}],
+  ['Rock','Rovný rockový rytmus s osminami',{0:'X.....x.X.x.....',1:'....X.......X...',3:'X.x.X.x.X.x.X.x.'}],
+  ['Disco / House','Kopák na každú dobu, otvorený hi-hat medzi',{0:'X...X...X...X...',2:'....X.......X...',3:'x.x.x.x.x.x.x.x.',4:'..X...X...X...X.'}],
+  ['Hip-hop','Pomalší rytmus s posunutým kopákom',{0:'X......x..X.....',1:'....X.......X...',3:'x.x.x.x.x.x.x.x.'}],
+  ['Trap','Polovičné tempo, rýchle hi-haty',{0:'X.......x.....x.',1:'........X.......',3:'xxXxxxXxxxXxxXxx'}],
+  ['Reggaeton','Dembow rytmus',{0:'X...X...X...X...',1:'...X..X....X..X.',3:'x.x.x.x.x.x.x.x.'}],
+  ['Funk','Synkopy a šestnástinové hi-haty',{0:'X.x.......x..x..',1:'....X..x.x..X...',3:'xxXxxxXxxxXxxxXx'}],
+  ['Balada','Pokojný rytmus s rimshotom',{0:'X.......X.......',7:'....X.......X...',3:'x...x...x...x...'}],
+  ['Polka','Ľudová dvojdoba – bas a „ča“',{0:'X...X...X...X...',1:'..X...X...X...X.',3:'..x...x...x...x.'}],
+  ['Shuffle','Blues / shuffle (zapni Swing)',{0:'X.....X.X.......',1:'....X.......X...',3:'X..xX..xX..xX..x'}],
+  ['Prechod','Fill na koniec frázy (1 takt)',{0:'X...............',1:'........xxXxXXXX',6:'....xx..........',5:'......xx........',8:'................'}]];
+const BASS_PATS=[
+  ['Celé noty','Jeden dlhý tón na akord',[[0,0,16,100]]],
+  ['Osminy','Rovné osminy na koreni (rock, pop)',[0,2,4,6,8,10,12,14].map(s=>[s,0,2,s%4?85:105])],
+  ['Pop pumpa','Synkopický popový bas',[[0,0,3,110],[3,0,3,90],[6,0,2,90],[8,12,3,100],[11,0,3,90],[14,0,2,90]]],
+  ['Oktávy (disco)','Skákanie o oktávu',[0,2,4,6,8,10,12,14].map(s=>[s,s%4?12:0,2,s%4?85:105])],
+  ['Funk','Rytmický bas s kvintou a septimou',[[0,0,2,110],[3,12,1,90],[6,0,1,95],[7,'5',1,85],[10,0,2,100],[12,'7',1,85],[14,12,2,95]]],
+  ['Walking','Kráčajúci bas (jazz, blues)',[[0,0,4,100],[4,'3',4,90],[8,'5',4,95],[12,'6',4,90]]],
+  ['Offbeat (EDM)','Bas medzi kopákmi',[2,6,10,14].map(s=>[s,0,2,105])],
+  ['Reggaeton','Bas do dembow rytmu',[[0,0,3,110],[3,0,3,95],[8,0,3,105],[11,0,3,95]]],
+  ['Polka','Koreň a kvinta na striedačku',[[0,0,2,105],[4,'5',2,95],[8,0,2,105],[12,'5',2,95]]]];
+const PROGS=[['Len tónika',[0]],['I – V – vi – IV (pop)',[0,7,9,5],[0,0,1,0]],['vi – IV – I – V',[9,5,0,7],[1,0,0,0]],['I – IV – V – IV',[0,5,7,5]],['i – VI – III – VII (mol)',[0,8,3,10]],['I – vi – IV – V (50s)',[0,9,5,7],[0,1,0,0]]];
+let patOpt={bars:4,key:0,prog:1};
+function bassOff(o,iv){ if(typeof o==='number') return o; const has=x=>iv.includes(x);
+  if(o==='3') return has(3)?3:4; if(o==='5') return has(6)?6:has(8)?8:7; if(o==='6') return 9; if(o==='7') return has(11)?11:10; return 0; }
+function patternDialog(tr){
+  const drum=tr.type==='drum', list=drum?DRUM_PATS:BASS_PATS, chords=!drum&&(song.chords||[]).length;
+  const keyRow=drum?'':(chords?'<p>Bas pôjde podľa <b>akordovej stopy</b>.</p>':`<div class="frow"><label>Tónina</label><select id="ptK" style="flex:1">${['C','C#','D','Eb','E','F','F#','G','Ab','A','B','H'].map((k,i)=>`<option value="${i}">${k}</option>`).join('')}</select></div>
+     <div class="frow"><label>Akordy</label><select id="ptP" style="flex:1">${PROGS.map((p,i)=>`<option value="${i}">${p[0]}</option>`).join('')}</select></div>`);
+  dialog(drum?'Knižnica rytmov':'Knižnica basových liniek',`<p>Vzor sa vloží do stopy <b>${esc(tr.name)}</b> na miesto prehrávania.</p>
+    <div class="frow"><label>Dĺžka</label><select id="ptB" style="flex:1"><option value="1">1 takt</option><option value="2">2 takty</option><option value="4">4 takty</option><option value="8">8 taktov</option></select></div>
+    ${keyRow}<div id="tplList">${list.map((p,i)=>`<button class="tplc" data-i="${i}"><b>${esc(p[0])}</b><span>${esc(p[1])}</span></button>`).join('')}</div>`);
+  $('ptB').value=String(patOpt.bars); if($('ptK')){ $('ptK').value=String(patOpt.key); $('ptP').value=String(patOpt.prog); }
+  document.querySelectorAll('#tplList .tplc').forEach(b=>b.onclick=()=>{
+    patOpt.bars=+$('ptB').value; if($('ptK')){ patOpt.key=+$('ptK').value; patOpt.prog=+$('ptP').value; }
+    $('dlgBack').hidden=true; insertPattern(tr,list[+b.dataset.i]); });
+}
+function insertPattern(tr,pat){
+  const bars=pat[0]==='Prechod'?1:patOpt.bars, at=clamp(Math.floor(curPos()/SPB),0,Math.max(0,song.bars-bars));
+  pushUndo();
+  if(tr.type==='drum'){
+    const g=emptyGrid(16); for(const k in pat[2]) [...pat[2][k]].forEach((ch,i)=>{ if(ch!=='.') g[+k][i]=ch==='X'?2:1; });
+    tr.parts.push({id:uid(),start:at,len:bars,plen:16,grid:g,name:pat[0]});
+  } else {
+    const notes=[], cs=chordsSorted(), pr=PROGS[patOpt.prog];
+    for(let b=0;b<bars;b++){
+      let root, iv;
+      if(cs.length){ const st=(at+b)*SPB; let c=null; cs.forEach(q=>{ if(q.s<=st+8) c=q; }); const r=c?parseChord(c.c):null; root=r?(r.bass!=null?r.bass:r.root):0; iv=r?r.iv:[0,4,7]; }
+      else { const k=b%pr[1].length; root=(patOpt.key+pr[1][k])%12; const minor=pr[2]?pr[2][k]:(patOpt.prog===4?[1,0,0,0][k]:0); iv=minor?[0,3,7]:[0,4,7]; }
+      const base=36+root-(root>7?12:0);
+      pat[2].forEach(([s,o,l,v])=>notes.push({s:b*16+s,p:clamp(base+bassOff(o,iv),24,72),l,v}));
+    }
+    tr.parts.push({id:uid(),start:at,len:bars,notes,name:pat[0]});
+  }
+  if(at+bars>song.bars) song.bars=at+bars;
+  selT=song.tracks.indexOf(tr); selParts.clear(); renderAll(); save(); toast('Vložené: <b>'+esc(pat[0])+'</b> ('+bars+' '+(bars===1?'takt':bars<5?'takty':'taktov')+'). Ctrl+Z vráti späť.');
+}
 function chordsSorted(){ return (song.chords||[]).slice().sort((a,b)=>a.s-b.s); }
 function chordNotesFor(p){
   const a=p.start*SPB, b=a+p.len*SPB, cs=chordsSorted(), out=[];
@@ -2563,7 +2644,37 @@ $('swing').oninput=e=>{song.swing=+e.target.value; $('swV').textContent=song.swi
 $('outSel').onchange=e=>{midiOut=e.target.value&&midi?midi.outputs.get(e.target.value):null; e.target.blur();};
 
 /* ---------------- horna lista ---------------- */
-$('bNew').onclick=()=>{pushUndo(); stopIfPlaying(); emptySong(); selT=0; selPart=null; closeEditor(); renderAll(); save();};
+/* sablony projektov (Novy) */
+const TEMPLATES=[
+  {k:'empty',n:'Prázdny',d:'Bicie a jeden nástroj, bez efektov.',tempo:120,tracks:[{t:'drum'},{t:'synth',n:'Nástroj 1'}]},
+  {k:'pop',n:'Pop / rádio',d:'Bicie, bas, klavír, spev (audio) s kompresorom a dozvukom, limiter na Masteri.',tempo:110,master:['limiter'],
+   tracks:[{t:'drum',send:[.15,0]},{t:'synth',n:'Bas'},{t:'synth',n:'Klavír',send:[.25,0]},{t:'audio',n:'Spev',fx:['eq','comp'],send:[.35,.15]}]},
+  {k:'guitar',n:'Spev s gitarou',d:'Dve audio stopy na nahrávanie, gitara a spev s jemným dozvukom.',tempo:90,master:['limiter'],
+   tracks:[{t:'audio',n:'Gitara',fx:['eq'],send:[.2,0]},{t:'audio',n:'Spev',fx:['eq','comp'],send:[.3,.1]}]},
+  {k:'edm',n:'Elektronika',d:'Bicie (kľúčová stopa), bas a pad s PulseDip, lead s ozvenou, limiter na Masteri.',tempo:124,master:['limiter'],
+   tracks:[{t:'drum',sc:true},{t:'synth',n:'Bas',fx:['comp']},{t:'synth',n:'Pad',fx:['pulse'],send:[.3,0]},{t:'synth',n:'Lead',send:[.15,.3]}]},
+  {k:'voice',n:'Nahrávanie hlasu',d:'Jedna audio stopa s EQ a kompresorom – hovorené slovo, podcast.',tempo:100,master:['limiter'],
+   tracks:[{t:'audio',n:'Hlas',fx:['eq','comp']}]}];
+const FXRE={eq:/^korgus eq$/i,comp:/korgus kompresor/i,reverb:/korgus dozvuk/i,delay:/korgus ozvena/i,limiter:/korgus limiter/i,pulse:/korgus pulsedip/i};
+function newFromTemplate(tp){
+  pushUndo(); stopIfPlaying(); const s=baseSong(); song=s; s.tempo=tp.tempo; s.aux=[{vol:.8},{vol:.8}];
+  const loads=[];
+  tp.tracks.forEach(d=>{ const t=mkTrack(d.t); if(d.n) t.name=d.n; if(d.send) t.send=[...d.send]; if(d.sc) t.sc=true; s.tracks.push(t);
+    (d.fx||[]).forEach((f,i)=>loads.push({track:t.id,idx:i,re:FXRE[f],name:t.name})); if(d.t==='synth') loads.push({inst:t}); });
+  (tp.master||[]).forEach((f,i)=>loads.push({track:'__master',idx:i,re:FXRE[f],name:'Master'}));
+  // vymazat efekty z predchadzajucej piesne na Masteri a FX
+  const useAux=[0,1].map(k=>tp.tracks.some(d=>d.send&&d.send[k]>0));
+  ['__master','__aux1','__aux2'].forEach((id,j)=>{ const fx=((natTrackPlugins[id]||{}).fx||[]); fx.forEach((x,i)=>{ if(x&&!(j>0&&useAux[j-1]&&i===0)) nat('trackFx',{track:id,idx:i,uid:'',quiet:true}); }); });
+  useAux.forEach((u,k)=>{ if(u) loads.push({track:'__aux'+(k+1),idx:0,re:k===0?FXRE.reverb:FXRE.delay,name:'FX '+(k+1)}); });
+  selT=0; selPart=null; closeEditor(); renderAll(); save();
+  if(NATIVE) loads.forEach(l=>{ if(l.inst){ natDefaultInst(l.inst); return; } const p=natPlugins.find(x=>!x.inst&&l.re&&l.re.test(x.name)); if(p) nat('trackFx',{track:l.track,idx:l.idx,uid:p.uid,name:l.name,quiet:true}); });
+  toast('Nový projekt: <b>'+esc(tp.n)+'</b>');
+}
+$('bNew').onclick=()=>{
+  if(!NATIVE){ pushUndo(); stopIfPlaying(); emptySong(); selT=0; selPart=null; closeEditor(); renderAll(); save(); return; }
+  dialog('Nový projekt',`<p>Vyber, s čím chceš začať. Stopy aj efekty potom môžeš ľubovoľne meniť.</p><div id="tplList">${TEMPLATES.map((t,i)=>`<button class="tplc" data-i="${i}"><b>${esc(t.n)}</b><span>${esc(t.d)}</span><i>${t.tempo} BPM</i></button>`).join('')}</div>`);
+  document.querySelectorAll('#tplList .tplc').forEach(b=>b.onclick=()=>{ $('dlgBack').hidden=true; newFromTemplate(TEMPLATES[+b.dataset.i]); });
+};
 $('bAddD').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('drum')); selT=song.tracks.length-1; renderAll(); save();};
 $('bAddS').onclick=()=>{pushUndo(); const t=mkTrack('synth'); song.tracks.push(t); selT=song.tracks.length-1; renderAll(); save(); natDefaultInst(t);};
 $('bAddA').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('audio')); selT=song.tracks.length-1; renderAll(); save();};
@@ -2577,7 +2688,7 @@ $('bUndo').onclick=undo;
 function menuAt(btn,items){ const r=btn.getBoundingClientRect(); btn.classList.add('on'); ctxMenu(r.left,r.bottom+2,items); const off=()=>{ btn.classList.remove('on'); removeEventListener('mousedown',off,true); }; setTimeout(()=>addEventListener('mousedown',off,true),0); }
 const clk=id=>()=>$(id).click();
 $('mFile').onclick=e=>{ e.stopPropagation(); menuAt($('mFile'),[
-  ['Nový',clk('bNew')],['Otvoriť…  (Ctrl+O)',clk('bOpen')],['Uložiť…  (Ctrl+S)',clk('bSave')],null,
+  ['Nový…',clk('bNew')],['Otvoriť…  (Ctrl+O)',clk('bOpen')],['Uložiť…  (Ctrl+S)',clk('bSave')],...(NATIVE?[['Obnoviť zálohu…',()=>nat('listBackups')]]:[]),null,
   ['Import MIDI…',clk('bImpMidi')],['Import audio…',clk('bImpA')],null,
   ['Export MIDI',clk('bMidi')],['Export WAV',clk('bWav')],['Export MP3',clk('bMp3')],['Export videa (MP4)…',()=>window.exportVideo&&window.exportVideo()],['Export stôp',clk('bStems')]]); };
 $('mTrack').onclick=e=>{ e.stopPropagation(); menuAt($('mTrack'),[
@@ -2776,6 +2887,12 @@ $('bHelp').onclick=()=>dialog('Pomoc – Korgus Sequencer',`
 <li>↑ ↓ = predchádzajúca / ďalšia stopa, Backspace = zmazať, Ctrl+E = otvoriť časť v editore.</li>
 <li>Ctrl+Z = späť, Ctrl+Shift+Z alebo Ctrl+Y = znova, Ctrl+X / C / V = vystrihnúť / kopírovať / vložiť, Ctrl+D = zdvojiť.</li>
 <li>Ctrl+S = uložiť, Ctrl+O = otvoriť, F3 = mixpult, Ctrl+I = AI asistent.</li></ul>
+<h4>Šablóny, vzory, mastering, video, zálohy</h4><ul>
+<li>Súbor → Nový: vyber šablónu (Pop, Spev s gitarou, Elektronika, Nahrávanie hlasu) – stopy aj efekty sa pripravia samé.</li>
+<li>Pravý klik na hlavičku stopy bicích / nástroja → Vložiť rytmus / basovú linku z knižnice (bas ide podľa akordovej stopy alebo zvolenej tóniny).</li>
+<li>Mixpult → Mastering…: asistent vypočuje mix a nastaví EQ, kompresor a limiter na Masteri na zvolenú hlasitosť.</li>
+<li>Súbor → Export videa (MP4): video na TikTok (na výšku) alebo YouTube (na šírku) s názvom, vizualizáciou a tvojím obrázkom.</li>
+<li>Súbor → Obnoviť zálohu: program každých 5 minút uloží verziu piesne (posledných 60).</li></ul>
 <h4>Výber nôt (Key editor)</h4><ul>
 <li><b>Pravé tlačidlo + ťahanie = označiť noty</b> (so Shiftom pridáš k výberu). Pravý klik na notu = zmazať, do prázdna = zrušiť výber. Nástroj Výber (šípka) označuje aj ľavým tlačidlom.</li>
 <li>Shift+klik = pridať / odobrať notu z výberu, Ctrl+A = všetko, Esc = zrušiť výber.</li>

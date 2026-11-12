@@ -90,6 +90,13 @@ private:
     bool metersLive = false;
     void onExportMp3 (const juce::var&);
     void onExportVideo (const juce::var&);
+    void onMastering (const juce::var&);
+    juce::File backupDir() const;
+    void backupMaybe (const juce::String& text);
+    void sendBackups();
+    void loadBackup (const juce::String& name);
+    juce::String lastBackupText;
+    juce::Time lastBackupTime;
     void onSeparate (const juce::var&);
     void onAutotune (const juce::var&);
     void finishImport (const juce::File&, const juce::String& track, double bar, bool deleteAfter);

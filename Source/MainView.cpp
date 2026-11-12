@@ -232,6 +232,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("bounce",      [this] (const juce::var& v) { onBounce (v); })
         .withEventListener ("exportMp3",   [this] (const juce::var& v) { onExportMp3 (v); })
         .withEventListener ("exportVideo", [this] (const juce::var& v) { onExportVideo (v); })
+        .withEventListener ("mastering",   [this] (const juce::var& v) { onMastering (v); })
         .withEventListener ("clipPeak",    [this] (const juce::var& v)
                             {
                                 auto b = store->get (v["id"].toString());
@@ -313,7 +314,10 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                             {
                                 const auto t = v["text"].toString();
                                 if (t.length() > 10) dataDir.getChildFile ("lastsong.json").replaceWithText (t);
+                                if (t.length() > 10) backupMaybe (t);
                             })
+        .withEventListener ("listBackups", [this] (const juce::var&) { sendBackups(); })
+        .withEventListener ("loadBackup",  [this] (const juce::var& v) { loadBackup (v["name"].toString()); })
         .withEventListener ("copyPlugin",  [this] (const juce::var& v)
                             {
                                 const auto from = v["from"].toString(), to = v["to"].toString();
@@ -356,7 +360,13 @@ std::optional<juce::WebBrowserComponent::Resource> MainView::getResource (const 
 
 void MainView::emit (const juce::String& id, const juce::var& v)
 {
-    if (web != nullptr) web->emitEventIfBrowserIsVisible (id, v);
+    // ako WebBrowserComponent::emitEventIfBrowserIsVisible, ale JSON len v ASCII (\uXXXX) -
+    // znaky s diakritikou inak mozu udalost potichu zahodit
+    if (web == nullptr || ! web->isVisible()) return;
+    const auto json = juce::JSON::toString (v, juce::JSON::FormatOptions{}.withSpacing (juce::JSON::Spacing::none)
+                                                                          .withEncoding (juce::JSON::Encoding::ascii));
+    const auto escaped = json.replace ("\\", "\\\\").replace ("'", "\\'");
+    web->evaluateJavascript ("window.__JUCE__.backend.emitByBackend(" + id.quoted() + ", " + escaped.quoted ('\'') + ");");
 }
 
 //==============================================================================
@@ -1006,6 +1016,68 @@ void MainView::onOpenSong (const juce::var&)
                           });
 }
 
+//==============================================================================
+// automaticke zalohy: kazdych 5 minut (ak sa piesen zmenila), najviac 60 suborov
+juce::File MainView::backupDir() const { return dataDir.getChildFile ("zalohy"); }
+
+void MainView::backupMaybe (const juce::String& text)
+{
+    const auto now = juce::Time::getCurrentTime();
+    if (text == lastBackupText) return;
+    if (lastBackupTime.toMilliseconds() != 0 && (now - lastBackupTime).inMinutes() < 5.0) return;
+    auto dir = backupDir();
+    dir.createDirectory();
+    auto j = juce::JSON::parse (text);
+    if (! j.isObject()) return;
+    if (auto* d = j.getDynamicObject()) d->setProperty ("vst", collectPluginStates());
+    const auto f = dir.getChildFile (now.formatted ("%Y-%m-%d_%H-%M-%S") + ".json");
+    if (! f.replaceWithText (juce::JSON::toString (j, true))) return;
+    lastBackupText = text;
+    lastBackupTime = now;
+    auto files = dir.findChildFiles (juce::File::findFiles, false, "*.json");
+    std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b) { return a.getFileName() > b.getFileName(); });
+    for (int i = 60; i < files.size(); ++i) files.getReference (i).deleteFile();
+}
+
+void MainView::sendBackups()
+{
+    auto files = backupDir().findChildFiles (juce::File::findFiles, false, "*.json");
+    std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b) { return a.getFileName() > b.getFileName(); });
+    juce::Array<juce::var> arr;
+    for (const auto& f : files)
+    {
+        auto o = obj();
+        put (o, "name", f.getFileName());
+        put (o, "time", f.getFileNameWithoutExtension());
+        int tracks = 0; double tempo = 0;
+        {
+            const auto j = juce::JSON::parse (f.loadFileAsString());
+            if (const auto* t = j["tracks"].getArray()) tracks = t->size();
+            tempo = (double) j.getProperty ("tempo", 0.0);
+        }
+        put (o, "tracks", tracks); put (o, "tempo", tempo);
+        arr.add (o);
+    }
+    auto o = obj(); put (o, "list", arr);
+    emit ("backups", o);
+}
+
+void MainView::loadBackup (const juce::String& name)
+{
+    const auto f = backupDir().getChildFile (juce::File::createLegalFileName (name));
+    if (! f.existsAsFile()) return;
+    auto j = juce::JSON::parse (f.loadFileAsString());
+    if (! j.isObject()) return;
+    const auto vst = j["vst"];
+    if (auto* d = j.getDynamicObject()) d->removeProperty ("vst");
+    sessionApplied = true;
+    auto o = obj();
+    put (o, "text", juce::JSON::toString (j, true));
+    emit ("songLoaded", o);
+    juce::Component::SafePointer<MainView> sp (this);
+    juce::MessageManager::callAsync ([sp, vst] { if (sp != nullptr && vst.isObject()) sp->restorePluginStates (vst); });
+}
+
 void MainView::showSettings()
 {
     if (settingsWindow != nullptr) { settingsWindow->toFront (true); return; }
@@ -1488,6 +1560,197 @@ void MainView::onExportVideo (const juce::var& v)
                               if (f.existsAsFile()) opt.background = juce::ImageFileFormat::loadFrom (f);
                               juce::MessageManager::callAsync ([chooseTarget, opt] { chooseTarget (opt); });
                           });
+}
+
+namespace
+{
+    // stav vstavaneho efektu s nastavenymi parametrami (podla ID)
+    juce::MemoryBlock fxState (const juce::String& key, const std::map<juce::String, float>& vals, juce::PluginDescription& descOut)
+    {
+        for (const auto& d : BuiltinFx::descriptions())
+            if (d.fileOrIdentifier == "korgus:" + key)
+            {
+                descOut = d;
+                auto inst = BuiltinFx::create (d);
+                for (auto* p : inst->getParameters())
+                    if (auto* hp = dynamic_cast<juce::AudioPluginInstance::HostedParameter*> (p))
+                        if (auto it = vals.find (hp->getParameterID()); it != vals.end())
+                            p->setValue (p->getValueForText (juce::String (it->second, 3)));
+                juce::MemoryBlock mb;
+                inst->getStateInformation (mb);
+                return mb;
+            }
+        return {};
+    }
+
+    double bandRelDb (const std::vector<float>& mono, double sr, bool low, double fc)
+    {
+        std::vector<float> x (mono);
+        for (int k = 0; k < 2; ++k)
+        {
+            juce::IIRFilter f;
+            f.setCoefficients (low ? juce::IIRCoefficients::makeLowPass (sr, fc) : juce::IIRCoefficients::makeHighPass (sr, fc));
+            f.processSamples (x.data(), (int) x.size());
+        }
+        double e = 0, t = 0;
+        for (size_t i = 0; i < x.size(); ++i) { e += (double) x[i] * x[i]; t += (double) mono[i] * mono[i]; }
+        return 10.0 * std::log10 ((e + 1.0e-12) / (t + 1.0e-12));
+    }
+
+    struct MasteringJob : juce::ThreadWithProgressWindow
+    {
+        MasteringJob (Engine& e, std::unique_ptr<SongData> s, double endStep, double lufs, int ch, std::function<void (MasteringJob&)> onDone)
+            : ThreadWithProgressWindow (sk ("Mastering asistent"), true, true),
+              engine (e), sd (std::move (s)), end (endStep), target (lufs), character (ch), done (std::move (onDone)) {}
+
+        void run() override
+        {
+            const double sr = engine.getSampleRate();
+            const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("korgus_master.wav");
+            tmp.deleteFile();
+            {
+                std::unique_ptr<juce::OutputStream> os (tmp.createOutputStream().release());
+                if (os == nullptr) { error = sk ("Nedá sa zapísať dočasný súbor."); return; }
+                juce::WavAudioFormat wav;
+                auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (32)
+                                                    .withSampleFormat (juce::AudioFormatWriterOptions::SampleFormat::floatingPoint));
+                if (w == nullptr) { error = sk ("Nedá sa zapísať dočasný súbor."); return; }
+                setStatusMessage (sk ("Počúvam mix…"));
+                engine.bypassMaster = true;
+                const bool r = engine.renderOffline (*sd, end, 1.0, *w, [this] (double p) { setProgress (p * 0.6); return ! threadShouldExit(); });
+                engine.bypassMaster = false;
+                if (! r) { tmp.deleteFile(); return; }
+            }
+            juce::AudioBuffer<float> mix;
+            {
+                juce::WavAudioFormat wav;
+                std::unique_ptr<juce::AudioFormatReader> rd (wav.createReaderFor (new juce::FileInputStream (tmp), true));
+                if (rd == nullptr) { error = sk ("Dočasný súbor sa nedá prečítať."); return; }
+                mix.setSize (2, (int) rd->lengthInSamples);
+                rd->read (&mix, 0, (int) rd->lengthInSamples, 0, true, true);
+            }
+            tmp.deleteFile();
+            const int n = mix.getNumSamples();
+            if (n < (int) sr || mix.getMagnitude (0, n) < 1.0e-4f) { error = sk ("Pieseň je tichá – nie je čo masterovať."); return; }
+
+            setStatusMessage (sk ("Analyzujem…"));
+            lufsBefore = measureLufs (mix, sr);
+            std::vector<float> mono ((size_t) n);
+            for (int i = 0; i < n; ++i) mono[(size_t) i] = 0.5f * (mix.getSample (0, i) + mix.getSample (1, i));
+            const double lowRel = bandRelDb (mono, sr, true, 150.0), highRel = bandRelDb (mono, sr, false, 4000.0);
+            // tonalne ciele podla charakteru
+            const double tLow = character == 1 ? -4.0 : (character == 2 ? -5.5 : -5.0);
+            const double tHigh = character == 1 ? -18.0 : (character == 2 ? -14.0 : -16.0);
+            eqLow = (float) juce::jlimit (-4.0, 4.0, (tLow - lowRel) * 0.6);
+            eqHigh = (float) juce::jlimit (-4.0, 5.0, (tHigh - highRel) * 0.6);
+            // prah kompresora podla hlasnych miest (90. percentil RMS po 400 ms)
+            std::vector<float> lv;
+            const int win = (int) (sr * 0.4);
+            for (int i = 0; i + win <= n; i += win)
+            {
+                double e = 0; for (int k = 0; k < win; ++k) e += (double) mono[(size_t) (i + k)] * mono[(size_t) (i + k)];
+                const double db = 10.0 * std::log10 (e / win + 1.0e-12);
+                if (db > -60.0) lv.push_back ((float) db);
+            }
+            std::sort (lv.begin(), lv.end());
+            const float p90 = lv.empty() ? -20.0f : lv[(size_t) ((lv.size() - 1) * 9 / 10)];
+            compThr = juce::jlimit (-40.0f, -6.0f, p90 - 3.0f);
+
+            eqVals = { { "lowcut", 30.0f }, { "lowgain", eqLow }, { "lowfreq", 110.0f }, { "midgain", 0.0f }, { "midfreq", 1000.0f }, { "midq", 1.0f },
+                       { "highgain", eqHigh }, { "highfreq", 8000.0f }, { "output", 0.0f } };
+            compVals = { { "threshold", compThr }, { "ratio", 2.0f }, { "attack", 25.0f }, { "release", 160.0f }, { "makeup", 0.0f }, { "mix", 100.0f }, { "key", 0.0f } };
+            limGain = (float) juce::jlimit (0.0, 18.0, target - lufsBefore);
+
+            // dve skusky retazca - zisk limitera tak, aby sedela cielova hlasitost
+            for (int pass = 0; pass < 3 && ! threadShouldExit(); ++pass)
+            {
+                setStatusMessage (sk ("Dolaďujem hlasitosť…"));
+                limVals = { { "gain", limGain }, { "ceiling", -1.0f }, { "release", 60.0f } };
+                juce::AudioBuffer<float> b (mix);
+                juce::PluginDescription d;
+                std::unique_ptr<juce::AudioPluginInstance> chain[3];
+                const juce::String keys[3] { "eq", "comp", "limiter" };
+                const std::map<juce::String, float>* vals[3] { &eqVals, &compVals, &limVals };
+                for (int k = 0; k < 3; ++k)
+                {
+                    auto st = fxState (keys[k], *vals[k], d);
+                    chain[k] = BuiltinFx::create (d);
+                    chain[k]->setStateInformation (st.getData(), (int) st.getSize());
+                    chain[k]->prepareToPlay (sr, 1024);
+                }
+                juce::MidiBuffer mb;
+                for (int i = 0; i < n; i += 1024)
+                {
+                    const int len = juce::jmin (1024, n - i);
+                    juce::AudioBuffer<float> view (b.getArrayOfWritePointers(), 2, i, len);
+                    for (auto& c : chain) c->processBlock (view, mb);
+                    if ((i & 0xffff) == 0) setProgress (0.6 + 0.13 * pass + 0.13 * (double) i / n);
+                }
+                lufsAfter = measureLufs (b, sr);
+                if (pass < 2) limGain = (float) juce::jlimit (0.0, 24.0, (double) limGain + (target - lufsAfter));
+            }
+            ok = ! threadShouldExit();
+        }
+        void threadComplete (bool cancelled) override
+        {
+            if (cancelled) ok = false;
+            if (done) done (*this);
+            delete this;
+        }
+
+        Engine& engine;
+        std::unique_ptr<SongData> sd;
+        double end, target;
+        int character;
+        std::function<void (MasteringJob&)> done;
+        juce::String error;
+        bool ok = false;
+        double lufsBefore = 0, lufsAfter = 0;
+        float eqLow = 0, eqHigh = 0, compThr = -18, limGain = 0;
+        std::map<juce::String, float> eqVals, compVals, limVals;
+    };
+}
+
+void MainView::onMastering (const juce::var& v)
+{
+    if (exporting.load() || lastSong.isVoid()) return;
+    auto sd = parseCurrent (lastSong);
+    if (sd == nullptr) return;
+    const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
+    const double target = juce::jlimit (-20.0, -6.0, (double) v.getProperty ("lufs", -14.0));
+    const int character = juce::jlimit (0, 2, (int) v.getProperty ("character", 0));
+    engine.stop();
+    exporting = true;
+    juce::Component::SafePointer<MainView> sp (this);
+    auto* job = new MasteringJob (engine, std::move (sd), end, target, character, [sp] (MasteringJob& j)
+    {
+        if (sp == nullptr) return;
+        sp->exporting = false;
+        sp->lastSentPos = -1;
+        auto o = obj();
+        put (o, "ok", j.ok);
+        if (! j.ok) { put (o, "error", j.error.isNotEmpty() ? j.error : juce::String ("cancel")); sp->emit ("mastered", o); return; }
+        const juce::String keys[3] { "eq", "comp", "limiter" };
+        const std::map<juce::String, float>* vals[3] { &j.eqVals, &j.compVals, &j.limVals };
+        for (int k = 0; k < 3; ++k)
+        {
+            juce::PluginDescription d;
+            auto st = fxState (keys[k], *vals[k], d);
+            sp->loadFxForTrack ("__master", k, d, &st);
+        }
+        if (sp->engine.getFx (sp->engine.getOrCreateSlot ("__master"), 3) != nullptr)
+        {
+            sp->engine.setTrackFx (sp->engine.getOrCreateSlot ("__master"), 3, nullptr);
+            sp->fxDesc["__master"].erase (3);
+            sp->sendTrackPlugins();
+            sp->saveSession();
+        }
+        put (o, "before", std::round (j.lufsBefore * 10.0) / 10.0); put (o, "after", std::round (j.lufsAfter * 10.0) / 10.0);
+        put (o, "eqLow", std::round (j.eqLow * 10.0f) / 10.0f); put (o, "eqHigh", std::round (j.eqHigh * 10.0f) / 10.0f);
+        put (o, "thr", std::round (j.compThr * 10.0f) / 10.0f); put (o, "gain", std::round (j.limGain * 10.0f) / 10.0f);
+        sp->emit ("mastered", o);
+    });
+    job->launchThread();
 }
 
 //==============================================================================
