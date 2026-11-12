@@ -2097,24 +2097,36 @@ namespace
 
     struct SeparateJob : juce::ThreadWithProgressWindow
     {
-        SeparateJob (juce::AudioBuffer<float> clip, double sr, juce::File dataAi, juce::File exeAi,
-                     std::function<void (bool, juce::String, juce::AudioBuffer<float>&, juce::AudioBuffer<float>&)> onDone)
-            : ThreadWithProgressWindow (juce::String::fromUTF8 ("Oddeľujem spev a hudbu"), true, true),
-              mix (std::move (clip)), rate (sr), dataDir (dataAi), exeDir (exeAi), done (std::move (onDone)) {}
+        SeparateJob (juce::AudioBuffer<float> clip, double sr, juce::File dataAi, juce::File exeAi, bool fourStems,
+                     std::function<void (bool, juce::String, std::vector<juce::AudioBuffer<float>>&)> onDone)
+            : ThreadWithProgressWindow (juce::String::fromUTF8 (fourStems ? "Rozkladám pesničku na stopy" : "Oddeľujem spev a hudbu"), true, true),
+              mix (std::move (clip)), rate (sr), dataDir (dataAi), exeDir (exeAi), four (fourStems), done (std::move (onDone)) {}
 
         juce::File find (const juce::String& name) const
         {
             if (exeDir.getChildFile (name).existsAsFile()) return exeDir.getChildFile (name);
             return dataDir.getChildFile (name);
         }
+        bool ensureModel (const juce::String& name, const juce::String& url, const juce::String& sizeTxt, juce::File& out,
+                          const std::function<bool (double)>& prog)
+        {
+            out = find (name);
+            if (out.existsAsFile()) return true;
+            setStatusMessage (juce::String::fromUTF8 ("Sťahujem model ") + name + " (" + sizeTxt + juce::String::fromUTF8 (") – len prvý raz…"));
+            const auto tmp = out.getSiblingFile (name + ".part");
+            if (! downloadFile (url, tmp, error, prog)) { tmp.deleteFile(); return false; }
+            return tmp.moveFileTo (out);
+        }
         void run() override
         {
             auto prog = [this] (double p) { setProgress (p); return ! threadShouldExit(); };
-            auto model = find ("Kim_Vocal_2.onnx");
-            if (! model.existsAsFile())
+            juce::File model, mDrums, mBass;
+            if (! ensureModel ("Kim_Vocal_2.onnx", modelUrl, "66 MB", model, prog)) return;
+            if (four)
             {
-                setStatusMessage (juce::String::fromUTF8 ("Sťahujem model (66 MB) – len prvý raz…"));
-                if (! downloadFile (modelUrl, model, error, prog)) return;
+                const juce::String base ("https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/");
+                if (! ensureModel ("kuielab_a_drums.onnx", base + "kuielab_a_drums.onnx", "30 MB", mDrums, prog)) return;
+                if (! ensureModel ("kuielab_a_bass.onnx", base + "kuielab_a_bass.onnx", "30 MB", mBass, prog)) return;
             }
             auto ort = find (ortName);
             if (! ort.existsAsFile())
@@ -2136,32 +2148,45 @@ namespace
                #endif
                 if (! ort.existsAsFile()) { error = juce::String::fromUTF8 ("Chýba ONNX Runtime: ") + ort.getFullPathName(); return; }
             }
-            setStatusMessage (juce::String::fromUTF8 ("Oddeľujem spev a hudbu… (pesnička 3 min ≈ 1 – 3 min)"));
-            setProgress (0.0);
             auto in44 = resampleTo (mix, rate, 44100.0);
             if (in44.getNumChannels() < 2) { in44.setSize (2, in44.getNumSamples(), true); in44.copyFrom (1, 0, in44, 0, 0, in44.getNumSamples()); }
+            const int n = in44.getNumSamples();
+            const int steps = four ? 3 : 1;
+            auto part = [this, steps] (int k) { return [this, k, steps] (double p) { setProgress ((k + p) / steps); return ! threadShouldExit(); }; };
+
+            setStatusMessage (juce::String::fromUTF8 (four ? "Spev… (1/3)" : "Oddeľujem spev a hudbu… (pesnička 3 min ≈ 1 – 3 min)"));
+            setProgress (0.0);
             juce::AudioBuffer<float> voc44;
-            if (! separateVocals (ort, model, in44, voc44, error, prog)) return;
-            juce::AudioBuffer<float> mus44 (2, in44.getNumSamples());
-            for (int c = 0; c < 2; ++c)
+            if (! separateVocals (ort, model, in44, voc44, error, part (0))) return;
+            juce::AudioBuffer<float> rest (2, n);   // zvysok po odcitani
+            for (int c = 0; c < 2; ++c) { rest.copyFrom (c, 0, in44, c, 0, n); rest.addFrom (c, 0, voc44, c, 0, n, -1.0f); }
+            outs.push_back (resampleTo (voc44, 44100.0, rate));
+            if (four)
             {
-                mus44.copyFrom (c, 0, in44, c, 0, in44.getNumSamples());
-                mus44.addFrom (c, 0, voc44, c, 0, in44.getNumSamples(), -1.0f);
+                juce::AudioBuffer<float> dr44, bs44;
+                setStatusMessage (juce::String::fromUTF8 ("Bicie… (2/3)"));
+                if (! separateMdx (ort, mDrums, MdxParams { 4096, 2048, 512, 1.0f }, in44, dr44, error, part (1))) return;
+                setStatusMessage (juce::String::fromUTF8 ("Basa… (3/3)"));
+                if (! separateMdx (ort, mBass, MdxParams { 16384, 2048, 512, 1.0f }, in44, bs44, error, part (2))) return;
+                for (int c = 0; c < 2; ++c) { rest.addFrom (c, 0, dr44, c, 0, n, -1.0f); rest.addFrom (c, 0, bs44, c, 0, n, -1.0f); }
+                outs.push_back (resampleTo (dr44, 44100.0, rate));
+                outs.push_back (resampleTo (bs44, 44100.0, rate));
             }
-            vocals = resampleTo (voc44, 44100.0, rate);
-            music = resampleTo (mus44, 44100.0, rate);
+            outs.push_back (resampleTo (rest, 44100.0, rate));
             ok = true;
         }
         void threadComplete (bool cancelled) override
         {
-            if (done) done (ok && ! cancelled, cancelled ? juce::String::fromUTF8 ("Zrušené.") : error, vocals, music);
+            if (done) done (ok && ! cancelled, cancelled ? juce::String::fromUTF8 ("Zrušené.") : error, outs);
             delete this;
         }
 
-        juce::AudioBuffer<float> mix, vocals, music;
+        juce::AudioBuffer<float> mix;
+        std::vector<juce::AudioBuffer<float>> outs;   // spev, [bicie, basa,] zvysok
         double rate;
         juce::File dataDir, exeDir;
-        std::function<void (bool, juce::String, juce::AudioBuffer<float>&, juce::AudioBuffer<float>&)> done;
+        bool four = false;
+        std::function<void (bool, juce::String, std::vector<juce::AudioBuffer<float>>&)> done;
         juce::String error;
         bool ok = false;
     };
@@ -2242,18 +2267,24 @@ void MainView::onSeparate (const juce::var& v)
     const auto dataAi = dataDir.getChildFile ("AI");
     dataAi.createDirectory();
     juce::Component::SafePointer<MainView> sp (this);
-    auto* job = new SeparateJob (std::move (clip), sr, dataAi, exeAi,
-        [sp, req, sr] (bool ok, juce::String err, juce::AudioBuffer<float>& voc, juce::AudioBuffer<float>& mus)
+    const bool four = (bool) v.getProperty ("four", false);
+    auto* job = new SeparateJob (std::move (clip), sr, dataAi, exeAi, four,
+        [sp, req, sr] (bool ok, juce::String err, std::vector<juce::AudioBuffer<float>>& outs)
         {
             if (sp == nullptr) return;
             auto o = obj(); put (o, "req", req);
             if (! ok) { put (o, "error", err); sp->emit ("separated", o); return; }
-            const auto vid = sp->store->addRecording (voc.getReadPointer (0), voc.getReadPointer (1), voc.getNumSamples(), sr);
-            const auto mid = sp->store->addRecording (mus.getReadPointer (0), mus.getReadPointer (1), mus.getNumSamples(), sr);
-            if (vid.isEmpty() || mid.isEmpty()) { put (o, "error", sk ("Výsledok sa nepodarilo uložiť.")); sp->emit ("separated", o); return; }
-            sp->emit ("audioPeaks", sp->store->peaksFor (vid));
-            sp->emit ("audioPeaks", sp->store->peaksFor (mid));
-            put (o, "voc", vid); put (o, "mus", mid); put (o, "dur", voc.getNumSamples() / sr);
+            juce::Array<juce::var> ids;
+            for (auto& b : outs)
+            {
+                const auto id = sp->store->addRecording (b.getReadPointer (0), b.getReadPointer (1), b.getNumSamples(), sr);
+                if (id.isEmpty()) { put (o, "error", sk ("Výsledok sa nepodarilo uložiť.")); sp->emit ("separated", o); return; }
+                sp->emit ("audioPeaks", sp->store->peaksFor (id));
+                ids.add (id);
+            }
+            put (o, "ids", ids);
+            if (ids.size() == 2) { put (o, "voc", ids[0]); put (o, "mus", ids[1]); }
+            put (o, "dur", outs.empty() ? 0.0 : outs[0].getNumSamples() / sr);
             sp->emit ("separated", o);
         });
     job->launchThread();

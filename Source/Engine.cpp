@@ -704,6 +704,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 }
             }
 
+            if (td.arp.on || slot.arpWasOn) applyArp (slot, td.arp, td.channel, n, head.playing, head.ppq * 4.0);
             bool any = false;
             if (slot.plugin != nullptr) { slot.plugin->processBlock (view, slot.midi); any = true; }
             if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
@@ -790,6 +791,107 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     }
 
     renderClicks (out, curNumOut, n);
+}
+
+//==============================================================================
+// arpeggiator: drzane noty -> rozlozene tony v tempe (pri prehravani zarovnane na takt)
+void Engine::applyArp (Slot& s, const ArpSettings& a, int channel, int n, bool playing, double startStep)
+{
+    const int ch = juce::jlimit (1, 16, channel);
+    s.arpOut.clear();
+    auto offNow = [&] (int at) { if (s.arpNote >= 0) { s.arpOut.addEvent (juce::MidiMessage::noteOff (ch, s.arpNote), juce::jlimit (0, n - 1, at)); s.arpNote = -1; s.arpOffAt = -1; } };
+    if (! a.on)
+    {
+        // vypnuty: doznieť aktualny ton, ostatne prechadza bez zmeny
+        offNow (0);
+        s.arpHeld.clear();
+        s.arpWasOn = false;
+        for (const auto m : s.midi) s.arpOut.addEvent (m.getMessage(), m.samplePosition);
+        s.midi.swapWith (s.arpOut);
+        return;
+    }
+    if (! s.arpWasOn) { s.arpWasOn = true; s.arpIdx = 0; }
+    static const double rates[5] = { 4.0, 2.0, 4.0 / 3.0, 1.0, 0.5 };
+    const double rs = rates[juce::jlimit (0, 4, a.rate)];
+    const double sps = (head.bpm > 0 ? head.bpm : 120.0) * 4.0 / 60.0 / juce::jmax (1.0, sampleRate);   // krokov na vzorku
+    if (playing) s.arpClock = startStep;
+    const int gateLen = juce::jmax (1, (int) (juce::jlimit (0.05f, 1.0f, a.gate) * rs / sps));
+
+    auto tick = [&] (int at)
+    {
+        if (s.arpHeld.empty()) return;
+        s.arpSeq.clear();
+        std::vector<std::pair<int, int>> base (s.arpHeld);
+        if (a.mode != 4) std::sort (base.begin(), base.end());
+        for (int o = 0; o < juce::jlimit (1, 3, a.oct); ++o)
+            for (const auto& h : base) if (h.first + 12 * o <= 127) s.arpSeq.push_back (h.first + 12 * o);
+        const int m = (int) s.arpSeq.size();
+        if (m == 0) return;
+        int pick = 0;
+        const int i = s.arpIdx++;
+        switch (a.mode)
+        {
+            case 1: pick = m - 1 - (i % m); break;
+            case 2: { const int per = juce::jmax (1, 2 * m - 2); const int q = i % per; pick = m == 1 ? 0 : (q < m ? q : per - q); break; }
+            case 3: pick = s.arpRnd.nextInt (m); break;
+            default: pick = i % m; break;
+        }
+        const int pitch = s.arpSeq[(size_t) pick];
+        int vel = 100;
+        for (const auto& h : s.arpHeld) if (pitch >= h.first && (pitch - h.first) % 12 == 0) { vel = h.second; break; }
+        offNow (at);
+        s.arpOut.addEvent (juce::MidiMessage::noteOn (ch, pitch, (juce::uint8) juce::jlimit (1, 127, vel)), at);
+        s.arpNote = pitch;
+        s.arpOffAt = at + gateLen;
+    };
+
+    // casy krokov v tomto bloku
+    double next = std::ceil (s.arpClock / rs - 1.0e-9) * rs;
+    auto nextTickAt = [&] () -> int { return (int) std::floor ((next - s.arpClock) / sps + 0.5); };
+    auto it = s.midi.cbegin();
+    const auto end = s.midi.cend();
+    for (;;)
+    {
+        const int tAt = nextTickAt();
+        const int eAt = it != end ? (*it).samplePosition : n;
+        const int oAt = (s.arpNote >= 0 && s.arpOffAt >= 0) ? s.arpOffAt : n;
+        const int at = juce::jmin (tAt, eAt, oAt);
+        if (at >= n) break;
+        if (oAt == at) { offNow (at); continue; }
+        if (eAt == at)
+        {
+            const auto msg = (*it).getMessage();
+            ++it;
+            if (msg.isNoteOn())
+            {
+                const bool first = s.arpHeld.empty();
+                const int p = msg.getNoteNumber();
+                if (std::find_if (s.arpHeld.begin(), s.arpHeld.end(), [p] (const auto& h) { return h.first == p; }) == s.arpHeld.end())
+                    s.arpHeld.push_back ({ p, (int) msg.getVelocity() });
+                if (first) s.arpIdx = 0;
+                if (first && ! playing) { s.arpClock = -at * sps; next = 0; }   // bez prehravania: zacat hned
+            }
+            else if (msg.isNoteOff())
+            {
+                const int p = msg.getNoteNumber();
+                s.arpHeld.erase (std::remove_if (s.arpHeld.begin(), s.arpHeld.end(), [p] (const auto& h) { return h.first == p; }), s.arpHeld.end());
+                if (s.arpHeld.empty()) offNow (at);
+            }
+            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+            {
+                s.arpHeld.clear();
+                offNow (at);
+                s.arpOut.addEvent (msg, at);
+            }
+            else s.arpOut.addEvent (msg, at);
+            continue;
+        }
+        tick (at);
+        next += rs;
+    }
+    if (s.arpNote >= 0 && s.arpOffAt >= 0) s.arpOffAt -= n;
+    s.arpClock += n * sps;
+    s.midi.swapWith (s.arpOut);
 }
 
 //==============================================================================

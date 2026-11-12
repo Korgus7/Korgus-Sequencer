@@ -7,14 +7,6 @@
 
 namespace
 {
-    // parametre modelu Kim_Vocal_2 (MDX-Net)
-    constexpr int nFft = 7680, hop = 1024, dimF = 3072, dimT = 256;
-    constexpr int nBins = nFft / 2 + 1;
-    constexpr int chunk = hop * (dimT - 1);
-    constexpr int trim = nFft / 2;
-    constexpr int gen = chunk - 2 * trim;
-    constexpr float compensate = 1.009f;
-
     struct Ort
     {
         const OrtApi* api = nullptr;
@@ -41,7 +33,7 @@ namespace
         }
     };
 
-    std::vector<float> hann()
+    std::vector<float> hann (int nFft)
     {
         std::vector<float> w ((size_t) nFft);
         for (int i = 0; i < nFft; ++i) w[(size_t) i] = 0.5f - 0.5f * std::cos (2.0f * juce::MathConstants<float>::pi * (float) i / (float) nFft);
@@ -53,6 +45,19 @@ bool separateVocals (const juce::File& ortLibrary, const juce::File& model,
                      const juce::AudioBuffer<float>& in44, juce::AudioBuffer<float>& vocals,
                      juce::String& error, const std::function<bool (double)>& progress)
 {
+    return separateMdx (ortLibrary, model, MdxParams{}, in44, vocals, error, progress);
+}
+
+bool separateMdx (const juce::File& ortLibrary, const juce::File& model, const MdxParams& prm,
+                  const juce::AudioBuffer<float>& in44, juce::AudioBuffer<float>& vocals,
+                  juce::String& error, const std::function<bool (double)>& progress)
+{
+    const int nFft = prm.nFft, hop = 1024, dimF = prm.dimF, dimT = prm.dimT;
+    const int nBins = nFft / 2 + 1;
+    const int chunk = hop * (dimT - 1);
+    const int trim = nFft / 2;
+    const int gen = chunk - 2 * trim;
+    const float compensate = prm.compensate;
     juce::DynamicLibrary lib;
     if (! lib.open (ortLibrary.getFullPathName())) { error = juce::String::fromUTF8 ("ONNX Runtime sa nedá načítať: ") + ortLibrary.getFullPathName(); return false; }
     using GetBase = const OrtApiBase* (ORT_API_CALL*) ();
@@ -91,7 +96,7 @@ bool separateVocals (const juce::File& ortLibrary, const juce::File& model,
         vocals.setSize (2, n);
         vocals.clear();
 
-        const auto win = hann();
+        const auto win = hann (nFft);
         std::vector<float> input ((size_t) 4 * dimF * dimT);
         std::vector<float> padded ((size_t) chunk + nFft), frame ((size_t) nFft), acc ((size_t) chunk + nFft), wsum ((size_t) chunk + nFft);
         std::vector<std::complex<float>> spec ((size_t) nBins);

@@ -57,9 +57,19 @@ struct AutoLane
     }
 };
 
+struct ArpSettings
+{
+    bool on = false;
+    int rate = 3;       // 0 = 1/4, 1 = 1/8, 2 = 1/8 triola, 3 = 1/16, 4 = 1/32
+    int mode = 0;       // 0 hore, 1 dole, 2 hore-dole, 3 nahodne, 4 ako hrane
+    int oct = 1;        // 1..3
+    float gate = 0.8f;  // dlzka tonu (cast kroku)
+};
+
 struct TrackData
 {
-    float vol = 0.8f, pan = 0;  // zakladna hlasitost a panorama (pre automatizaciu)
+    float vol = 0.8f, pan = 0;
+    ArpSettings arp;  // zakladna hlasitost a panorama (pre automatizaciu)
     std::vector<AutoLane> autos;
     std::vector<HitEv> hits;    // zoradene podla start
     bool isAudio = false;
@@ -226,6 +236,14 @@ private:
         std::vector<std::pair<int, double>> active; // pitch, koniec
         float curL = -1, curR = -1;                        // posledne zosilnenie (plynuly prechod)
         std::vector<std::pair<int, float>> lastParams;     // posledne nastavene parametre z automatizacie
+        // arpeggiator
+        std::vector<std::pair<int, int>> arpHeld;   // drzane noty (vyska, sila) v poradi stlacenia
+        std::vector<int> arpSeq;
+        juce::MidiBuffer arpOut;
+        double arpClock = 0;
+        int arpIdx = 0, arpNote = -1, arpOffAt = -1;
+        bool arpWasOn = false;
+        juce::Random arpRnd;
         struct Voice { AudioBufPtr buf; juce::int64 pos = 0; float gain = 1; int lane = 0; int fade = -1; int fadeLen = 64; };
         std::vector<Voice> voices;
         void addVoice (AudioBufPtr b, juce::int64 pos, float gain, int lane);
@@ -246,6 +264,7 @@ private:
 
     void process (const float* const* in, int numIn, float* const* out, int numOut, int n, const SongData* forced);
     void renderSegment (const SongData&, double p0, double p1, int off, int len, double samplesPerStep);
+    void applyArp (Slot& s, const ArpSettings& a, int channel, int n, bool playing, double startStep);
     void mixClips (const TrackData&, juce::AudioBuffer<float>& dst, double p0, int off, int len, double samplesPerStep);
     void forEachPlugin (const std::function<void (juce::AudioPluginInstance&)>&);
     void captureInput (int off, int len, double p0);
