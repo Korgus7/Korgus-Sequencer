@@ -31,6 +31,7 @@ target_sources(KorgusSequencer PRIVATE
     Source/Separator.cpp
     Source/BuiltinFx.cpp
     Source/Autotune.cpp
+    Source/Mp3Export.cpp
     Source/UiCommon.cpp
     Source/MainView.cpp)
 
@@ -50,8 +51,17 @@ if(WIN32 AND ASIO_SDK_DIR)
     message(STATUS "ASIO zapnute: ${ASIO_SDK_DIR}")
 endif()
 
+file(GLOB SHINE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/shine/*.c")
+add_library(shine STATIC ${SHINE_SOURCES})
+set_target_properties(shine PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+    target_compile_options(shine PRIVATE /wd4244 /wd4267 /wd4305)
+    set_property(TARGET shine PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 target_link_libraries(KorgusSequencer
     PRIVATE
+        shine
         KorgusData
         juce::juce_dsp
         juce::juce_audio_utils

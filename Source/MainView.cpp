@@ -1,6 +1,7 @@
 #include "MainView.h"
 #include "BuiltinFx.h"
 #include "Autotune.h"
+#include "Mp3Export.h"
 #include "BinaryData.h"
 #include "SongParse.h"
 #include "Melody.h"
@@ -228,6 +229,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("separate",    [this] (const juce::var& v) { onSeparate (v); })
         .withEventListener ("autotune",    [this] (const juce::var& v) { onAutotune (v); })
         .withEventListener ("bounce",      [this] (const juce::var& v) { onBounce (v); })
+        .withEventListener ("exportMp3",   [this] (const juce::var& v) { onExportMp3 (v); })
         .withEventListener ("clipPeak",    [this] (const juce::var& v)
                             {
                                 auto b = store->get (v["id"].toString());
@@ -1254,6 +1256,100 @@ void MainView::onExportWav (const juce::var& v)
                                   sp->lastSentPos = -1;
                                   auto o = obj();
                                   put (o, "ok", good); put (o, "name", f.getFullPathName());
+                                  sp->emit ("exported", o);
+                              });
+                              job->launchThread();
+                          });
+}
+
+namespace
+{
+    struct Mp3Job : juce::ThreadWithProgressWindow
+    {
+        Mp3Job (Engine& e, std::unique_ptr<SongData> s, double endStep, double lufs, int kbps, juce::File f, std::function<void (bool, juce::String)> onDone)
+            : ThreadWithProgressWindow (sk ("Export MP3 – ") + f.getFileName(), true, true),
+              engine (e), sd (std::move (s)), end (endStep), target (lufs), rate (kbps), file (f), done (std::move (onDone)) {}
+
+        void run() override
+        {
+            const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("korgus_mp3.wav");
+            tmp.deleteFile();
+            const double sr = engine.getSampleRate();
+            {
+                std::unique_ptr<juce::OutputStream> os (tmp.createOutputStream().release());
+                if (os == nullptr) { error = sk ("Nedá sa zapísať dočasný súbor."); return; }
+                juce::WavAudioFormat wav;
+                auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (32)
+                                                    .withSampleFormat (juce::AudioFormatWriterOptions::SampleFormat::floatingPoint));
+                if (w == nullptr) { error = sk ("Nedá sa zapísať dočasný súbor."); return; }
+                setStatusMessage (sk ("Nahrávam pieseň…"));
+                if (! engine.renderOffline (*sd, end, 3.0, *w, [this] (double p) { setProgress (p * 0.6); return ! threadShouldExit(); })) { tmp.deleteFile(); return; }
+            }
+            juce::AudioBuffer<float> mix;
+            {
+                juce::WavAudioFormat wav;
+                std::unique_ptr<juce::AudioFormatReader> r (wav.createReaderFor (new juce::FileInputStream (tmp), true));
+                if (r == nullptr) { error = sk ("Dočasný súbor sa nedá prečítať."); return; }
+                mix.setSize (2, (int) r->lengthInSamples);
+                r->read (&mix, 0, (int) r->lengthInSamples, 0, true, true);
+            }
+            tmp.deleteFile();
+            // ticho na konci (dozvuk 3 s) odstrihnut
+            int n = mix.getNumSamples();
+            while (n > (int) sr && mix.getMagnitude (0, n - 64, 64) < 1.0e-4f && mix.getMagnitude (1, n - 64, 64) < 1.0e-4f) n -= 64;
+            mix.setSize (2, juce::jmin (mix.getNumSamples(), n + (int) (sr * 0.2)), true);
+            setStatusMessage (sk ("Dorovnávam hlasitosť…"));
+            setProgress (0.62);
+            before = measureLufs (mix, sr);
+            gain = normaliseLoudness (mix, sr, target, -1.0);
+            setStatusMessage (sk ("Ukladám MP3…"));
+            ok = writeMp3 (mix, sr, rate, file, error, [this] (double p) { setProgress (0.65 + p * 0.35); return ! threadShouldExit(); });
+        }
+        void threadComplete (bool cancelled) override
+        {
+            juce::String info;
+            if (ok && target < 0) info = sk ("hlasitosť ") + juce::String (before, 1) + sk (" → ") + juce::String (target, 0) + " LUFS";
+            if (done) done (ok && ! cancelled, ok ? info : error);
+            delete this;
+        }
+
+        Engine& engine;
+        std::unique_ptr<SongData> sd;
+        double end, target;
+        int rate;
+        juce::File file;
+        std::function<void (bool, juce::String)> done;
+        juce::String error;
+        double before = 0, gain = 0;
+        bool ok = false;
+    };
+}
+
+void MainView::onExportMp3 (const juce::var& v)
+{
+    if (exporting.load() || lastSong.isVoid()) return;
+    const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
+    const double lufs = (double) v.getProperty ("lufs", -14.0);
+    const int kbps = juce::jlimit (128, 320, (int) v.getProperty ("kbps", 320));
+    chooser = std::make_unique<juce::FileChooser> (sk ("Export MP3"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("piesen.mp3"), "*.mp3");
+    juce::Component::SafePointer<MainView> sp (this);
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [sp, end, lufs, kbps] (const juce::FileChooser& fc)
+                          {
+                              auto f = fc.getResult();
+                              if (sp == nullptr || f == juce::File()) return;
+                              f = f.withFileExtension ("mp3");
+                              auto sd = sp->parseCurrent (sp->lastSong);
+                              if (sd == nullptr) return;
+                              sp->engine.stop();
+                              sp->exporting = true;
+                              auto* job = new Mp3Job (sp->engine, std::move (sd), end, lufs, kbps, f, [sp, f] (bool good, juce::String info)
+                              {
+                                  if (sp == nullptr) return;
+                                  sp->exporting = false;
+                                  sp->lastSentPos = -1;
+                                  auto o = obj();
+                                  put (o, "ok", good); put (o, "name", f.getFullPathName()); put (o, "info", info);
                                   sp->emit ("exported", o);
                               });
                               job->launchThread();

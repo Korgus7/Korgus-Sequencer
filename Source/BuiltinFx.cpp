@@ -1,5 +1,6 @@
 #include "BuiltinFx.h"
 #include <juce_dsp/juce_dsp.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 
 namespace
 {
@@ -110,6 +111,8 @@ public:
                                          .withInput ("In", AudioChannelSet::stereo())
                                          .withOutput ("Out", AudioChannelSet::stereo())),
                                      fxName (std::move (nm)), fxKey (std::move (key)) {}
+    FxBase (String nm, String key, bool instrument) : AudioPluginInstance (BusesProperties().withOutput ("Out", AudioChannelSet::stereo())),
+                                                      fxName (std::move (nm)), fxKey (std::move (key)), isInst (instrument) {}
 
     FxParam* add (String id, const char* utf8Name, float lo, float hi, float def, String u, float skew = 1.0f, int dec = 1)
     {
@@ -120,7 +123,7 @@ public:
         return raw;
     }
 
-    static PluginDescription describe (const String& name, const String& key)
+    static PluginDescription describe (const String& name, const String& key, bool instrument = false)
     {
         PluginDescription d;
         d.name = name; d.descriptiveName = name;
@@ -130,12 +133,13 @@ public:
         d.version = "1.0";
         d.fileOrIdentifier = "korgus:" + key;
         d.uniqueId = d.deprecatedUid = (int) (String ("korgus:" + key).hashCode() & 0x7fffffff);
-        d.isInstrument = false;
-        d.numInputChannels = 2; d.numOutputChannels = 2;
+        d.isInstrument = instrument;
+        d.numInputChannels = instrument ? 0 : 2; d.numOutputChannels = 2;
+        if (instrument) d.category = "Instrument";
         return d;
     }
 
-    void fillInPluginDescription (PluginDescription& d) const override { d = describe (fxName, fxKey); }
+    void fillInPluginDescription (PluginDescription& d) const override { d = describe (fxName, fxKey, isInst); }
     const String getName() const override { return fxName; }
 
     bool isBusesLayoutSupported (const BusesLayout& l) const override
@@ -204,6 +208,7 @@ protected:
 
 private:
     String fxName, fxKey;
+    bool isInst = false;
 };
 
 KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProcessorEditor (p), params (ps)
@@ -709,7 +714,264 @@ void PulseDisplay::paint (Graphics& g)
                 r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
 }
 
-struct Entry { const char* key; const char* name; std::function<std::unique_ptr<AudioPluginInstance>()> make; };
+
+//==============================================================================
+// Korgus Sampler - jeden zvuk (wav, mp3...) hrany po tonoch z klaves
+class SamplerInst;
+
+class SamplerDisplay final : public Component, public FileDragAndDropTarget, private Timer
+{
+public:
+    explicit SamplerDisplay (SamplerInst& s);
+    ~SamplerDisplay() override { stopTimer(); }
+    void paint (Graphics&) override;
+    void resized() override { load.setBounds (getWidth() - 132, 6, 124, 24); }
+    bool isInterestedInFileDrag (const StringArray& f) override;
+    void filesDropped (const StringArray& f, int, int) override;
+    void mouseDown (const MouseEvent&) override;
+private:
+    void timerCallback() override { repaint(); }
+    void choose();
+    SamplerInst& sm;
+    TextButton load;
+    std::unique_ptr<FileChooser> chooser;
+};
+
+class SamplerInst final : public FxBase
+{
+public:
+    SamplerInst() : FxBase ("Korgus Sampler", "sampler", true)
+    {
+        root = add ("root", "Kľúčová nota", 24, 96, 60, "", 1.0f, 0);
+        root->range.interval = 1.0f;
+        root->textFn = [] (float v) { return MidiMessage::getMidiNoteName (roundToInt (v), true, true, 3); };
+        tune = add ("tune", "Ladenie", -100, 100, 0, "cent", 1.0f, 0);
+        att  = add ("attack", "Nábeh", 0, 2000, 2, "ms", 0.35f, 0);
+        rel  = add ("release", "Uvoľnenie", 5, 5000, 250, "ms", 0.35f, 0);
+        velS = add ("velocity", "Citlivosť", 0, 100, 70, "%", 1.0f, 0);
+        vol  = add ("volume", "Hlasitosť", -24, 12, 0, "dB");
+        mode = add ("mode", "Hrať", 0, 1, 0, "", 1.0f, 0);
+        mode->range.interval = 1.0f;
+        mode->choices = StringArray { String::fromUTF8 ("Kým držím klávesu"), String::fromUTF8 ("Celý zvuk") };
+    }
+
+    std::unique_ptr<Component> makeDisplay() override { return std::make_unique<SamplerDisplay> (*this); }
+    bool isBusesLayoutSupported (const BusesLayout& l) const override
+    {
+        const auto out = l.getMainOutputChannelSet();
+        return out == AudioChannelSet::mono() || out == AudioChannelSet::stereo();
+    }
+    bool acceptsMidi() const override { return true; }
+    double getTailLengthSeconds() const override { return 1.0; }
+
+    bool loadFile (const File& f, String& err)
+    {
+        AudioFormatManager fm;
+        fm.registerBasicFormats();
+        std::unique_ptr<AudioFormatReader> r (fm.createReaderFor (f));
+        if (r == nullptr || r->lengthInSamples <= 0) { err = String::fromUTF8 ("Tento súbor sa nedá prečítať."); return false; }
+        if (r->lengthInSamples > (int64) (r->sampleRate * 120)) { err = String::fromUTF8 ("Zvuk je dlhší ako 2 minúty."); return false; }
+        auto b = std::make_shared<AudioBuffer<float>> (jlimit (1, 2, (int) r->numChannels), (int) r->lengthInSamples);
+        r->read (b.get(), 0, (int) r->lengthInSamples, 0, true, b->getNumChannels() > 1);
+        MemoryBlock bytes;
+        if (f.getSize() < 6 * 1024 * 1024) f.loadFileAsData (bytes);
+        {
+            const SpinLock::ScopedLockType l (lock);
+            sample = b; sampleRate = r->sampleRate;
+            for (auto& v : voices) v.on = false;
+        }
+        fileName = f.getFileName(); filePath = f.getFullPathName(); fileData = bytes;
+        return true;
+    }
+
+    std::shared_ptr<AudioBuffer<float>> getSample() const { const SpinLock::ScopedLockType l (lock); return sample; }
+    String fileName, filePath;
+
+    void getStateInformation (MemoryBlock& mb) override
+    {
+        XmlElement x ("KORGUSFX");
+        x.setAttribute ("type", "sampler");
+        for (auto* p : knobs) x.setAttribute (p->id, (double) p->get());
+        x.setAttribute ("file", filePath);
+        x.setAttribute ("name", fileName);
+        if (fileData.getSize() > 0) x.setAttribute ("data", fileData.toBase64Encoding());
+        copyXmlToBinary (x, mb);
+    }
+
+    void setStateInformation (const void* data, int size) override
+    {
+        auto x = getXmlFromBinary (data, size);
+        if (x == nullptr) return;
+        for (auto* p : knobs)
+            if (x->hasAttribute (p->id)) p->setValueNotifyingHost (p->range.convertTo0to1 ((float) x->getDoubleAttribute (p->id)));
+        String err;
+        const File f (x->getStringAttribute ("file"));
+        if (f.existsAsFile()) { loadFile (f, err); return; }
+        MemoryBlock mb;
+        if (mb.fromBase64Encoding (x->getStringAttribute ("data")) && mb.getSize() > 0)
+        {
+            // zvuk ulozeny v projekte (napr. na inom pocitaci) - rozbalit do docasneho suboru
+            const auto name = x->getStringAttribute ("name", "sample.wav");
+            const auto tmp = File::getSpecialLocation (File::tempDirectory).getChildFile ("korgus_sampler").getChildFile (name);
+            tmp.getParentDirectory().createDirectory();
+            tmp.replaceWithData (mb.getData(), mb.getSize());
+            if (loadFile (tmp, err)) filePath = f.getFullPathName().isNotEmpty() ? f.getFullPathName() : tmp.getFullPathName();
+        }
+    }
+
+    void processBlock (AudioBuffer<float>& buf, MidiBuffer& midi) override
+    {
+        ScopedNoDenormals nd;
+        const int n = buf.getNumSamples(), ch = buf.getNumChannels();
+        buf.clear();
+        const SpinLock::ScopedTryLockType l (lock);
+        if (! l.isLocked() || sample == nullptr) return;
+        const auto& smp = *sample;
+        const int sl = smp.getNumSamples(), sc = smp.getNumChannels();
+        const float aS = (float) jmax (1.0, att->get() * 0.001 * rate);
+        const float rCoef = (float) std::exp (-1.0 / jmax (1.0, rel->get() * 0.001 * rate / 4.6));
+        const float g = Decibels::decibelsToGain (vol->get()), vs = velS->get() * 0.01f;
+        const bool whole = mode->get() > 0.5f;
+        int pos = 0;
+        auto render = [&] (int from, int to)
+        {
+            for (auto& v : voices)
+            {
+                if (! v.on) continue;
+                for (int i = from; i < to; ++i)
+                {
+                    if (v.pos >= sl - 2) { v.on = false; break; }
+                    float e;
+                    if (v.releasing) { v.env *= rCoef; e = v.env; if (e < 1.0e-4f) { v.on = false; break; } }
+                    else { v.env = jmin (1.0f, v.env + 1.0f / aS); e = v.env; }
+                    const int k = (int) v.pos;
+                    const float fr = (float) (v.pos - k);
+                    for (int c = 0; c < ch; ++c)
+                    {
+                        const float* d = smp.getReadPointer (jmin (c, sc - 1));
+                        const float x0 = d[jmax (0, k - 1)], x1 = d[k], x2 = d[k + 1], x3 = d[jmin (sl - 1, k + 2)];
+                        const float c1 = 0.5f * (x2 - x0), c2 = x0 - 2.5f * x1 + 2.0f * x2 - 0.5f * x3, c3 = 0.5f * (x3 - x0) + 1.5f * (x1 - x2);
+                        buf.getWritePointer (c)[i] += (((c3 * fr + c2) * fr + c1) * fr + x1) * e * v.gain;
+                    }
+                    v.pos += v.step;
+                }
+            }
+        };
+        for (const auto md : midi)
+        {
+            const auto m = md.getMessage();
+            const int at = jlimit (0, n, md.samplePosition);
+            render (pos, at);
+            pos = at;
+            if (m.isNoteOn())
+            {
+                Voice* v = nullptr;
+                for (auto& x : voices) if (! x.on) { v = &x; break; }
+                if (v == nullptr) { v = &voices[0]; for (auto& x : voices) if (x.age < v->age) v = &x; }
+                const double semis = m.getNoteNumber() - root->get() + tune->get() / 100.0;
+                v->on = true; v->releasing = false; v->note = m.getNoteNumber(); v->pos = 0; v->env = 0;
+                v->step = std::pow (2.0, semis / 12.0) * sampleRate / rate;
+                v->gain = g * (1.0f - vs + vs * m.getFloatVelocity());
+                v->age = ++counter;
+            }
+            else if (m.isNoteOff() && ! whole)
+            {
+                for (auto& x : voices) if (x.on && ! x.releasing && x.note == m.getNoteNumber()) x.releasing = true;
+            }
+            else if (m.isAllNotesOff() || m.isAllSoundOff())
+                for (auto& x : voices) x.releasing = true;
+        }
+        render (pos, n);
+        lastActive = 0;
+        for (auto& v : voices) if (v.on) ++lastActive;
+    }
+
+    int lastActive = 0;
+
+private:
+    void prepare() override { for (auto& v : voices) v.on = false; }
+    void process (AudioBuffer<float>&) override {}
+
+    struct Voice { bool on = false, releasing = false; int note = 60; double pos = 0, step = 1; float env = 0, gain = 1; uint32 age = 0; };
+    std::array<Voice, 24> voices;
+    uint32 counter = 0;
+    FxParam *root, *tune, *att, *rel, *velS, *vol, *mode;
+    std::shared_ptr<AudioBuffer<float>> sample;
+    double sampleRate = 44100;
+    MemoryBlock fileData;
+    mutable SpinLock lock;
+};
+
+SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
+{
+    load.setButtonText (String::fromUTF8 ("Načítať zvuk…"));
+    load.setColour (TextButton::buttonColourId, Colour (0xff2d4362));
+    load.setColour (TextButton::textColourOffId, Colour (0xffe4e9ef));
+    load.onClick = [this] { choose(); };
+    addAndMakeVisible (load);
+    startTimerHz (10);
+}
+
+void SamplerDisplay::choose()
+{
+    chooser = std::make_unique<FileChooser> (String::fromUTF8 ("Vyber zvuk pre sampler"), File (sm.filePath).existsAsFile() ? File (sm.filePath) : File::getSpecialLocation (File::userMusicDirectory),
+                                             "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
+    SafePointer<SamplerDisplay> sp (this);
+    chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles, [sp] (const FileChooser& fc)
+    {
+        if (sp == nullptr || fc.getResult() == File()) return;
+        String err;
+        if (! sp->sm.loadFile (fc.getResult(), err)) AlertWindow::showMessageBoxAsync (MessageBoxIconType::WarningIcon, "Korgus Sampler", err);
+        sp->repaint();
+    });
+}
+
+bool SamplerDisplay::isInterestedInFileDrag (const StringArray& f)
+{
+    return f.size() == 1 && File (f[0]).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3");
+}
+
+void SamplerDisplay::filesDropped (const StringArray& f, int, int)
+{
+    String err;
+    if (! sm.loadFile (File (f[0]), err)) AlertWindow::showMessageBoxAsync (MessageBoxIconType::WarningIcon, "Korgus Sampler", err);
+    repaint();
+}
+
+void SamplerDisplay::mouseDown (const MouseEvent&) { if (sm.getSample() == nullptr) choose(); }
+
+void SamplerDisplay::paint (Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (Colour (0xff161c24));
+    g.fillRoundedRectangle (r, 3.0f);
+    g.setFont (FontOptions (12.0f));
+    g.setColour (Colour (0xff8a96a6));
+    g.drawText ("SAMPLER", r.reduced (10, 6).removeFromTop (18), Justification::centredLeft);
+    auto smp = sm.getSample();
+    auto area = r.reduced (10, 0).withTrimmedTop (38).withTrimmedBottom (10);
+    if (smp == nullptr)
+    {
+        g.setColour (Colour (0xffc9d2dc));
+        g.drawText (String::fromUTF8 ("Pretiahni sem zvuk (wav, mp3…) alebo klikni na „Načítať zvuk…“"), area, Justification::centred);
+        return;
+    }
+    g.setColour (Colour (0xffc9d2dc));
+    g.drawText (sm.fileName, r.reduced (10, 6).removeFromTop (18).withTrimmedLeft (70).withTrimmedRight (140), Justification::centredLeft);
+    const int W = jmax (2, (int) area.getWidth()), n = smp->getNumSamples();
+    const float* d = smp->getReadPointer (0);
+    g.setColour (Colour (0xff6f8fb3));
+    const float mid = area.getCentreY(), hh = area.getHeight() * 0.5f;
+    for (int x = 0; x < W; ++x)
+    {
+        const int a = (int) ((int64) x * n / W), b = jmax (a + 1, (int) ((int64) (x + 1) * n / W));
+        float mn = 0, mx = 0;
+        for (int i = a; i < b && i < n; i += jmax (1, (b - a) / 64)) { mn = jmin (mn, d[i]); mx = jmax (mx, d[i]); }
+        g.drawVerticalLine ((int) area.getX() + x, mid - mx * hh, mid - mn * hh + 1.0f);
+    }
+}
+
+struct Entry { const char* key; const char* name; std::function<std::unique_ptr<AudioPluginInstance>()> make; bool inst = false; };
 
 const std::vector<Entry>& entries()
 {
@@ -720,6 +982,7 @@ const std::vector<Entry>& entries()
         { "delay",   "Korgus Ozvena",    [] { return std::unique_ptr<AudioPluginInstance> (new DelayFx()); } },
         { "limiter", "Korgus Limiter",   [] { return std::unique_ptr<AudioPluginInstance> (new LimiterFx()); } },
         { "pulse",   "Korgus PulseDip",  [] { return std::unique_ptr<AudioPluginInstance> (new PulseFx()); } },
+        { "sampler", "Korgus Sampler",   [] { return std::unique_ptr<AudioPluginInstance> (new SamplerInst()); }, true },
     };
     return e;
 }
@@ -730,7 +993,7 @@ namespace BuiltinFx
 juce::Array<juce::PluginDescription> descriptions()
 {
     juce::Array<juce::PluginDescription> a;
-    for (const auto& e : entries()) a.add (FxBase::describe (e.name, e.key));
+    for (const auto& e : entries()) a.add (FxBase::describe (e.name, e.key, e.inst));
     return a;
 }
 

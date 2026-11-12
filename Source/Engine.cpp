@@ -302,7 +302,8 @@ void Engine::mixClips (const TrackData& td, juce::AudioBuffer<float>& dst, doubl
     for (const auto& c : td.clips)
     {
         if (c.buf == nullptr) continue;
-        const double into = (p0 - c.start) * sps;            // vzoriek od zaciatku klipu
+        // vzoriek od zaciatku klipu (cas, nie kroky - pri zmene tempa klip hra plynulo dalej)
+        const double into = p0 >= c.start && curSongData != nullptr ? curSongData->secondsBetween (c.start, p0) * sampleRate : (p0 - c.start) * sps;
         const double durS = c.dur * sampleRate;
         const int i0 = juce::jmax (0, (int) std::ceil (-into));
         const int i1 = juce::jmin (len, (int) std::floor (durS - into));
@@ -524,7 +525,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                     pos = c.a;
                     if (c.b > 0 && song.load() != nullptr)
                     {
-                        beatSamples = 60.0 / song.load()->tempo * sampleRate;
+                        beatSamples = 60.0 / song.load()->tempoAt (c.a) * sampleRate;
                         countBeatsLeft = c.b * 4;
                         countTotal = countBeatsLeft;
                         countSamples = 0;
@@ -552,10 +553,11 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
 
     auto* sd = forced != nullptr ? forced : song.load();
 
-    head.bpm = sd != nullptr && sd->tempo > 0 ? sd->tempo : 120.0;
+    curSongData = sd;
+    head.bpm = sd != nullptr ? juce::jlimit (20.0, 400.0, sd->tempoAt (pos)) : 120.0;
     head.ppq = pos / 4.0;
     head.sr = sampleRate;
-    head.samples = (juce::int64) (pos * sampleRate * 60.0 / (head.bpm * 4.0));
+    head.samples = (juce::int64) ((sd != nullptr ? sd->secondsBetween (0, pos) : pos * 15.0 / head.bpm) * sampleRate);
     head.playing = state == playing;
 
     // pracovne buffre stop
@@ -589,17 +591,18 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
 
     if (state == playing && sd != nullptr)
     {
-        const double sps = sampleRate * 60.0 / (sd->tempo * 4.0);   // vzoriek na krok
         int s = startOffset;
         int guard = 0;
         while (s < n && ++guard < 8)
         {
-            const double segEnd = pos + (n - s) / sps;
+            // pri zmenach tempa sa krok pocita z casu (integral tempa), v ramci bloku stale vzoriek na krok
+            const double segEnd = sd->advance (pos, (n - s) / sampleRate);
+            const double sps = segEnd > pos ? (n - s) / (segEnd - pos) : sampleRate * 15.0 / sd->tempoAt (pos);
             const bool loop = ! offline && sd->loopOn && sd->locR > sd->locL && pos < sd->locR;
             const double limit = offline ? 1.0e12 : (loop ? sd->locR : sd->endStep);
             if (segEnd >= limit)
             {
-                const int len = juce::jlimit (0, n - s, (int) std::ceil ((limit - pos) * sps));
+                const int len = juce::jlimit (0, n - s, (int) std::ceil (sd->secondsBetween (pos, limit) * sampleRate));
                 renderSegment (*sd, pos, limit, s, len, sps);
                 captureInput (s, len, pos);
                 if (recActive.load() && ! loop) recStopped = true;   // koniec piesne ukonci nahravanie, v cykle sa nahrava dalej (takes)
@@ -704,8 +707,8 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             bool any = false;
             if (slot.plugin != nullptr) { slot.plugin->processBlock (view, slot.midi); any = true; }
             if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
-            for (auto& f : slot.fx)
-                if (f != nullptr) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); any = true; }
+            for (int k = 0; k < numFx; ++k)
+                if (auto& f = slot.fx[(size_t) k]; f != nullptr && ! (td.fxOff & (1u << k))) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); any = true; }
             if (! any && ! td.isAudio) continue;
             if (td.isKey)
                 for (int c = 0; c < 2; ++c)
@@ -740,12 +743,13 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     for (int k = 0; k < 2; ++k)
     {
         auto& as = *slots[(size_t) auxSlot[k]];
+        const unsigned off = sd != nullptr ? sd->auxFxOff[k] : 0u;
         bool anyFx = false;
-        for (auto& f : as.fx) anyFx = anyFx || f != nullptr;
+        for (int q = 0; q < numFx; ++q) anyFx = anyFx || (as.fx[(size_t) q] != nullptr && ! (off & (1u << q)));
         if (! anyFx) continue;
         juce::AudioBuffer<float> view (as.buf.getArrayOfWritePointers(), as.buf.getNumChannels(), n);
-        for (auto& f : as.fx)
-            if (f != nullptr) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
+        for (int q = 0; q < numFx; ++q)
+            if (auto& f = as.fx[(size_t) q]; f != nullptr && ! (off & (1u << q))) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
         const float g = sd != nullptr ? sd->auxGain[k] : 1.0f;
         juce::FloatVectorOperations::addWithMultiply (mixL, auxL[k], g, n);
         juce::FloatVectorOperations::addWithMultiply (mixR, auxR[k], g, n);
@@ -755,8 +759,8 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         juce::AudioBuffer<float> view (ms.buf.getArrayOfWritePointers(), ms.buf.getNumChannels(), n);
         const bool bypass = forced != nullptr && bypassMaster.load();
         if (! bypass)
-            for (auto& f : ms.fx)
-                if (f != nullptr) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
+            for (int q = 0; q < numFx; ++q)
+                if (auto& f = ms.fx[(size_t) q]; f != nullptr && ! ((sd != nullptr ? sd->masterFxOff : 0u) & (1u << q))) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
         const float mg = bypass ? 1.0f : (sd != nullptr ? sd->masterGain : 1.0f);
         if (curNumOut == 1 && out[0] != nullptr)
         {
@@ -796,8 +800,7 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
 
     const int bs = juce::jmax (64, blockSize);
     juce::AudioBuffer<float> buf (2, bs);
-    const double sps = sampleRate * 60.0 / (sd.tempo * 4.0);
-    const juce::int64 total = (juce::int64) (endStep * sps + tailSec * sampleRate);
+    const juce::int64 total = (juce::int64) ((sd.secondsBetween (0, endStep) + tailSec) * sampleRate);
     bool ok = true;
     for (juce::int64 done = 0; done < total; done += bs)
     {

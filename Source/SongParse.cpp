@@ -10,6 +10,19 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
 
     auto sd = std::make_unique<SongData>();
     sd->tempo   = juce::jlimit (20.0, 400.0, (double) j.getProperty ("tempo", 120));
+    if (const auto* tm = j["tempoMap"].getArray(); tm != nullptr && ! tm->isEmpty())
+    {
+        sd->tempoPts.push_back ({ 0.0, sd->tempo });
+        for (const auto& q : *tm)
+            if (const auto* xy = q.getArray(); xy != nullptr && xy->size() >= 2)
+            {
+                const double st = juce::jmax (0.0, (double) (*xy)[0]), bpm = juce::jlimit (20.0, 400.0, (double) (*xy)[1]);
+                if (st <= 0.0) sd->tempoPts.front().second = bpm;
+                else sd->tempoPts.push_back ({ st, bpm });
+            }
+        std::sort (sd->tempoPts.begin(), sd->tempoPts.end());
+        if (sd->tempoPts.size() < 2) sd->tempoPts.clear();
+    }
     sd->endStep = juce::jmax (16.0, (double) j.getProperty ("bars", 32) * 16.0);
     sd->locL    = (double) j.getProperty ("locL", 0);
     sd->locR    = (double) j.getProperty ("locR", 64);
@@ -22,6 +35,16 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             const float av = juce::jlimit (0.0f, 1.0f, (float) (double) (*aux)[k].getProperty ("vol", 1.0));
             sd->auxGain[k] = av * av;
         }
+    auto offBits = [&j] (const juce::String& id) -> unsigned
+    {
+        unsigned b = 0;
+        if (const auto* arr = j["byp"][juce::Identifier (id)].getArray())
+            for (int k = 0; k < juce::jmin (4, arr->size()); ++k) if ((bool) (*arr)[k]) b |= 1u << k;
+        return b;
+    };
+    sd->masterFxOff = offBits ("__master");
+    sd->auxFxOff[0] = offBits ("__aux1");
+    sd->auxFxOff[1] = offBits ("__aux2");
     const double swing = (double) j.getProperty ("swing", 0) / 100.0 * 0.6;
 
     const auto* tracks = j["tracks"].getArray();
@@ -52,6 +75,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             td.gainR = g * juce::jmin (1.0f, 1.0f + pan);
             td.vol = vol; td.pan = pan;
             td.isKey = (bool) t.getProperty ("sc", false);
+            td.fxOff = offBits (t["id"].toString());
             if (const auto* snd = t["send"].getArray())
                 for (int k = 0; k < juce::jmin (2, snd->size()); ++k)
                 {

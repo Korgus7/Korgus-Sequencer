@@ -72,6 +72,7 @@ struct TrackData
     bool audible = true;        // nie je stlmena / je solo
     float send[2] { 0, 0 };     // posielanie do FX 1 / FX 2 (za hlasitostou)
     bool isKey = false;         // klucova stopa pre sidechain
+    unsigned fxOff = 0;         // vypnute efekty (bity 0..3)
     std::vector<NoteEv> notes;  // zoradene podla start
     std::vector<CcEv> ccs;      // MIDI CC a pitch bend, zoradene podla start
 };
@@ -79,8 +80,60 @@ struct TrackData
 struct SongData
 {
     double tempo = 120, endStep = 512, locL = 0, locR = 64;
+    // zmeny tempa: body (krok, BPM), linearne prechody; prazdne = stale tempo
+    std::vector<std::pair<double, double>> tempoPts;
+    double tempoAt (double step) const
+    {
+        if (tempoPts.empty() || step <= tempoPts.front().first) return tempoPts.empty() ? tempo : tempoPts.front().second;
+        for (size_t i = 0; i + 1 < tempoPts.size(); ++i)
+        {
+            const auto& a = tempoPts[i]; const auto& b = tempoPts[i + 1];
+            if (step < b.first) return a.second + (b.second - a.second) * (step - a.first) / juce::jmax (1.0e-9, b.first - a.first);
+        }
+        return tempoPts.back().second;
+    }
+    // sekundy medzi krokmi a < b
+    double secondsBetween (double a, double b) const
+    {
+        if (b <= a) return 0;
+        if (tempoPts.size() < 2) return (b - a) * 15.0 / tempoAt (a);
+        double t = 0, x = a;
+        while (x < b - 1.0e-12)
+        {
+            double segEnd = b;   // koniec useku s linearnym tempom
+            for (const auto& q : tempoPts) if (q.first > x + 1.0e-12) { segEnd = juce::jmin (b, q.first); break; }
+            const double b0 = tempoAt (x), b1 = tempoAt (segEnd), len = segEnd - x;
+            if (std::abs (b1 - b0) < 1.0e-9) t += len * 15.0 / b0;
+            else t += 15.0 * len / (b1 - b0) * std::log (b1 / b0);
+            x = segEnd;
+        }
+        return t;
+    }
+    // krok, na ktory sa pride z kroku a za 'secs' sekund
+    double advance (double a, double secs) const
+    {
+        if (tempoPts.size() < 2) return a + secs * tempoAt (a) / 15.0;
+        double x = a, left = secs;
+        for (int guard = 0; guard < 1000 && left > 1.0e-12; ++guard)
+        {
+            double segEnd = 1.0e12;
+            for (const auto& q : tempoPts) if (q.first > x + 1.0e-12) { segEnd = q.first; break; }
+            const double need = segEnd < 1.0e11 ? secondsBetween (x, segEnd) : 1.0e18;
+            if (need >= left)
+            {
+                const double b0 = tempoAt (x);
+                if (segEnd >= 1.0e11) return x + left * b0 / 15.0;
+                const double k = (tempoAt (segEnd) - b0) / (segEnd - x);   // BPM na krok
+                if (std::abs (k) < 1.0e-12) return x + left * b0 / 15.0;
+                return x + b0 / k * (std::exp (k * left / 15.0) - 1.0);
+            }
+            left -= need; x = segEnd;
+        }
+        return x;
+    }
     float masterGain = 1;
     float auxGain[2] { 1, 1 };  // navrat FX 1 / FX 2
+    unsigned masterFxOff = 0, auxFxOff[2] { 0, 0 };   // vypnute efekty mastra a FX 1/2
     bool loopOn = false, click = false;
     std::vector<TrackData> tracks;
 };
@@ -238,7 +291,8 @@ private:
     int masterSlot = -1;
     int auxSlot[2] { -1, -1 };
     juce::AudioBuffer<float> keyBuf { 2, 512 };   // sidechain kluc
-    std::vector<int> order;                       // poradie spracovania stop  // sloty "__aux1", "__aux2" (spolocne efekty)
+    std::vector<int> order;                       // poradie spracovania stop
+    const SongData* curSongData = nullptr;        // piesen v aktualnom bloku  // sloty "__aux1", "__aux2" (spolocne efekty)
 public:
     std::atomic<bool> bypassMaster { false };   // export stop: bez efektov a hlasitosti mastra
 private:   // slot "__master" s efektmi celej piesne
