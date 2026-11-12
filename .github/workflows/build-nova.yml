@@ -1,0 +1,47 @@
+name: Korgus Nova build
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'Nova/**', '.github/workflows/build-nova.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S Nova -B build -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out
+          DLL=$(find "build/KorgusNova_artefacts/Release/VST3" -path "*x86_64-win*" -name "*.vst3" -type f | head -1)
+          echo "DLL: $DLL"
+          test -n "$DLL"
+          cp "$DLL" "out/Korgus Nova.vst3"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KorgusNova-windows
+          path: out/
+
+      - name: Publish to nova branch
+        shell: bash
+        run: |
+          cd out
+          git init -q
+          git checkout -q -b nova
+          git add -A
+          git -c user.name="ci" -c user.email="ci@localhost" commit -qm "nova ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" nova

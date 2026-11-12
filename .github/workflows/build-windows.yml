@@ -3,6 +3,7 @@ name: Windows build
 on:
   push:
     branches: [ main ]
+    paths-ignore: [ 'Nova/**', '.github/workflows/build-nova.yml' ]
   workflow_dispatch:
 
 permissions:
