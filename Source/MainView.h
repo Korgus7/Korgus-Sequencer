@@ -159,6 +159,10 @@ private:
     juce::var pendingSession;                                    // pluginy z minulého spustenia
     int tunerTick = 0;                                           // ladicka (posiela vysku tonu 15x za sekundu)
     void sendTuner();
+    void checkForUpdate();
+    void onUpdateNow();
+    juce::String updUrl, updVer;
+    std::atomic<bool> updBusy { false };
     bool sessionApplied = false;
     bool booting = true, booted = false;
     std::vector<std::pair<juce::String, std::function<void()>>> bootSteps;

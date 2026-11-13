@@ -194,6 +194,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
             appLang() = l == "en" ? 1 : 0;
             props.getUserSettings()->setValue ("lang", l);
         })
+        .withEventListener ("updateNow",   [this] (const juce::var&)   { onUpdateNow(); })
         .withEventListener ("importAudio", [this] (const juce::var& v) { onImportAudio (v); })
         .withEventListener ("audioChunk",  [this] (const juce::var& v) { onAudioChunk (v); })
         .withEventListener ("needPeaks",   [this] (const juce::var& v) { onNeedPeaks (v); })
@@ -868,6 +869,7 @@ void MainView::onReady()
         if (! lastSong.isVoid()) onSong (lastSong);
         sendTrackPlugins();
         emit ("bootDone", obj());
+        checkForUpdate();
     });
     bootIndex = 0;
     runBootStep();
@@ -3008,4 +3010,120 @@ void MainView::onSeparate (const juce::var& v)
             sp->emit ("separated", o);
         });
     job->launchThread();
+}
+
+//==============================================================================
+// automaticke aktualizacie: verejny repozitar Korgus7/Korgus-Download (GitHub Releases)
+namespace
+{
+    const char* updApi = "https://api.github.com/repos/Korgus7/Korgus-Download/releases/latest";
+
+    juce::Array<int> verParts (juce::String v)
+    {
+        v = v.trim().trimCharactersAtStart ("vV");
+        juce::Array<int> r;
+        for (const auto& t : juce::StringArray::fromTokens (v, ".", "")) r.add (t.getIntValue());
+        while (r.size() < 3) r.add (0);
+        return r;
+    }
+    bool verNewer (const juce::String& a, const juce::String& b)   // a > b
+    {
+        const auto x = verParts (a), y = verParts (b);
+        for (int i = 0; i < juce::jmax (x.size(), y.size()); ++i)
+        {
+            const int p = i < x.size() ? x[i] : 0, q = i < y.size() ? y[i] : 0;
+            if (p != q) return p > q;
+        }
+        return false;
+    }
+}
+
+void MainView::checkForUpdate()
+{
+   #if JUCE_WINDOWS
+    juce::Component::SafePointer<MainView> sp (this);
+    juce::Thread::launch ([sp]
+    {
+        juce::URL u (updApi);
+        auto opts = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                        .withConnectionTimeoutMs (8000)
+                        .withExtraHeaders ("User-Agent: KorgusSequencer\r\nAccept: application/vnd.github+json");
+        auto in = u.createInputStream (opts);
+        if (in == nullptr) return;
+        const auto j = juce::JSON::parse (in->readEntireStreamAsString());
+        const auto tag = j["tag_name"].toString();
+        if (tag.isEmpty() || ! verNewer (tag, JUCE_APPLICATION_VERSION_STRING)) return;
+        juce::String url;
+        if (auto* a = j["assets"].getArray())
+            for (const auto& x : *a)
+                if (x["name"].toString().endsWithIgnoreCase (".exe")) { url = x["browser_download_url"].toString(); break; }
+        if (url.isEmpty()) return;
+        const auto notes = j["body"].toString();
+        juce::MessageManager::callAsync ([sp, tag, url, notes]
+        {
+            if (sp == nullptr) return;
+            sp->updUrl = url; sp->updVer = tag.trimCharactersAtStart ("vV");
+            auto o = obj();
+            put (o, "ver", sp->updVer);
+            put (o, "cur", juce::String (JUCE_APPLICATION_VERSION_STRING));
+            put (o, "notes", notes);
+            sp->emit ("update", o);
+        });
+    });
+   #endif
+}
+
+void MainView::onUpdateNow()
+{
+   #if JUCE_WINDOWS
+    if (updUrl.isEmpty() || updBusy.exchange (true)) return;
+    juce::Component::SafePointer<MainView> sp (this);
+    const auto url = updUrl, ver = updVer;
+    juce::Thread::launch ([sp, url, ver]
+    {
+        auto fail = [sp] (const juce::String& msg)
+        {
+            juce::MessageManager::callAsync ([sp, msg] { if (sp == nullptr) return; sp->updBusy = false; auto o = obj(); put (o, "error", msg); sp->emit ("updateProgress", o); });
+        };
+        const auto dest = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("KorgusSequencer-Setup-" + ver + ".exe");
+        auto opts = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                        .withConnectionTimeoutMs (15000).withExtraHeaders ("User-Agent: KorgusSequencer").withNumRedirectsToFollow (8);
+        int status = 0; opts = opts.withStatusCode (&status);
+        auto in = juce::URL (url).createInputStream (opts);
+        if (in == nullptr || (status != 0 && status >= 400)) { fail (sk ("Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.")); return; }
+        dest.deleteFile();
+        bool truncated = false;
+        {
+            juce::FileOutputStream out (dest);
+            if (! out.openedOk()) { fail (sk ("Aktualizáciu sa nepodarilo uložiť.")); return; }
+            const auto total = in->getTotalLength();
+            juce::HeapBlock<char> buf (1 << 16);
+            juce::int64 done = 0; int lastPct = -1;
+            for (;;)
+            {
+                const int n = in->read (buf, 1 << 16);
+                if (n <= 0) break;
+                out.write (buf, (size_t) n); done += n;
+                const int pct = total > 0 ? (int) (done * 100 / total) : -1;
+                if (pct != lastPct && pct >= 0)
+                {
+                    lastPct = pct;
+                    juce::MessageManager::callAsync ([sp, pct] { if (sp == nullptr) return; auto o = obj(); put (o, "pct", pct); sp->emit ("updateProgress", o); });
+                }
+            }
+            out.flush();
+            if (total > 0 && done != total) truncated = true;
+        }
+        if (truncated || dest.getSize() < 1000000) { dest.deleteFile(); fail (sk ("Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.")); return; }
+        juce::MessageManager::callAsync ([sp, dest]
+        {
+            if (sp == nullptr) return;
+            auto o = obj(); put (o, "pct", 100); put (o, "done", true); sp->emit ("updateProgress", o);
+            // tichá inštalácia, po skončení inštalátor program znova spustí
+            if (dest.startAsProcess ("/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS"))
+                juce::Timer::callAfterDelay (600, [] { if (auto* app = juce::JUCEApplication::getInstance()) app->systemRequestedQuit(); });
+            else { sp->updBusy = false; auto e = obj(); put (e, "error", sk ("Inštalátor sa nepodarilo spustiť.")); sp->emit ("updateProgress", e); }
+        });
+    });
+   #endif
 }

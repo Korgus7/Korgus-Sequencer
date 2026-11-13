@@ -10,6 +10,9 @@ juce::String skTranslate (const char* utf8)
     {
         static const std::unordered_map<std::string, const char*> t = {
         { " a zisťujem tempo…", " and detecting the tempo…" },
+        { "Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.", "Couldn't download the update. Check your internet connection." },
+        { "Aktualizáciu sa nepodarilo uložiť.", "Couldn't save the update." },
+        { "Inštalátor sa nepodarilo spustiť.", "Couldn't start the installer." },
         { " krokov", " steps" },
         { " stôp)", " tracks)" },
         { " vzoriek = ", " samples = " },

@@ -41,7 +41,7 @@ jobs:
           echo "WV2_DIR=$(cd ext/webview2 && pwd -W)" >> "$GITHUB_ENV"
 
       - name: Configure
-        run: cmake -S . -B build -A x64 -DASIO_SDK_DIR="${{ env.ASIO_SDK_DIR }}" -DJUCE_WEBVIEW2_PACKAGE_LOCATION="${{ env.WV2_DIR }}"
+        run: cmake -S . -B build -A x64 -DKORGUS_BUILD=${{ github.run_number }} -DASIO_SDK_DIR="${{ env.ASIO_SDK_DIR }}" -DJUCE_WEBVIEW2_PACKAGE_LOCATION="${{ env.WV2_DIR }}"
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -55,7 +55,21 @@ jobs:
           mkdir -p out/AI
           curl -sSL -o ort.zip https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip
           unzip -q -j ort.zip "onnxruntime-win-x64-1.20.1/lib/onnxruntime.dll" -d out/AI
+          # Korgus Inspire (posledny build z vetvy nova)
+          if git fetch -q --depth 1 origin nova; then git show "FETCH_HEAD:Korgus Inspire.vst3" > "out/Korgus Inspire.vst3" || rm -f "out/Korgus Inspire.vst3"; fi
+          echo "1.0.${{ github.run_number }}" > out/version.txt
           ls -la out out/AI
+
+      - name: Installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc /Q "/DAppVer=1.0.${{ github.run_number }}" "/DSrc=$PWD\out" installer\KorgusSequencer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force out\Setup | Out-Null
+          Move-Item setup\*.exe out\Setup\
+          Get-ChildItem out\Setup
 
       - uses: actions/upload-artifact@v4
         with:

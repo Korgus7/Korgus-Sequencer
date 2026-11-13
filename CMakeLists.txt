@@ -3,7 +3,9 @@ cmake_minimum_required(VERSION 3.22)
 # staticky runtime - .exe nepotrebuje Visual C++ Redistributable
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(KorgusSequencer VERSION 0.1.0)
+# cislo verzie: 1.0.<cislo buildu v CI> (lokalne 1.0.0)
+set(KORGUS_BUILD "0" CACHE STRING "Build number")
+project(KorgusSequencer VERSION 1.0.${KORGUS_BUILD})
 
 include(FetchContent)
 FetchContent_Declare(JUCE
