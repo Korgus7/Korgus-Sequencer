@@ -56,12 +56,13 @@ namespace nova
     {
         float tube = 0; bool compOn = false; float comp = 0.35f;
         bool driveOn = false; float drive = 0.3f;
-        bool chOn = false; float chRate = 0.6f, chDepth = 0.5f, chMix = 0.4f;
+        bool chOn = false; float chRate = 0.6f, chDepth = 0.5f, chMix = 0.4f, chFb = 0.3f; int chType = 0;
         bool dlOn = false; int dlSync = 0; float dlTime = 375, dlFb = 0.35f, dlTone = 8000, dlMix = 0.25f; bool dlPP = true;
-        bool rvOn = true; float rvSize = 0.5f, rvDamp = 0.4f, rvMix = 0.2f;
+        bool rvOn = true; float rvSize = 0.5f, rvDamp = 0.4f, rvMix = 0.2f, rvPre = 0;
         float width = 1, punch = 0.5f, eqLow = 0, eqMid = 0, eqMidF = 1000, eqHigh = 0;
         float rvEqLow = 0, rvEqMid = 0, rvEqMidF = 1000, rvEqHigh = 0;
-        bool eqEnabled = true, rvEqEnabled = true;
+        bool eqEnabled = true, rvEqEnabled = true, dlEqEnabled = true;
+        float dlEqLow = 0, dlEqMid = 0, dlEqMidF = 1000, dlEqHigh = 0;
         bool mfOn = false; int mfType = 0; float mfCut = 20000, mfReso = 0, mfDrive = 0;
         float gainDb = 0, volumeDb = 0;
         double bpm = 120;
@@ -73,10 +74,10 @@ namespace nova
         void prepare (double sampleRate)
         {
             sr = (float) sampleRate;
-            chorus.prepare (sr); reverb.prepare (sr);
+            mod.prepare (sr); reverb.prepare (sr); reverb.setPre (0);
             dlL.assign ((size_t) (sr * 2.6f), 0); dlR.assign ((size_t) (sr * 2.6f), 0); dw = 0;
             dlTimeSm = -1; compEnv = 0; grDb = 0; pf = ps = 0; mfL.reset(); mfR.reset(); mf2L.reset(); mf2R.reset();
-            eq.reset(); rvEq.reset();
+            eq.reset(); rvEq.reset(); dlEq.reset();
         }
         std::atomic<float> gainReduction { 0 };   // pre zobrazenie (dB)
         Analyzer* an = nullptr;                    // spektrum (nastavi Synth)
@@ -85,8 +86,10 @@ namespace nova
         {
             const bool eqOn = eq.update (s.eqLow, s.eqMid, s.eqMidF, s.eqHigh, sr) && s.eqEnabled;
             const bool rvEqOn = rvEq.update (s.rvEqLow, s.rvEqMid, s.rvEqMidF, s.rvEqHigh, sr) && s.rvEqEnabled;
-            const bool tapRv = an != nullptr && an->wants (3), tapOut = an != nullptr && an->wants (2);
+            const bool tapRv = an != nullptr && an->wants (3), tapOut = an != nullptr && an->wants (2), tapDl = an != nullptr && an->wants (4);
+            const bool dlEqOn = dlEq.update (s.dlEqLow, s.dlEqMid, s.dlEqMidF, s.dlEqHigh, sr) && s.dlEqEnabled;
             if (std::abs (s.rvSize - reverb.size) > 0.01f || std::abs (s.rvDamp - reverb.damp) > 0.01f) reverb.setSize (s.rvSize, s.rvDamp);
+            if (std::abs (s.rvPre - reverb.preMs) > 0.5f) reverb.setPre (s.rvPre);
             // delay: cas zo synchra s tempom
             float dTime = s.dlTime * 0.001f;
             if (s.dlSync > 0)
@@ -135,7 +138,7 @@ namespace nova
                     l = std::tanh (l * d) * nrm * (1.0f - 0.4f * s.drive); r = std::tanh (r * d) * nrm * (1.0f - 0.4f * s.drive);
                 }
                 if (eqOn) eq.process (l, r);
-                if (chSm > 0.001f) chorus.process (l, r, chSm, 1.0f + 6.0f * s.chDepth, s.chRate);
+                if (chSm > 0.001f) mod.process (l, r, s.chType, chSm, s.chDepth, s.chRate, s.chFb);
                 if (dlSm > 0.001f || s.dlOn)
                 {
                     dlTimeSm += 0.0005f * (dTarget - dlTimeSm);
@@ -147,7 +150,10 @@ namespace nova
                     if (s.dlPP) { dlL[(size_t) dw] = 0.5f * (l + r) + fbr * s.dlFb; dlR[(size_t) dw] = fbl * s.dlFb; }
                     else { dlL[(size_t) dw] = l + fbl * s.dlFb; dlR[(size_t) dw] = r + fbr * s.dlFb; }
                     if (++dw >= (int) dlL.size()) dw = 0;
-                    l += yl * dlSm; r += yr * dlSm;
+                    float ol = yl, orr = yr;
+                    if (dlEqOn) dlEq.process (ol, orr);
+                    if (tapDl) an->push (4, 0.5f * (ol + orr));
+                    l += ol * dlSm; r += orr * dlSm;
                 }
                 if (rvSm > 0.0005f || s.rvOn)
                 {
@@ -184,9 +190,9 @@ namespace nova
 
     private:
         float sr = 48000;
-        Chorus chorus; Reverb reverb;
+        ModFx mod; Reverb reverb;
         std::vector<float> dlL, dlR; int dw = 0; float dlTimeSm = -1; OnePole dlTone;
-        Eq3 eq, rvEq;
+        Eq3 eq, rvEq, dlEq;
         Svf mfL, mfR, mf2L, mf2R;
         float rvSm = 0, chSm = 0, dlSm = 0, wSm = 1, compEnv = 0, grDb = 0, pf = 0, ps = 0;
     };

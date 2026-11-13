@@ -19,6 +19,9 @@ public:
     void filesDropped (const juce::StringArray& files, int x, int y) override;
 
     void setMode (int mode);
+    bool keyPressed (const juce::KeyPress& k) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    void parentHierarchyChanged() override;
     void setScale (float s);
     NovaProcessor& proc;
     nova::ui::Look look;

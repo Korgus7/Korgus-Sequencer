@@ -73,7 +73,9 @@ namespace nova
             // efekty
             B ("drive_on", "Drive", false);
             F ("drive", "Drive", 0, 1, 0.3f, "%");
-            B ("ch_on", "Chorus", false);
+            B ("ch_on", "Modulácia", false);
+            C ("ch_type", "Typ modulácie", "Chorus|Ensemble|Flanger|Phaser|Tremolo", 0);
+            F ("ch_fb", "Spätná väzba", 0, 0.95f, 0.3f, "%");
             F ("ch_rate", "Rýchlosť", 0.05f, 5, 0.6f, "Hz", 0.5f);
             F ("ch_depth", "Hĺbka", 0, 1, 0.5f, "%");
             F ("ch_mix", "Mix", 0, 1, 0.4f, "%");
@@ -86,6 +88,7 @@ namespace nova
             B ("dl_pp", "Ping-pong", true);
             B ("rv_on", "Dozvuk", true);
             F ("rv_size", "Veľkosť", 0, 1, 0.5f, "%");
+            F ("rv_pre", "Predelay", 0, 250, 0, "ms", 0.5f);
             F ("rv_damp", "Tlmenie", 0, 1, 0.4f, "%");
             F ("rv_mix", "Mix", 0, 1, 0.2f, "%");
             F ("fx_width", "Šírka", 0, 2, 1, "%");
@@ -96,7 +99,7 @@ namespace nova
             F ("eq_high", "Výšky", -15, 15, 0, "dB");
             B ("eq_on", "EQ zapnutý", true);
             // EQ vrstiev a dozvuku
-            for (auto pre : { "a_", "b_", "rv_" })
+            for (auto pre : { "a_", "b_", "rv_", "dl_" })
             {
                 const juce::String px (pre);
                 F (px + "eql", "EQ basy", -15, 15, 0, "dB");

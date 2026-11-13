@@ -118,11 +118,79 @@ namespace nova
         }
     };
 
+    // modulacny efekt: 0 chorus, 1 ensemble, 2 flanger, 3 phaser, 4 tremolo
+    struct ModFx
+    {
+        Chorus chorus;
+        std::vector<float> bl, br; int w = 0, n = 1; float sr = 48000, ph = 0, ph2 = 0, fl = 0, fr = 0;
+        float apL[6] {}, apR[6] {}, pfL = 0, pfR = 0;
+        void prepare (float rate)
+        {
+            sr = rate; chorus.prepare (rate);
+            n = (int) (rate * 0.05f) + 4; bl.assign ((size_t) n, 0); br.assign ((size_t) n, 0); w = 0; ph = ph2 = 0; fl = fr = 0;
+            for (int i = 0; i < 6; ++i) apL[i] = apR[i] = 0; pfL = pfR = 0;
+        }
+        float tap (const std::vector<float>& b, float d) const
+        {
+            float rp = (float) w - d; while (rp < 0) rp += (float) n;
+            const int i0 = (int) rp; const float f = rp - (float) i0;
+            return b[(size_t) i0] + f * (b[(size_t) ((i0 + 1) % n)] - b[(size_t) i0]);
+        }
+        void process (float& l, float& r, int type, float mix, float depth, float rate, float fb)
+        {
+            if (type <= 0) { chorus.process (l, r, mix, 1.0f + 6.0f * depth, rate); return; }
+            ph += rate / sr; if (ph >= 1) ph -= 1;
+            if (type == 1)   // ensemble: 3 hlasy posunute o tretinu + jemne rychle vibrato (slacikovy ensemble)
+            {
+                ph2 += 5.7f / sr; if (ph2 >= 1) ph2 -= 1;
+                bl[(size_t) w] = l; br[(size_t) w] = r;
+                const float base = 0.009f * sr, dep = (0.0005f + 0.0045f * depth) * sr, vib = 0.0003f * sr * depth;
+                float t[3];
+                for (int k = 0; k < 3; ++k)
+                {
+                    const float d = base + dep * (0.5f + 0.5f * std::sin (twoPi * (ph + (float) k / 3.0f))) + vib * std::sin (twoPi * (ph2 + (float) k / 3.0f));
+                    t[k] = k == 1 ? 0.5f * (tap (bl, d) + tap (br, d)) : tap (k == 0 ? bl : br, d);
+                }
+                if (++w >= n) w = 0;
+                const float wl = 0.55f * (t[0] + t[1]), wr = 0.55f * (t[1] + t[2]);
+                l = l * (1 - 0.5f * mix) + wl * mix; r = r * (1 - 0.5f * mix) + wr * mix;
+            }
+            else if (type == 2)   // flanger: kratke modulovane oneskorenie so spatnou vazbou
+            {
+                const float base = 0.0006f * sr, dep = (0.0005f + 0.0045f * depth) * sr;
+                const float dl = base + dep * (0.5f + 0.5f * std::sin (twoPi * ph)), dr = base + dep * (0.5f + 0.5f * std::sin (twoPi * (ph + 0.25f)));
+                const float yl = tap (bl, dl), yr = tap (br, dr);
+                bl[(size_t) w] = l + fb * 0.9f * yl; br[(size_t) w] = r + fb * 0.9f * yr;
+                if (++w >= n) w = 0;
+                l = l * (1 - 0.5f * mix) + yl * mix * 0.8f; r = r * (1 - 0.5f * mix) + yr * mix * 0.8f;
+            }
+            else if (type == 3)   // phaser: 6 allpassov, frekvencia modulovana LFO, spatna vazba
+            {
+                auto stage = [this] (float x, float* z, float& pf, float phase, float dpt, float fbk)
+                {
+                    const float f = 250.0f * std::pow (2.0f, dpt * 4.0f * (0.5f + 0.5f * std::sin (twoPi * phase)));
+                    const float t = std::tan (pi * std::min (f, sr * 0.45f) / sr), a = (t - 1.0f) / (t + 1.0f);
+                    float y = x + fbk * 0.75f * pf;
+                    for (int i = 0; i < 6; ++i) { const float o = a * y + z[i]; z[i] = y - a * o; y = o; }
+                    pf = y; return y;
+                };
+                const float yl = stage (l, apL, pfL, ph, depth, fb), yr = stage (r, apR, pfR, ph + 0.2f, depth, fb);
+                l = l * (1 - 0.5f * mix) + yl * mix * 0.7f; r = r * (1 - 0.5f * mix) + yr * mix * 0.7f;
+            }
+            else   // tremolo: kolisanie hlasitosti, vlavo a vpravo v protifaze (pri hlbke = auto-pan)
+            {
+                const float gl = 1.0f - mix * (0.5f + 0.5f * std::sin (twoPi * ph));
+                const float gr = 1.0f - mix * (0.5f + 0.5f * std::sin (twoPi * (ph + 0.5f * depth)));
+                l *= gl; r *= gr;
+            }
+        }
+    };
+
     // zber vzoriek pre zobrazenie spektra (zapisuje audio vlakno, cita rozhranie; len zvoleny bod)
     struct Analyzer
     {
         static constexpr int N = 8192;
-        std::atomic<int> tap { -1 };          // 0 vrstva A, 1 vrstva B, 2 cely zvuk, 3 dozvuk, -1 nic
+        std::atomic<int> tap { -1 };          // 0 vrstva A, 1 vrstva B, 2 cely zvuk, 3 dozvuk, 4 delay, -1 nic
         std::atomic<unsigned> w { 0 };
         std::atomic<float> rate { 48000 };
         float buf[N] {};
@@ -144,7 +212,7 @@ namespace nova
             void init (int n, float gain) { b.assign ((size_t) n + 1, 0); len = n; w = 0; g = gain; }
             float process (float x) { const float y = b[(size_t) w]; const float v = x + g * y; b[(size_t) w] = v; if (++w >= len) w = 0; return y - g * v; } };
         struct Line { std::vector<float> b; int w = 0, len = 1; float lp = 0, ph = 0, rate = 0.3f; Ap ap; };
-        std::array<Line, 8> lines; std::array<Ap, 4> aps; std::vector<float> pre; int pw = 0, preLen = 1;
+        std::array<Line, 8> lines; std::array<Ap, 4> aps; std::vector<float> pre; int pw = 0, preLen = 1; float preMs = 0;
         float sr = 48000, size = -1, damp = 0.4f, g[8] {}, dampA = 0.5f;
         void prepare (float rate)
         {
@@ -159,7 +227,7 @@ namespace nova
                 l.b.assign ((size_t) (0.25f * sr), 0); l.w = 0; l.lp = 0; l.ph = (float) i / 8.0f; l.rate = rates[i];
                 l.ap.init ((int) (inAp[i] * 0.001f * sr), 0.5f);
             }
-            pre.assign ((size_t) (0.06f * sr) + 2, 0); pw = 0;
+            pre.assign ((size_t) (0.32f * sr) + 2, 0); pw = 0;
             const float s0 = size < 0 ? 0.5f : size; size = -1;
             setSize (s0, damp);
         }
@@ -176,8 +244,9 @@ namespace nova
                 g[i] = std::pow (10.0f, -3.0f * total / (t60 * sr));
             }
             dampA = 1.0f - std::exp (-twoPi * (9000.0f - 7000.0f * d) / sr);
-            preLen = std::min ((int) pre.size() - 1, (int) ((0.008f + 0.02f * s) * sr));
+            preLen = std::min ((int) pre.size() - 1, (int) ((0.008f + 0.02f * s + preMs * 0.001f) * sr));
         }
+        void setPre (float ms) { preMs = ms; preLen = std::min ((int) pre.size() - 1, (int) ((0.008f + 0.02f * std::max (0.0f, size) + preMs * 0.001f) * sr)); }
         void process (float inL, float inR, float& outL, float& outR)
         {
             pre[(size_t) pw] = 0.5f * (inL + inR);

@@ -62,11 +62,12 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
     auto& f = s.fx;
     f.tube = g ("tube"); f.compOn = g ("comp_on") > 0.5f; f.comp = g ("comp");
     f.driveOn = g ("drive_on") > 0.5f; f.drive = g ("drive");
-    f.chOn = g ("ch_on") > 0.5f; f.chRate = g ("ch_rate"); f.chDepth = g ("ch_depth"); f.chMix = g ("ch_mix");
+    f.chOn = g ("ch_on") > 0.5f; f.chRate = g ("ch_rate"); f.chDepth = g ("ch_depth"); f.chMix = g ("ch_mix"); f.chType = (int) g ("ch_type"); f.chFb = g ("ch_fb");
     f.dlOn = g ("dl_on") > 0.5f; f.dlSync = (int) g ("dl_sync"); f.dlTime = g ("dl_time"); f.dlFb = g ("dl_fb"); f.dlTone = g ("dl_tone"); f.dlMix = g ("dl_mix"); f.dlPP = g ("dl_pp") > 0.5f;
-    f.rvOn = g ("rv_on") > 0.5f; f.rvSize = g ("rv_size"); f.rvDamp = g ("rv_damp"); f.rvMix = g ("rv_mix");
+    f.rvOn = g ("rv_on") > 0.5f; f.rvSize = g ("rv_size"); f.rvDamp = g ("rv_damp"); f.rvMix = g ("rv_mix"); f.rvPre = g ("rv_pre");
     f.width = g ("fx_width"); f.punch = g ("fx_punch"); f.eqLow = g ("eq_low"); f.eqMid = g ("eq_mid"); f.eqMidF = g ("eq_midf"); f.eqHigh = g ("eq_high");
-    f.eqEnabled = g ("eq_on") > 0.5f; f.rvEqEnabled = g ("rv_eqon") > 0.5f;
+    f.eqEnabled = g ("eq_on") > 0.5f; f.rvEqEnabled = g ("rv_eqon") > 0.5f; f.dlEqEnabled = g ("dl_eqon") > 0.5f;
+    f.dlEqLow = g ("dl_eql"); f.dlEqMid = g ("dl_eqm"); f.dlEqMidF = g ("dl_eqmf"); f.dlEqHigh = g ("dl_eqh");
     f.rvEqLow = g ("rv_eql"); f.rvEqMid = g ("rv_eqm"); f.rvEqMidF = g ("rv_eqmf"); f.rvEqHigh = g ("rv_eqh");
     f.mfOn = g ("mf_on") > 0.5f; f.mfType = (int) g ("mf_type"); f.mfCut = g ("mf_cut"); f.mfReso = g ("mf_reso"); f.mfDrive = g ("mf_drive");
     f.gainDb = g ("p_gain"); f.volumeDb = g ("volume");
@@ -307,6 +308,8 @@ namespace
             }
         }
         if (chance (0.4f)) v["eq_high"] = R (-4, 3);
+        if (type == 0 || type == 6 || type == 7) v["rv_pre"] = R (0, 60);
+        if (v.count ("ch_on") && v["ch_on"] > 0.5f && (type == 0 || type == 6 || type == 2) && chance (0.4f)) { v["ch_type"] = pick ({ 1, 1, 3, 2 }); v["ch_fb"] = R (0.1f, 0.5f); }
         if (lang() == 1)
         {
             static const char* adjE[] = { "Misty", "Velvet", "Shimmering", "Dreamy", "Midnight", "Amber", "Frosty", "Warm", "Cosmic", "Rainbow",
@@ -396,7 +399,7 @@ void NovaProcessor::mutate()
         for (auto id : { "aa", "ad", "ar" }) vary (px + id, 0.05f);
         vary (px + "level", 0.04f);
     }
-    for (auto id : { "rv_mix", "rv_size", "rv_damp", "ch_mix", "ch_depth", "ch_rate", "dl_mix", "dl_fb", "tube", "drive", "fx_width" }) vary (id, 0.06f);
+    for (auto id : { "rv_mix", "rv_size", "rv_damp", "rv_pre", "ch_mix", "ch_depth", "ch_rate", "ch_fb", "dl_mix", "dl_fb", "tube", "drive", "fx_width" }) vary (id, 0.06f);
     const float lb = measureLevel (before), la = measureLevel (p);
     if (lb > -90.0f && la > -90.0f) p.values["p_gain"] = juce::jlimit (-30.0f, 6.0f, before.values.at ("p_gain") + lb - la);
     auto base = currentName;

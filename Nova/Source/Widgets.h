@@ -125,7 +125,6 @@ namespace nova::ui
             addAndMakeVisible (s);
             att = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (st, id, s);
             if (sp != nullptr) s.setDoubleClickReturnValue (true, sp->def);
-            s.setTooltip (juce::String::fromUTF8 ("Ťahaj myšou · Shift = jemne · dvojklik = pôvodná hodnota"));
         }
         void setTitle (const juce::String& t) { label.setText (t, juce::dontSendNotification); }
         void setArc (juce::Colour c) { s.setColour (juce::Slider::rotarySliderFillColourId, c); }
@@ -197,6 +196,7 @@ namespace nova::ui
         Combo (juce::AudioProcessorValueTreeState& st, const juce::String& id)
         {
             if (const auto* sp = findSpec (id)) for (int i = 0; i < sp->choices.size(); ++i) addItem (T (sp->choices[i]), i + 1);
+            setWantsKeyboardFocus (false);   // sipky prepinaju zvuky
             att = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (st, id, *this);
         }
     private:

@@ -48,6 +48,7 @@ namespace
     // vyber jazyka SK / EN; po zmene sa rozhranie postavi znova
     void setupLangBox (juce::ComboBox& b, NovaEditor& ed)
     {
+        b.setWantsKeyboardFocus (false);
         b.addItem ("SK", 1); b.addItem ("EN", 2);
         b.setSelectedId (lang() + 1, juce::dontSendNotification);
         b.setTooltip ("Jazyk / Language");
@@ -475,40 +476,48 @@ namespace
     };
 
     // ===================================================================== efekty + EQ
+    // ciele EQ: 0 vrstva A, 1 vrstva B, 2 cely zvuk, 3 delay, 4 dozvuk
+    constexpr int NEQ = 5;
+    const char* eqPrefix (int t) { static const char* p[NEQ] = { "a_", "b_", "eq_", "dl_", "rv_" }; return p[t]; }
+    int eqTap (int t) { static const int tp[NEQ] = { 0, 1, 2, 4, 3 }; return tp[t]; }
+    juce::Colour eqColour (int t) { return t == 0 ? arc : (t == 1 ? arcB : (t == 2 ? text.darker (0.15f) : (t == 3 ? juce::Colour (0xff7fa89a) : amber.brighter (0.25f)))); }
+
     struct FxPanel : juce::Component
     {
         FxPanel (NovaProcessor& pr) : p (pr),
             drive (pr.params, "drive_on"), chorus (pr.params, "ch_on"), delay (pr.params, "dl_on"), reverb (pr.params, "rv_on"), pp (pr.params, "dl_pp"),
-            sync (pr.params, "dl_sync"), graph (pr)
+            sync (pr.params, "dl_sync"), chType (pr.params, "ch_type"), graph (pr)
         {
-            for (auto* c : std::initializer_list<juce::Component*> { &drive, &chorus, &delay, &reverb, &pp, &sync }) addAndMakeVisible (c);
+            for (auto* c : std::initializer_list<juce::Component*> { &drive, &chorus, &delay, &reverb, &pp, &sync, &chType }) addAndMakeVisible (c);
+            chType.setTooltip (T ("Chorus = širší zvuk, Ensemble = sláčikový ensemble, Flanger a Phaser = „lietadlo“, Tremolo = kolísanie hlasitosti"));
             auto add = [this] (std::vector<std::unique_ptr<Knob>>& v, const juce::String& id, const char* t) { v.push_back (std::make_unique<Knob> (p.params, id, T (t))); addAndMakeVisible (*v.back()); };
             add (fx, "drive", "Sila");
             add (fx, "ch_rate", "Rýchlosť"); add (fx, "ch_depth", "Hĺbka"); add (fx, "ch_mix", "Mix");
             add (fx, "dl_time", "Čas"); add (fx, "dl_fb", "Opakov."); add (fx, "dl_tone", "Farba"); add (fx, "dl_mix", "Mix");
             add (fx, "rv_size", "Veľkosť"); add (fx, "rv_damp", "Tlmenie"); add (fx, "rv_mix", "Mix");
-            // EQ: 4 ciele x 4 gombiky (A, B, Zvuk, Dozvuk)
-            for (int t = 0; t < 4; ++t)
+            add (fx, "ch_fb", "Sp. väzba"); add (fx, "rv_pre", "Predelay");   // [11], [12]
+            fx[12]->s.setTooltip (T ("Oneskorenie dozvuku – oddelí čistý zvuk od dozvuku, znie zreteľnejšie"));
+            // EQ: 5 cielov x 4 gombiky (A, B, Zvuk, Delay, Dozvuk)
+            for (int t = 0; t < NEQ; ++t)
             {
-                const juce::String px = t == 0 ? "a_" : (t == 1 ? "b_" : "rv_");
+                const juce::String px = eqPrefix (t);
                 if (t == 2) { add (eq, "eq_low", ""); add (eq, "eq_mid", "Stredy"); add (eq, "eq_midf", "Stredy Hz"); add (eq, "eq_high", "Výšky"); }
                 else { add (eq, px + "eql", ""); add (eq, px + "eqm", "Stredy"); add (eq, px + "eqmf", "Stredy Hz"); add (eq, px + "eqh", "Výšky"); }
-                const juce::Colour c = t == 0 ? arc : (t == 1 ? arcB : (t == 2 ? text.darker (0.15f) : amber.brighter (0.25f)));
-                for (int k = 0; k < 4; ++k) eq[(size_t) (t * 4 + k)]->setArc (c);
+                for (int k = 0; k < 4; ++k) eq[(size_t) (t * 4 + k)]->setArc (eqColour (t));
             }
             for (int i = 0; i < (int) eq.size(); i += 4) eq[(size_t) i]->label.setText (T ("Basy", "Low"), juce::dontSendNotification);
-            const char* tn[] = { "Vrstva A", "Vrstva B", "Zvuk", "Dozvuk" };
-            const char* tt[] = { "EQ len pre vrstvu A", "EQ len pre vrstvu B", "EQ celého zvuku", "EQ len pre dozvuk (napr. ubrať basy, aby dozvuk nehučal)" };
-            for (int t = 0; t < 4; ++t)
+            const char* tn[] = { "Vrstva A", "Vrstva B", "Zvuk", "Delay", "Dozvuk" };
+            const char* tt[] = { "EQ len pre vrstvu A", "EQ len pre vrstvu B", "EQ celého zvuku", "EQ len pre opakovania delayu (napr. ubrať basy a výšky, aby delay nezahlcoval)", "EQ len pre dozvuk (napr. ubrať basy, aby dozvuk nehučal)" };
+            for (int t = 0; t < NEQ; ++t)
             {
                 auto& b = targets[t];
                 b.setButtonText (T (tn[t])); b.setTooltip (T (tt[t]));
                 b.onClick = [this, t] { setTarget (t); };
                 addAndMakeVisible (b);
             }
-            for (int t = 0; t < 4; ++t)
+            for (int t = 0; t < NEQ; ++t)
             {
-                const juce::String id = t == 0 ? "a_eqon" : (t == 1 ? "b_eqon" : (t == 2 ? "eq_on" : "rv_eqon"));
+                const juce::String id = t == 2 ? juce::String ("eq_on") : juce::String (eqPrefix (t)) + "eqon";
                 eqOn[t] = std::make_unique<Toggle> (p.params, id, T ("Zapnutý"));
                 eqOn[t]->setTooltip (T ("Vypnúť / zapnúť tento EQ (na porovnanie)"));
                 eqOn[t]->onStateChange = [this] { syncEnabled(); };
@@ -538,10 +547,15 @@ namespace
         void setTarget (int t)
         {
             target = t;
-            for (int i = 0; i < 4; ++i) targets[i].setToggleState (i == t, juce::dontSendNotification);
-            const juce::Colour c = t == 0 ? arc : (t == 1 ? arcB : (t == 2 ? text.darker (0.15f) : amber.brighter (0.25f)));
-            graph.setTarget (t == 0 ? "a_" : (t == 1 ? "b_" : (t == 2 ? "eq_" : "rv_")), c, t == 0 ? 0 : (t == 1 ? 1 : (t == 2 ? 2 : 3)));
+            for (int i = 0; i < NEQ; ++i) targets[i].setToggleState (i == t, juce::dontSendNotification);
+            graph.setTarget (eqPrefix (t), eqColour (t), eqTap (t));
             showEq (eqShown);
+        }
+        void tick()   // spatna vazba ma zmysel len pri flangeri a phaseri
+        {
+            const int ty = (int) p.params.getRawParameterValue ("ch_type")->load();
+            const bool fbOn = ty == 2 || ty == 3;
+            if (fx[11]->isEnabled() != fbOn) fx[11]->setEnabled (fbOn);
         }
         void syncEnabled()
         {
@@ -552,12 +566,12 @@ namespace
         {
             eqShown = e;
             tabFx.setToggleState (! e, juce::dontSendNotification); tabEq.setToggleState (e, juce::dontSendNotification);
-            for (auto* c : std::initializer_list<juce::Component*> { &drive, &chorus, &delay, &reverb, &pp, &sync }) c->setVisible (! e);
+            for (auto* c : std::initializer_list<juce::Component*> { &drive, &chorus, &delay, &reverb, &pp, &sync, &chType }) c->setVisible (! e);
             for (auto& k : fx) k->setVisible (! e);
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setVisible (e && i / 4 == target);
             for (auto& b : targets) b.setVisible (e);
             flatBtn.setVisible (e); graph.setVisible (e); help.setVisible (e);
-            for (int t = 0; t < 4; ++t) eqOn[t]->setVisible (e && t == target);
+            for (int t = 0; t < NEQ; ++t) eqOn[t]->setVisible (e && t == target);
             syncEnabled();
             repaint();
         }
@@ -575,25 +589,26 @@ namespace
             fx[0]->setBounds (12, 62, 58, 72);
             delay.setBounds (12, 142, 74, 22); sync.setBounds (88, 142, 92, 22); pp.setBounds (184, 142, 90, 22);
             for (int i = 0; i < 4; ++i) fx[(size_t) (4 + i)]->setBounds (12 + i * 64, 166, 60, 72);
-            const int x2 = 290;
-            chorus.setBounds (x2, 40, 100, 22);
-            for (int i = 0; i < 3; ++i) fx[(size_t) (1 + i)]->setBounds (x2 + i * 64, 62, 60, 72);
+            const int x2 = 286;
+            chorus.setBounds (x2, 40, 110, 22); chType.setBounds (x2 + 114, 40, 116, 22);
+            const int chk[4] = { 1, 2, 11, 3 }, rvk[4] = { 8, 12, 9, 10 };
+            for (int i = 0; i < 4; ++i) fx[(size_t) chk[i]]->setBounds (x2 + i * 58, 64, 56, 70);
             reverb.setBounds (x2, 142, 100, 22);
-            for (int i = 0; i < 3; ++i) fx[(size_t) (8 + i)]->setBounds (x2 + i * 64, 166, 60, 72);
+            for (int i = 0; i < 4; ++i) fx[(size_t) rvk[i]]->setBounds (x2 + i * 58, 166, 56, 72);
             // EQ
-            for (int t = 0; t < 4; ++t) targets[t].setBounds (12 + t * 80, 38, 76, 24);
+            for (int t = 0; t < NEQ; ++t) targets[t].setBounds (12 + t * 66, 38, 63, 24);
             flatBtn.setBounds (getWidth() - 12 - 70, 38, 70, 24);
-            for (auto& tg : eqOn) tg->setBounds (flatBtn.getX() - 8 - 100, 39, 100, 22);
+            for (auto& tg : eqOn) tg->setBounds (flatBtn.getX() - 6 - 96, 39, 96, 22);
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setBounds (12 + (i % 4) * 62, 66, 58, 70);
             help.setBounds (270, 70, getWidth() - 282, 64);
             graph.setBounds (12, 140, getWidth() - 24, getHeight() - 150);
         }
         NovaProcessor& p;
-        Toggle drive, chorus, delay, reverb, pp; Combo sync;
+        Toggle drive, chorus, delay, reverb, pp; Combo sync, chType;
         std::vector<std::unique_ptr<Knob>> fx, eq;
-        juce::TextButton tabFx, tabEq, targets[4], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help;
+        juce::TextButton tabFx, tabEq, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help;
         EqGraph graph;
-        std::unique_ptr<Toggle> eqOn[4];
+        std::unique_ptr<Toggle> eqOn[NEQ];
         std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> atts;
         bool eqShown = false; int target = 0;
     };
@@ -1098,6 +1113,7 @@ namespace
             undoB.onClick = [this] { p.undo.undo(); }; redoB.onClick = [this] { p.undo.redo(); };
             setupSurprise (p, surprise, surCat, mutateB, [this] { br.list.repaint(); });
             for (int s : { 75, 90, 100, 110, 125, 150 }) size.addItem (juce::String (s) + " %", s);
+            size.setWantsKeyboardFocus (false);
             size.setSelectedId (juce::roundToInt (p.uiScale * 100.0f), juce::dontSendNotification);
             if (size.getSelectedId() == 0) size.setSelectedId (100, juce::dontSendNotification);
             size.onChange = [this] { const float s = (float) size.getSelectedId() / 100.0f; juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<NovaEditor> (&ed), s] { if (sp != nullptr) sp->setScale (s); }); };
@@ -1191,7 +1207,7 @@ namespace
         }
         void tick() override
         {
-            top.tick(); la.update(); lb.update(); tube.repaint(); morph.repaint();
+            top.tick(); la.update(); lb.update(); tube.repaint(); morph.repaint(); fx.tick();
             if (p.currentKey != lastKey) { lastKey = p.currentKey; browser.list.repaint(); }
         }
         int layerAt (juce::Point<int> pt) const { return lb.getBounds().contains (pt) ? 1 : 0; }
@@ -1224,6 +1240,8 @@ namespace
 NovaEditor::NovaEditor (NovaProcessor& p) : AudioProcessorEditor (p), proc (p)
 {
     setLookAndFeel (&look);
+    setWantsKeyboardFocus (true);
+    addMouseListener (this, true);   // klik kdekolvek vrati klavesnicu editoru (sipky prepinaju zvuky)
     addAndMakeVisible (content);
     setMode (proc.uiMode);
     proc.onPatchChanged = [sp = juce::Component::SafePointer<NovaEditor> (this)]
@@ -1269,6 +1287,33 @@ void NovaEditor::layoutSize()
 }
 
 void NovaEditor::paint (juce::Graphics& g) { g.fillAll (bg); }
+
+void NovaEditor::mouseDown (const juce::MouseEvent& e)
+{
+    if (dynamic_cast<juce::TextEditor*> (e.originalComponent) == nullptr) grabKeyboardFocus();
+}
+
+void NovaEditor::parentHierarchyChanged()
+{
+    juce::Component::SafePointer<NovaEditor> sp (this);
+    juce::MessageManager::callAsync ([sp] { if (sp != nullptr && sp->isShowing()) sp->grabKeyboardFocus(); });
+}
+
+// sipky: predchadzajuci / dalsi zvuk (v rozsirenej podla zoznamu, v jednoduchej tovarenske)
+bool NovaEditor::keyPressed (const juce::KeyPress& k)
+{
+    const int kc = k.getKeyCode();
+    const int d = (kc == juce::KeyPress::rightKey || kc == juce::KeyPress::downKey) ? 1 : ((kc == juce::KeyPress::leftKey || kc == juce::KeyPress::upKey) ? -1 : 0);
+    if (d == 0 || k.getModifiers().isAnyModifierKeyDown()) return false;
+    if (auto* ev = dynamic_cast<ExtendedView*> (view.get())) { ev->browser.step (d); ev->tick(); return true; }
+    const auto& f = factoryPatches();
+    int i = -1;
+    for (int j = 0; j < (int) f.size(); ++j) if (proc.currentKey == "f:" + f[(size_t) j].name) i = j;
+    i = i < 0 ? (d > 0 ? 0 : (int) f.size() - 1) : (i + d + (int) f.size()) % (int) f.size();
+    proc.loadPreset ("f:" + f[(size_t) i].name);
+    timerCallback();
+    return true;
+}
 void NovaEditor::resized() {}
 
 void NovaEditor::timerCallback()

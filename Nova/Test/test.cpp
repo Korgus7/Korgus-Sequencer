@@ -37,6 +37,61 @@ int main (int argc, char** argv)
         w->clearContentComponent(); delete proc->getActiveEditor(); delete w;
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "demo")
+    {
+        // ukazkove video: niekolko zvukov z "Prekvap ma", ku kazdemu kratka hudobna fraza (WAV) a snimka okna (PNG)
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int i = 0; i < 300 && ! q.synth.pianoReady(); ++i) Thread::sleep (50);
+        File dir ("/tmp/demo"); dir.createDirectory();
+        struct N { double b, len; int note; float vel; };
+        const double beat = 0.6;
+        auto arp = [] (std::initializer_list<int> a, std::initializer_list<int> f, double step, float v)
+        { std::vector<N> r; double t = 0; for (int n : a) { r.push_back ({ t, step * 0.95, n, v }); t += step; } for (int n : f) { r.push_back ({ t, step * 0.95, n, v }); t += step; } return r; };
+        const int types[6] = { 7, 0, 1, 3, 4, 5 };
+        File names (dir.getChildFile ("names.txt")); names.deleteFile();
+        for (int si = 0; si < 6; ++si)
+        {
+            const int ty = types[si];
+            q.surprise (ty);
+            std::vector<N> ev;
+            if (ty == 7) { ev = arp ({ 57, 64, 69, 72, 76, 72, 69, 64 }, { 53, 60, 65, 69, 72, 69, 65, 60 }, 0.5, 0.7f); ev.push_back ({ 0, 4, 45, 0.6f }); ev.push_back ({ 4, 4.5, 41, 0.6f }); }
+            else if (ty == 0) { for (int n : { 57, 60, 64, 69 }) ev.push_back ({ 0, 4.2, n, 0.7f }); for (int n : { 53, 57, 60, 65 }) ev.push_back ({ 4, 4.6, n, 0.7f }); ev.push_back ({ 0, 4.2, 45, 0.6f }); ev.push_back ({ 4, 4.6, 41, 0.6f }); }
+            else if (ty == 1) { ev = arp ({ 69, 72, 76, 69, 72, 76, 69, 72 }, { 65, 69, 72, 65, 69, 72, 65, 69 }, 0.5, 0.75f); for (size_t k = 0; k < ev.size(); ++k) ev[k].vel = k % 3 == 0 ? 0.9f : 0.6f; }
+            else if (ty == 3) { ev = arp ({ 33, 33, 45, 33, 31, 33, 36, 33 }, { 29, 29, 41, 29, 28, 29, 33, 36 }, 0.5, 0.8f); }
+            else if (ty == 4) { double t = 0; for (auto [n, d] : std::initializer_list<std::pair<int, double>> { {76,1},{74,.5},{72,.5},{74,1},{76,1},{77,1.5},{76,.5},{72,2.2} }) { ev.push_back ({ t, d * 0.97, n, 0.75f }); t += d; } }
+            else { double t = 0; for (auto [n, d] : std::initializer_list<std::pair<int, double>> { {76,.5},{72,.5},{69,.5},{76,1.5},{77,.5},{72,.5},{69,.5},{72,2.5} }) { ev.push_back ({ t, d * 0.9, n, 0.8f }); t += d; } }
+            const double dur = si == 5 ? 9.0 : 5.4;
+            const int total = (int) (dur * sr);
+            AudioBuffer<float> out (2, total); out.clear();
+            for (int pos = 0; pos < total; pos += bs)
+            {
+                const int n = std::min (bs, total - pos);
+                MidiBuffer mb;
+                for (auto& e : ev)
+                {
+                    const int on = (int) (e.b * beat * sr), off = (int) ((e.b + e.len) * beat * sr);
+                    if (on >= pos && on < pos + n) mb.addEvent (MidiMessage::noteOn (1, e.note, e.vel), on - pos);
+                    if (off >= pos && off < pos + n) mb.addEvent (MidiMessage::noteOff (1, e.note), off - pos);
+                }
+                AudioBuffer<float> blk (2, n); blk.clear(); q.processBlock (blk, mb);
+                for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+            }
+            // vsetko zastavit pred dalsim zvukom
+            { MidiBuffer mb; mb.addEvent (MidiMessage::allNotesOff (1), 0); AudioBuffer<float> blk (2, bs); for (int k = 0; k < 400; ++k) { blk.clear(); q.processBlock (blk, mb); mb.clear(); } }
+            const int fo = (int) (0.12 * sr); for (int c = 0; c < 2; ++c) out.applyGainRamp (c, total - fo, fo, 1.0f, 0.0f);
+            { File f (dir.getChildFile ("scene" + String (si) + ".wav")); f.deleteFile();
+              std::unique_ptr<OutputStream> os (new FileOutputStream (f));
+              auto w = WavAudioFormat().createWriterFor (os, AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (24));
+              w->writeFromAudioSampleBuffer (out, 0, total); }
+            q.uiMode = 1;
+            { std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (200);
+              auto img = ed->createComponentSnapshot (ed->getLocalBounds());
+              File f (dir.getChildFile ("scene" + String (si) + ".png")); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os); }
+            names.appendText (q.currentName + "|" + q.currentCategory + "\n", false, false, "\n");
+            printf ("scena %d: %s (%s) peak %.2f\n", si, q.currentName.toRawUTF8(), q.currentCategory.toRawUTF8(), out.getMagnitude (0, total));
+        }
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "level")
     {
         // hlasitost tovarenskych zvukov a nahodnych zvukov "Prekvap ma"
@@ -97,6 +152,16 @@ int main (int argc, char** argv)
             std::vector<float> d (8192, 0.0f); for (int i = 0; i < 4096; ++i) d[(size_t) i] = an.buf[(w - 4096u + (unsigned) i) & (nova::Analyzer::N - 1)] * (0.5f - 0.5f * std::cos (6.2831853f * i / 4095.0f));
             dsp::FFT f (12); f.performFrequencyOnlyForwardTransform (d.data()); float mx = 0; int mi = 0; for (int i = 1; i < 2048; ++i) if (d[(size_t) i] > mx) { mx = d[(size_t) i]; mi = i; }
             printf ("analyzer: w=%u peak %.3f, fft max %.1f dB pri %.0f Hz\n", w, pk, Decibels::gainToDecibels (mx / 1024.0f), mi * sr / 4096.0);
+        }
+        for (int ty = 0; ty < 5; ++ty)
+        {
+            q.loadPreset (String::fromUTF8 ("f:Teplý pad")); setParam (q, "ch_on", 1); setParam (q, "ch_type", (float) ty); setParam (q, "ch_mix", 0.6f);
+            setParam (q, "dl_on", 1); setParam (q, "dl_eqh", -12); setParam (q, "rv_pre", 120);
+            double e = 0; float pk = 0; bool bad = false;
+            for (int pos = 0; pos < (int) (2 * sr); pos += bs) { MidiBuffer mb; if (pos == 0) for (int k : { 48, 55, 60, 64 }) mb.addEvent (MidiMessage::noteOn (1, k, 0.8f), 0);
+                AudioBuffer<float> b (2, bs); b.clear(); q.processBlock (b, mb); pk = std::max (pk, b.getMagnitude (0, bs));
+                for (int c = 0; c < 2; ++c) for (int i = 0; i < bs; ++i) { const float x = b.getSample (c, i); if (! std::isfinite (x)) bad = true; e += x * x; } }
+            printf ("modulacia typ %d: spicka %.2f energia %.1f %s\n", ty, pk, e, bad ? "NAN!" : "ok");
         }
         printf ("bez EQ:\n"); run ({});
         printf ("A vysky +12:\n"); run ({ { "a_eqh", 12 } });
