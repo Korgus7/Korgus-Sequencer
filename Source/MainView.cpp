@@ -386,6 +386,10 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                                       (float) (double) v.getProperty ("vel", 1.0), (int) v.getProperty ("lane", 0));
                             })
         .withEventListener ("fsList",      [this] (const juce::var& v) { onFsList (v); })
+        .withEventListener ("tuner",       [this] (const juce::var& v)
+                            {
+                                engine.tunerCh.store ((bool) v["on"] ? juce::jmax (0, (int) v.getProperty ("ch", 0)) : -1);
+                            })
         .withEventListener ("browserPick", [this] (const juce::var& v)
                             {
                                 auto cb = std::move (pendingFileCb);
@@ -1499,6 +1503,51 @@ void MainView::sendMidiCc()
     emit ("midiCC", o);
 }
 
+// ladicka: vyska tonu zo vstupu (YIN), poslana do rozhrania
+void MainView::sendTuner()
+{
+    const double sr = engine.getSampleRate();
+    const unsigned w = engine.tunerW.load (std::memory_order_acquire);
+    constexpr int N = 4096;
+    std::vector<float> x ((size_t) N);
+    double rms = 0;
+    for (int i = 0; i < N; ++i) { const float v = engine.tunerBuf[(w - (unsigned) N + (unsigned) i) & (Engine::tunerSize - 1)]; x[(size_t) i] = v; rms += v * v; }
+    rms = std::sqrt (rms / N);
+    auto o = obj();
+    put (o, "level", juce::Decibels::gainToDecibels ((float) rms, -100.0f));
+    double hz = 0;
+    if (rms > 0.003)
+    {
+        const int W = 2048, tauMax = juce::jmin (N - W - 2, (int) (sr / 50.0)), tauMin = juce::jmax (2, (int) (sr / 1500.0));
+        std::vector<double> d ((size_t) tauMax + 2, 0.0);
+        for (int tau = 1; tau <= tauMax; ++tau)
+        {
+            double s = 0;
+            for (int i = 0; i < W; ++i) { const double df = x[(size_t) i] - x[(size_t) (i + tau)]; s += df * df; }
+            d[(size_t) tau] = s;
+        }
+        // kumulativny priemer (CMND) a prvy hlboky minimum pod prahom
+        double run = 0; int best = -1;
+        std::vector<double> c ((size_t) tauMax + 2, 1.0);
+        for (int tau = 1; tau <= tauMax; ++tau) { run += d[(size_t) tau]; c[(size_t) tau] = run > 0 ? d[(size_t) tau] * tau / run : 1.0; }
+        for (int tau = tauMin; tau < tauMax; ++tau)
+            if (c[(size_t) tau] < 0.15)
+            {
+                while (tau + 1 < tauMax && c[(size_t) tau + 1] < c[(size_t) tau]) ++tau;
+                best = tau; break;
+            }
+        if (best > 0)
+        {
+            const double a = c[(size_t) best - 1], b = c[(size_t) best], cc = c[(size_t) best + 1];
+            const double den = a - 2 * b + cc;
+            const double t = best + (std::abs (den) > 1e-12 ? 0.5 * (a - cc) / den : 0.0);
+            hz = sr / t;
+        }
+    }
+    put (o, "hz", hz);
+    emit ("tuner", o);
+}
+
 void MainView::timerCallback()
 {
     if (recOn || recFinishing)
@@ -1509,6 +1558,7 @@ void MainView::timerCallback()
 
     sendMeters();
     sendMidiCc();
+    if (engine.tunerCh.load() >= 0 && (++tunerTick & 1) == 0) sendTuner();
 
     const double p = engine.getPosition();
     const bool pl = engine.isPlaying(), cn = engine.isCounting();
@@ -2814,8 +2864,16 @@ void MainView::onFsList (const juce::var& v)
     }
     auto isAudio = [&exts] (const juce::File& f) { return exts.contains (f.getFileExtension().substring (1).toLowerCase()); };
     juce::File dir (v["path"].toString());
+    auto spliceDir = []
+    {
+        const auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+        for (auto f : { home.getChildFile ("Splice").getChildFile ("sounds"), home.getChildFile ("Splice"),
+                        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Splice") })
+            if (f.isDirectory()) return f;
+        return juce::File();
+    };
     if (! juce::File::isAbsolutePath (v["path"].toString()) || ! dir.isDirectory())
-        dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+        dir = (v["kind"].toString() == "loop" && spliceDir().isDirectory()) ? spliceDir() : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
     const auto q = v["q"].toString().trim();
     auto o = obj();
     put (o, "req", v["req"]); put (o, "path", dir.getFullPathName()); put (o, "q", q);
@@ -2867,6 +2925,7 @@ void MainView::onFsList (const juce::var& v)
     place (sk ("Dokumenty"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
     place (sk ("Plocha"), juce::File::getSpecialLocation (juce::File::userDesktopDirectory));
     place (sk ("Stiahnuté"), juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile ("Downloads"));
+    if (spliceDir().isDirectory()) place ("Splice", spliceDir());
     juce::Array<juce::File> roots;
     juce::File::findFileSystemRoots (roots);
     for (auto& r : roots) place (r.getFullPathName(), r);

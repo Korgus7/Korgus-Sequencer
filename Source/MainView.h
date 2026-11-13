@@ -157,6 +157,8 @@ private:
     std::set<juce::String> arpTracks;                                        // stopy s Korgus Arp
     bool setArp (const juce::String& trackId, bool on, const juce::MemoryBlock* state);
     juce::var pendingSession;                                    // pluginy z minulého spustenia
+    int tunerTick = 0;                                           // ladicka (posiela vysku tonu 15x za sekundu)
+    void sendTuner();
     bool sessionApplied = false;
     bool booting = true, booted = false;
     std::vector<std::pair<juce::String, std::function<void()>>> bootSteps;

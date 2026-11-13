@@ -367,8 +367,8 @@ void Engine::mixClips (const TrackData& td, juce::AudioBuffer<float>& dst, doubl
             {
                 const double t = into + a + i;
                 double g = c.gain;
-                if (fiS > 0 && t < fiS) g *= juce::jmax (0.0, t / fiS);
-                if (foS > 0 && t > durS - foS) g *= juce::jmax (0.0, (durS - t) / foS);
+                if (fiS > 0 && t < fiS) { const double u = juce::jmax (0.0, t / fiS); g *= c.xfi ? std::sin (u * juce::MathConstants<double>::halfPi) : u; }
+                if (foS > 0 && t > durS - foS) { const double u = juce::jmax (0.0, (durS - t) / foS); g *= c.xfo ? std::sin (u * juce::MathConstants<double>::halfPi) : u; }
                 oL[i] += l[i] * (float) g;
                 oR[i] += r[i] * (float) g;
             }
@@ -507,6 +507,14 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     for (int c = 0; c < numOut; ++c)
         if (out[c] != nullptr) juce::FloatVectorOperations::clear (out[c], n);
 
+    if (forced == nullptr)
+        if (const int tc = tunerCh.load (std::memory_order_relaxed); tc >= 0 && tc < numIn && in != nullptr && in[tc] != nullptr)
+        {
+            unsigned w = tunerW.load (std::memory_order_relaxed);
+            for (int i = 0; i < n; ++i) tunerBuf[(w++) & (tunerSize - 1)] = in[tc][i];
+            tunerW.store (w, std::memory_order_release);
+        }
+
     const juce::ScopedTryLock sl (slotLock);
     if (! sl.isLocked() || (offline.load() && forced == nullptr)) return;   // pocas exportu ticho
     curIn = in; curNumIn = numIn; curOut = out; curNumOut = juce::jmin (2, numOut);
@@ -602,6 +610,15 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             slots[(size_t) td.slot]->channel = td.channel;
             auto& b = slots[(size_t) td.slot]->buf;
             if (b.getNumSamples() < n) b.setSize (juce::jmax (2, b.getNumChannels()), n, false, true, true);
+            for (int c = 0; c < b.getNumChannels(); ++c) juce::FloatVectorOperations::clear (b.getWritePointer (c), n);
+        }
+
+    if (sd != nullptr)
+        for (const auto& gd : sd->groups)
+        {
+            if (! juce::isPositiveAndBelow (gd.slot, (int) slots.size())) continue;
+            auto& b = slots[(size_t) gd.slot]->buf;
+            if (b.getNumSamples() < n || b.getNumChannels() < 2) b.setSize (juce::jmax (2, b.getNumChannels()), juce::jmax (n, b.getNumSamples()), false, true, true);
             for (int c = 0; c < b.getNumChannels(); ++c) juce::FloatVectorOperations::clear (b.getWritePointer (c), n);
         }
 
@@ -752,17 +769,21 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             const int chans = view.getNumChannels();
             const float* srcL = view.getReadPointer (0);
             const float* srcR = view.getReadPointer (chans > 1 ? 1 : 0);
+            float* dstL = mixL; float* dstR = mixR;
+            if (juce::isPositiveAndBelow (td.group, (int) sd->groups.size()))
+                if (const int gs = sd->groups[(size_t) td.group].slot; juce::isPositiveAndBelow (gs, (int) slots.size()) && slots[(size_t) gs]->buf.getNumChannels() >= 2)
+                { dstL = slots[(size_t) gs]->buf.getWritePointer (0); dstR = slots[(size_t) gs]->buf.getWritePointer (1); }
             if (slot.curL < 0 || (std::abs (slot.curL - gL) < 1.0e-5f && std::abs (slot.curR - gR) < 1.0e-5f))
             {
-                juce::FloatVectorOperations::addWithMultiply (mixL, srcL, gL, n);
-                juce::FloatVectorOperations::addWithMultiply (mixR, srcR, gR, n);
+                juce::FloatVectorOperations::addWithMultiply (dstL, srcL, gL, n);
+                juce::FloatVectorOperations::addWithMultiply (dstR, srcR, gR, n);
             }
             else
             {
                 // plynuly prechod hlasitosti cez blok (bez prasknutia)
                 const float dL = (gL - slot.curL) / (float) n, dR = (gR - slot.curR) / (float) n;
                 float a = slot.curL, b = slot.curR;
-                for (int i = 0; i < n; ++i) { a += dL; b += dR; mixL[i] += srcL[i] * a; mixR[i] += srcR[i] * b; }
+                for (int i = 0; i < n; ++i) { a += dL; b += dR; dstL[i] += srcL[i] * a; dstR[i] += srcR[i] * b; }
             }
             slot.curL = gL; slot.curR = gR;
             if (forced == nullptr)
@@ -778,6 +799,33 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 }
         }
     }
+
+    // skupinove stopy: efekty, hlasitost a panorama -> master (a posielanie do FX 1 / FX 2)
+    if (sd != nullptr)
+        for (const auto& gd : sd->groups)
+        {
+            if (! juce::isPositiveAndBelow (gd.slot, (int) slots.size())) continue;
+            auto& gs = *slots[(size_t) gd.slot];
+            if (gs.buf.getNumChannels() < 2) continue;
+            juce::AudioBuffer<float> view (gs.buf.getArrayOfWritePointers(), gs.buf.getNumChannels(), n);
+            for (int q = 0; q < numFx; ++q)
+                if (auto& f = gs.fx[(size_t) q]; f != nullptr && ! (gd.fxOff & (1u << q))) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
+            const float gL = gd.audible ? gd.gainL : 0.0f, gR = gd.audible ? gd.gainR : 0.0f;
+            const float* srcL = view.getReadPointer (0); const float* srcR = view.getReadPointer (1);
+            juce::FloatVectorOperations::addWithMultiply (mixL, srcL, gL, n);
+            juce::FloatVectorOperations::addWithMultiply (mixR, srcR, gR, n);
+            for (int k = 0; k < 2; ++k)
+                if (gd.send[k] > 0.0f)
+                {
+                    juce::FloatVectorOperations::addWithMultiply (auxL[k], srcL, gL * gd.send[k], n);
+                    juce::FloatVectorOperations::addWithMultiply (auxR[k], srcR, gR * gd.send[k], n);
+                }
+            if (forced == nullptr)
+            {
+                const auto rl = juce::FloatVectorOperations::findMinAndMax (srcL, n), rr = juce::FloatVectorOperations::findMinAndMax (srcR, n);
+                meterPut (gd.slot, juce::jmax (-rl.getStart(), rl.getEnd()) * gL, juce::jmax (-rr.getStart(), rr.getEnd()) * gR);
+            }
+        }
 
     // spolocne efekty FX 1 / FX 2 -> master
     for (int k = 0; k < 2; ++k)

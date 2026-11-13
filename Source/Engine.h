@@ -27,6 +27,7 @@ struct ClipEv
     double off = 0;       // posun v subore (s)
     double dur = 0;       // dlzka (s)
     double fi = 0, fo = 0; // nabeh / dobeh (s)
+    bool xfi = false, xfo = false;   // automaticke prelinanie s inym klipom (krivka s rovnakym vykonom)
     float gain = 1;
     AudioBufPtr buf;
 };
@@ -72,9 +73,20 @@ struct TrackData
     bool audible = true;        // nie je stlmena / je solo
     float send[2] { 0, 0 };     // posielanie do FX 1 / FX 2 (za hlasitostou)
     bool isKey = false;         // klucova stopa pre sidechain
+    int group = -1;             // index skupiny v SongData::groups (-1 = rovno na master)
     unsigned fxOff = 0;         // vypnute efekty (bity 0..3)
     std::vector<NoteEv> notes;  // zoradene podla start
     std::vector<CcEv> ccs;      // MIDI CC a pitch bend, zoradene podla start
+};
+
+// Skupinova stopa (zbernica): stopy sa do nej scitaju, potom jej efekty, hlasitost a panorama -> master
+struct GroupData
+{
+    int slot = -1;
+    float gainL = 1, gainR = 1;
+    bool audible = true;
+    unsigned fxOff = 0;
+    float send[2] { 0, 0 };
 };
 
 struct SongData
@@ -136,6 +148,7 @@ struct SongData
     unsigned masterFxOff = 0, auxFxOff[2] { 0, 0 };   // vypnute efekty mastra a FX 1/2
     bool loopOn = false, click = false;
     std::vector<TrackData> tracks;
+    std::vector<GroupData> groups;
 };
 
 // Zvukovy motor: prehrava piesen cez VST nastroje stop, ziva hra z MIDI, metronom a odpocet
@@ -341,6 +354,11 @@ private:
     const SongData* curSongData = nullptr;        // piesen v aktualnom bloku  // sloty "__aux1", "__aux2" (spolocne efekty)
 public:
     std::atomic<bool> bypassMaster { false };   // export stop: bez efektov a hlasitosti mastra
+    // ladicka: posledne vzorky zvoleneho vstupu (zapisuje audio vlakno)
+    static constexpr int tunerSize = 8192;
+    std::atomic<int> tunerCh { -1 };
+    std::atomic<unsigned> tunerW { 0 };
+    float tunerBuf[tunerSize] {};
 private:   // slot "__master" s efektmi celej piesne
 
     // metronom

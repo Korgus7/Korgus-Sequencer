@@ -1,3 +1,4 @@
+#include <map>
 #include "SongParse.h"
 
 static const int GM_DRUMS[] = { 36, 38, 39, 42, 46, 45, 50, 37, 49, 56 };
@@ -49,6 +50,28 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
 
     const auto* tracks = j["tracks"].getArray();
     bool anySolo = false;
+    // skupinove stopy (zbernice)
+    std::map<juce::String, int> groupIdx;
+    juce::StringArray soloGroups;
+    if (const auto* groups = j["groups"].getArray())
+        for (const auto& g : *groups)
+        {
+            const auto gid = g["id"].toString();
+            if (gid.isEmpty()) continue;
+            GroupData gd;
+            gd.slot = slotFor ("__g" + gid);
+            const float vol = (float) (double) g.getProperty ("vol", 1.0);
+            const float pan = juce::jlimit (-1.0f, 1.0f, (float) (double) g.getProperty ("pan", 0.0));
+            gd.gainL = vol * vol * juce::jmin (1.0f, 1.0f - pan);
+            gd.gainR = vol * vol * juce::jmin (1.0f, 1.0f + pan);
+            gd.audible = ! (bool) g.getProperty ("mute", false);
+            gd.fxOff = offBits ("__g" + gid);
+            if (const auto* snd = g["send"].getArray())
+                for (int k = 0; k < juce::jmin (2, snd->size()); ++k) { const float sv = juce::jlimit (0.0f, 1.0f, (float) (double) (*snd)[k]); gd.send[k] = sv * sv; }
+            if ((bool) g.getProperty ("solo", false)) { soloGroups.add (gid); anySolo = true; }
+            groupIdx[gid] = (int) sd->groups.size();
+            sd->groups.push_back (gd);
+        }
     if (tracks != nullptr)
         for (const auto& t : *tracks) anySolo = anySolo || (bool) t.getProperty ("solo", false);
 
@@ -97,7 +120,13 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                     std::sort (al.pts.begin(), al.pts.end(), [] (const auto& x, const auto& y) { return x.first < y.first; });
                     if (! al.pts.empty()) td.autos.push_back (std::move (al));
                 }
-            td.audible = ! (bool) t.getProperty ("mute", false) && (! anySolo || (bool) t.getProperty ("solo", false));
+            {
+                const auto out = t["out"].toString();
+                auto gi = groupIdx.find (out);
+                td.group = gi != groupIdx.end() ? gi->second : -1;
+                td.audible = ! (bool) t.getProperty ("mute", false)
+                          && (! anySolo || (bool) t.getProperty ("solo", false) || (out.isNotEmpty() && soloGroups.contains (out)));
+            }
 
             std::array<AudioBufPtr, 10> laneBuf {};
             if (type == "drum")
@@ -126,6 +155,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                         c.dur = (double) p.getProperty ("dur", 0.0) * alpha;
                         c.fi = juce::jmax (0.0, (double) p.getProperty ("fi", 0.0));
                         c.fo = juce::jmax (0.0, (double) p.getProperty ("fo", 0.0));
+                        c.xfi = (bool) p.getProperty ("xfi", false); c.xfo = (bool) p.getProperty ("xfo", false);
                         c.gain = (float) (double) p.getProperty ("gain", 1.0);
                         c.buf = clipFor (p["aid"].toString(), alpha, juce::jlimit (-24, 24, (int) p.getProperty ("semi", 0)));
                         if (c.buf != nullptr && c.dur > 0) td.clips.push_back (c);
