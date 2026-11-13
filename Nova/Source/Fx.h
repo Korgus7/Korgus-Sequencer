@@ -35,6 +35,23 @@ namespace nova
         }
     };
 
+    // 3-pasmovy EQ (basy shelf 150 Hz, stredy spicka, vysky shelf 2.5 kHz), stereo
+    struct Eq3
+    {
+        Biquad lo[2], md[2], hi[2]; float last[4] { 1e9f, 0, 0, 0 };
+        void reset() { for (int c = 0; c < 2; ++c) { lo[c].z1 = lo[c].z2 = md[c].z1 = md[c].z2 = hi[c].z1 = hi[c].z2 = 0; } last[0] = 1e9f; }
+        bool update (float l, float m, float mf, float h, float sr)
+        {
+            if (l != last[0] || m != last[1] || mf != last[2] || h != last[3])
+            {
+                last[0] = l; last[1] = m; last[2] = mf; last[3] = h;
+                for (int c = 0; c < 2; ++c) { lo[c].set (0, 150, 0.7f, l, sr); md[c].set (1, mf, 0.8f, m, sr); hi[c].set (2, 2500, 0.7f, h, sr); }
+            }
+            return l != 0 || m != 0 || h != 0;
+        }
+        void process (float& l, float& r) { l = hi[0].process (md[0].process (lo[0].process (l))); r = hi[1].process (md[1].process (lo[1].process (r))); }
+    };
+
     struct FxSettings
     {
         float tube = 0; bool compOn = false; float comp = 0.35f;
@@ -43,6 +60,7 @@ namespace nova
         bool dlOn = false; int dlSync = 0; float dlTime = 375, dlFb = 0.35f, dlTone = 8000, dlMix = 0.25f; bool dlPP = true;
         bool rvOn = true; float rvSize = 0.5f, rvDamp = 0.4f, rvMix = 0.2f;
         float width = 1, punch = 0.5f, eqLow = 0, eqMid = 0, eqMidF = 1000, eqHigh = 0;
+        float rvEqLow = 0, rvEqMid = 0, rvEqMidF = 1000, rvEqHigh = 0;
         bool mfOn = false; int mfType = 0; float mfCut = 20000, mfReso = 0, mfDrive = 0;
         float gainDb = 0, volumeDb = 0;
         double bpm = 120;
@@ -57,19 +75,14 @@ namespace nova
             chorus.prepare (sr); reverb.prepare (sr);
             dlL.assign ((size_t) (sr * 2.6f), 0); dlR.assign ((size_t) (sr * 2.6f), 0); dw = 0;
             dlTimeSm = -1; compEnv = 0; grDb = 0; pf = ps = 0; mfL.reset(); mfR.reset(); mf2L.reset(); mf2R.reset();
-            lastEq[0] = 1e9f;
+            eq.reset(); rvEq.reset();
         }
         std::atomic<float> gainReduction { 0 };   // pre zobrazenie (dB)
 
         void process (float* L, float* R, int n, const FxSettings& s)
         {
-            // EQ prepocitat len pri zmene
-            if (s.eqLow != lastEq[0] || s.eqMid != lastEq[1] || s.eqMidF != lastEq[2] || s.eqHigh != lastEq[3])
-            {
-                lastEq[0] = s.eqLow; lastEq[1] = s.eqMid; lastEq[2] = s.eqMidF; lastEq[3] = s.eqHigh;
-                for (int c = 0; c < 2; ++c) { eqLo[c].set (0, 150, 0.7f, s.eqLow, sr); eqMd[c].set (1, s.eqMidF, 0.8f, s.eqMid, sr); eqHi[c].set (2, 2500, 0.7f, s.eqHigh, sr); }
-            }
-            const bool eqOn = s.eqLow != 0 || s.eqMid != 0 || s.eqHigh != 0;
+            const bool eqOn = eq.update (s.eqLow, s.eqMid, s.eqMidF, s.eqHigh, sr);
+            const bool rvEqOn = rvEq.update (s.rvEqLow, s.rvEqMid, s.rvEqMidF, s.rvEqHigh, sr);
             if (std::abs (s.rvSize - reverb.size) > 0.01f || std::abs (s.rvDamp - reverb.damp) > 0.01f) reverb.setSize (s.rvSize, s.rvDamp);
             // delay: cas zo synchra s tempom
             float dTime = s.dlTime * 0.001f;
@@ -118,7 +131,7 @@ namespace nova
                     const float d = 1.0f + 9.0f * s.drive, nrm = 1.0f / std::tanh (d);
                     l = std::tanh (l * d) * nrm * (1.0f - 0.4f * s.drive); r = std::tanh (r * d) * nrm * (1.0f - 0.4f * s.drive);
                 }
-                if (eqOn) { l = eqHi[0].process (eqMd[0].process (eqLo[0].process (l))); r = eqHi[1].process (eqMd[1].process (eqLo[1].process (r))); }
+                if (eqOn) eq.process (l, r);
                 if (chSm > 0.001f) chorus.process (l, r, chSm, 1.0f + 6.0f * s.chDepth, s.chRate);
                 if (dlSm > 0.001f || s.dlOn)
                 {
@@ -136,6 +149,7 @@ namespace nova
                 if (rvSm > 0.0005f || s.rvOn)
                 {
                     float rl, rr; reverb.process (l, r, rl, rr);
+                    if (rvEqOn) rvEq.process (rl, rr);
                     l += rl * rvSm; r += rr * rvSm;
                 }
                 const float mid = 0.5f * (l + r), side = 0.5f * (l - r) * wSm;
@@ -167,7 +181,7 @@ namespace nova
         float sr = 48000;
         Chorus chorus; Reverb reverb;
         std::vector<float> dlL, dlR; int dw = 0; float dlTimeSm = -1; OnePole dlTone;
-        Biquad eqLo[2], eqMd[2], eqHi[2]; float lastEq[4] { 1e9f, 0, 0, 0 };
+        Eq3 eq, rvEq;
         Svf mfL, mfR, mf2L, mf2R;
         float rvSm = 0, chSm = 0, dlSm = 0, wSm = 1, compEnv = 0, grDb = 0, pf = 0, ps = 0;
     };

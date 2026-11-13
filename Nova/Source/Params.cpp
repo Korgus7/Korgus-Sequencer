@@ -93,6 +93,15 @@ namespace nova
             F ("eq_mid", "Stredy", -15, 15, 0, "dB");
             F ("eq_midf", "Stredy Hz", 200, 8000, 1000, "Hz", 0.35f);
             F ("eq_high", "Výšky", -15, 15, 0, "dB");
+            // EQ vrstiev a dozvuku
+            for (auto pre : { "a_", "b_", "rv_" })
+            {
+                const juce::String px (pre);
+                F (px + "eql", "EQ basy", -15, 15, 0, "dB");
+                F (px + "eqm", "EQ stredy", -15, 15, 0, "dB");
+                F (px + "eqmf", "EQ stredy Hz", 200, 8000, 1000, "Hz", 0.35f);
+                F (px + "eqh", "EQ výšky", -15, 15, 0, "dB");
+            }
             // arpeggiator, hlas
             B ("arp_on", "Arpeggiátor", false);
             B ("arp_hold", "Držať", false);

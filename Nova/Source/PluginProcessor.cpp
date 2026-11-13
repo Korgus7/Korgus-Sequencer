@@ -31,7 +31,19 @@ void NovaProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 
 void NovaProcessor::fillSettings (Settings& s)
 {
-    auto g = [this] (const juce::String& id) { return raw[id]->load(); };
+    settingsFrom (s, [this] (const juce::String& id) { return raw[id]->load(); });
+    s.fx.bpm = 120; s.playing = false; s.ppq = 0;
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+        {
+            if (auto b = pos->getBpm()) s.fx.bpm = *b;
+            s.playing = pos->getIsPlaying();
+            if (auto q = pos->getPpqPosition()) s.ppq = *q;
+        }
+}
+
+void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const juce::String&)>& g)
+{
     for (int li = 0; li < 2; ++li)
     {
         const juce::String p = li == 0 ? "a_" : "b_";
@@ -44,6 +56,7 @@ void NovaProcessor::fillSettings (Settings& s)
         L.aa = g (p + "aa"); L.ad = g (p + "ad"); L.as = g (p + "as"); L.ar = g (p + "ar");
         L.lshape = (int) g (p + "lshape"); L.ltgt = (int) g (p + "ltgt"); L.lrate = g (p + "lrate"); L.ldepth = g (p + "ldepth"); L.ldelay = g (p + "ldelay");
         L.src = (int) g (p + "src"); L.root = (int) g (p + "root"); L.loop = g (p + "loop") > 0.5f;
+        L.eqLow = g (p + "eql"); L.eqMid = g (p + "eqm"); L.eqMidF = g (p + "eqmf"); L.eqHigh = g (p + "eqh");
     }
     auto& f = s.fx;
     f.tube = g ("tube"); f.compOn = g ("comp_on") > 0.5f; f.comp = g ("comp");
@@ -52,20 +65,13 @@ void NovaProcessor::fillSettings (Settings& s)
     f.dlOn = g ("dl_on") > 0.5f; f.dlSync = (int) g ("dl_sync"); f.dlTime = g ("dl_time"); f.dlFb = g ("dl_fb"); f.dlTone = g ("dl_tone"); f.dlMix = g ("dl_mix"); f.dlPP = g ("dl_pp") > 0.5f;
     f.rvOn = g ("rv_on") > 0.5f; f.rvSize = g ("rv_size"); f.rvDamp = g ("rv_damp"); f.rvMix = g ("rv_mix");
     f.width = g ("fx_width"); f.punch = g ("fx_punch"); f.eqLow = g ("eq_low"); f.eqMid = g ("eq_mid"); f.eqMidF = g ("eq_midf"); f.eqHigh = g ("eq_high");
+    f.rvEqLow = g ("rv_eql"); f.rvEqMid = g ("rv_eqm"); f.rvEqMidF = g ("rv_eqmf"); f.rvEqHigh = g ("rv_eqh");
     f.mfOn = g ("mf_on") > 0.5f; f.mfType = (int) g ("mf_type"); f.mfCut = g ("mf_cut"); f.mfReso = g ("mf_reso"); f.mfDrive = g ("mf_drive");
     f.gainDb = g ("p_gain"); f.volumeDb = g ("volume");
     s.arpOn = g ("arp_on") > 0.5f; s.arpHold = g ("arp_hold") > 0.5f; s.arpPat = (int) g ("arp_pat"); s.arpSpeed = (int) g ("arp_speed");
     s.arpOct = (int) g ("arp_oct"); s.arpLen = g ("arp_len");
     s.mono = g ("mono") > 0.5f; s.glide = g ("glide"); s.veltrack = g ("veltrack"); s.morphX = g ("morph_x"); s.morphY = g ("morph_y");
     s.bright = g ("bright"); s.attack = g ("attack"); s.release = g ("release"); s.space = g ("space"); s.width = g ("width");
-    f.bpm = 120; s.playing = false; s.ppq = 0;
-    if (auto* ph = getPlayHead())
-        if (auto pos = ph->getPosition())
-        {
-            if (auto b = pos->getBpm()) f.bpm = *b;
-            s.playing = pos->getIsPlaying();
-            if (auto q = pos->getPpqPosition()) s.ppq = *q;
-        }
 }
 
 void NovaProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -153,6 +159,224 @@ void NovaProcessor::handleAsyncUpdate()
     PatchData p;
     const auto key = "f:" + factoryPatches()[(size_t) idx].name;
     if (presets.load (key, p)) { applyPatch (p); currentKey = key; if (onPatchChanged) onPatchChanged(); }
+}
+
+// ------------------------------------------------------------- Prekvap ma
+namespace
+{
+    // nahodny, ale hudobny zvuk: najprv typ (pad, pluck, ...), potom hodnoty v rozumnych medziach
+    PatchData randomPatch (juce::Random& r, bool pianoOk)
+    {
+        PatchData p;
+        auto& v = p.values;
+        auto R = [&r] (float a, float b) { return a + (b - a) * r.nextFloat(); };
+        auto LR = [&r] (float a, float b) { return a * std::pow (b / a, r.nextFloat()); };
+        auto I = [&r] (int a, int b) { return (float) (a + r.nextInt (b - a + 1)); };
+        auto pick = [&r] (std::initializer_list<float> l) { return *(l.begin() + r.nextInt ((int) l.size())); };
+        auto chance = [&r] (float c) { return r.nextFloat() < c; };
+        auto copyEnv = [&v] { for (auto k : { "aa", "ad", "as", "ar" }) v[juce::String ("b_") + k] = v[juce::String ("a_") + k]; };
+
+        int type = r.nextInt (pianoOk ? 8 : 7);
+        v["veltrack"] = R (0.5f, 0.85f);
+        v["rv_mix"] = R (0.15f, 0.35f); v["rv_size"] = R (0.4f, 0.8f); v["rv_damp"] = R (0.3f, 0.6f);
+        static const char* adj[] = { "Hmlistý", "Zamatový", "Ligotavý", "Snový", "Polnočný", "Jantárový", "Mrazivý", "Teplý", "Kozmický", "Dúhový",
+                                     "Tichý", "Zlatý", "Strieborný", "Večerný", "Lesný", "Morský", "Hviezdny", "Jemný", "Hlboký", "Nočný", "Ranný", "Sklenený" };
+        const char* noun = "zvuk"; const char* cat = "Moje zvuky";
+        switch (type)
+        {
+            case 0:   // pad
+            {
+                noun = pick ({ 0, 1, 2 }) == 0 ? "pad" : (chance (0.5f) ? "oblak" : "opar"); cat = "Pady";
+                v["a_wave"] = pick ({ 2, 2, 3, 1 }); v["a_uni"] = I (3, 7); v["a_spread"] = R (7, 20); v["a_color"] = R (0.2f, 0.6f);
+                v["a_cut"] = LR (600, 4000); v["a_reso"] = R (0.05f, 0.35f); v["a_fenv"] = R (0, 0.35f);
+                v["a_fa"] = R (0.3f, 2); v["a_fd"] = R (1, 3); v["a_fs"] = R (0.3f, 0.8f); v["a_fr"] = R (1, 2.5f);
+                v["a_aa"] = R (0.3f, 1.8f); v["a_ad"] = 1.5f; v["a_as"] = R (0.8f, 1); v["a_ar"] = R (1.2f, 3); v["a_level"] = 0.8f;
+                if (chance (0.5f)) { v["a_ltgt"] = 1; v["a_lshape"] = pick ({ 0, 1 }); v["a_lrate"] = LR (0.08f, 0.6f); v["a_ldepth"] = R (0.1f, 0.35f); }
+                if (chance (0.7f))
+                {
+                    v["b_on"] = 1; v["b_wave"] = pick ({ 0, 1, 2, 3 }); v["b_oct"] = pick ({ -1, 1, 2 }); v["b_level"] = R (0.2f, 0.45f);
+                    v["b_cut"] = LR (1000, 8000); copyEnv();
+                }
+                v["tube"] = R (0, 0.4f);
+                if (chance (0.7f)) { v["ch_on"] = 1; v["ch_mix"] = R (0.3f, 0.55f); }
+                v["rv_mix"] = R (0.3f, 0.5f); v["rv_size"] = R (0.65f, 0.9f);
+                break;
+            }
+            case 1:   // pluck
+            {
+                noun = chance (0.5f) ? "pluck" : "drnk"; cat = "Plucky";
+                if (chance (0.5f))
+                {
+                    v["a_wave"] = 5; v["a_color"] = R (0.3f, 0.85f); v["a_ad"] = R (0.8f, 4); v["a_aa"] = 0.001f; v["a_as"] = 1; v["a_ar"] = R (0.2f, 1); v["a_level"] = 1;
+                }
+                else
+                {
+                    v["a_wave"] = pick ({ 2, 3 }); v["a_uni"] = I (1, 3); v["a_spread"] = R (4, 12);
+                    v["a_cut"] = LR (250, 1200); v["a_reso"] = R (0.1f, 0.45f); v["a_fenv"] = R (0.45f, 0.85f);
+                    v["a_fa"] = 0.001f; v["a_fd"] = R (0.12f, 0.45f); v["a_fs"] = 0; v["a_fr"] = 0.2f;
+                    v["a_aa"] = 0.001f; v["a_ad"] = R (0.3f, 0.9f); v["a_as"] = 0; v["a_ar"] = R (0.2f, 0.5f); v["a_level"] = 0.9f;
+                }
+                if (chance (0.5f))
+                {
+                    v["b_on"] = 1; v["b_wave"] = pick ({ 0, 5 }); v["b_oct"] = pick ({ 1, -1 }); v["b_level"] = R (0.2f, 0.4f); v["b_color"] = R (0.3f, 0.7f);
+                    v["b_aa"] = 0.001f; v["b_ad"] = R (0.4f, 2); v["b_as"] = v["b_wave"] == 5 ? 1.0f : 0.0f; v["b_ar"] = 0.3f;
+                }
+                if (chance (0.5f)) { v["dl_on"] = 1; v["dl_sync"] = pick ({ 2, 3, 4 }); v["dl_mix"] = R (0.15f, 0.3f); v["dl_fb"] = R (0.2f, 0.45f); }
+                if (chance (0.4f)) { v["ch_on"] = 1; v["ch_mix"] = R (0.1f, 0.3f); }
+                break;
+            }
+            case 2:   // klavesy (FM)
+            {
+                noun = chance (0.5f) ? "klavírik" : "tón"; cat = "Klávesy";
+                v["a_wave"] = 6; v["a_ratio"] = pick ({ 1, 1, 3, 5 }); v["a_color"] = R (0.25f, 0.55f); v["a_fenv"] = R (0.5f, 0.9f);
+                v["a_fa"] = 0.001f; v["a_fd"] = R (0.6f, 1.8f); v["a_fs"] = 0; v["a_aa"] = 0.002f; v["a_ad"] = R (2, 6); v["a_as"] = R (0, 0.25f); v["a_ar"] = R (0.3f, 0.6f); v["a_level"] = 1;
+                if (chance (0.3f)) { v["a_ltgt"] = 3; v["a_lrate"] = R (3, 6); v["a_ldepth"] = R (0.1f, 0.3f); }
+                if (chance (0.4f)) { v["b_on"] = 1; v["b_wave"] = 0; v["b_oct"] = 2; v["b_semi"] = pick ({ 0, 7 }); v["b_level"] = R (0.08f, 0.15f); v["b_aa"] = 0.001f; v["b_ad"] = 0.12f; v["b_as"] = 0; v["b_ar"] = 0.05f; }
+                if (chance (0.6f)) { v["ch_on"] = 1; v["ch_mix"] = R (0.2f, 0.45f); }
+                break;
+            }
+            case 3:   // bas
+            {
+                noun = chance (0.5f) ? "bas" : "basák"; cat = "Basy";
+                if (chance (0.25f)) { v["a_wave"] = 6; v["a_ratio"] = pick ({ 0, 1 }); v["a_color"] = R (0.2f, 0.5f); v["a_fenv"] = R (0.4f, 0.8f); v["a_fd"] = 0.3f; v["a_fs"] = 0.1f; }
+                else
+                {
+                    v["a_wave"] = pick ({ 2, 3, 1 }); v["a_cut"] = LR (200, 900); v["a_reso"] = R (0.1f, 0.4f); v["a_fenv"] = R (0.25f, 0.7f);
+                    v["a_fa"] = 0.002f; v["a_fd"] = R (0.15f, 0.5f); v["a_fs"] = R (0, 0.4f); v["a_fr"] = 0.12f;
+                }
+                v["a_oct"] = pick ({ 0, -1 }); v["a_aa"] = 0.003f; v["a_ad"] = 0.5f; v["a_as"] = R (0.7f, 1); v["a_ar"] = R (0.08f, 0.2f); v["a_level"] = 0.8f;
+                if (chance (0.7f)) { v["b_on"] = 1; v["b_wave"] = 0; v["b_oct"] = v["a_oct"] - 1; v["b_level"] = R (0.4f, 0.7f); copyEnv(); }
+                if (chance (0.6f)) { v["mono"] = 1; v["glide"] = R (0, 0.06f); }
+                if (chance (0.7f)) v["rv_on"] = 0; else v["rv_mix"] = 0.1f;
+                v["tube"] = R (0, 0.5f);
+                if (chance (0.3f)) { v["drive_on"] = 1; v["drive"] = R (0.1f, 0.35f); }
+                break;
+            }
+            case 4:   // lead
+            {
+                noun = chance (0.5f) ? "lead" : "hlas"; cat = "Leady";
+                v["a_wave"] = pick ({ 2, 3 }); v["a_uni"] = I (1, 4); v["a_spread"] = R (5, 15); v["a_color"] = R (0.3f, 0.6f);
+                v["a_cut"] = LR (1200, 6000); v["a_reso"] = R (0.1f, 0.4f); v["a_fenv"] = R (0.1f, 0.4f);
+                v["a_fa"] = 0.005f; v["a_fd"] = R (0.3f, 0.8f); v["a_fs"] = R (0.4f, 0.8f);
+                v["a_aa"] = R (0.005f, 0.05f); v["a_ad"] = 0.4f; v["a_as"] = 0.9f; v["a_ar"] = R (0.15f, 0.4f); v["a_level"] = 0.8f;
+                v["a_lrate"] = R (4.8f, 6); v["a_ldepth"] = R (0.05f, 0.14f); v["a_ldelay"] = R (0.2f, 0.45f);
+                if (chance (0.8f)) { v["mono"] = 1; v["glide"] = R (0.03f, 0.12f); }
+                if (chance (0.5f))
+                {
+                    v["b_on"] = 1; v["b_wave"] = pick ({ 2, 3 }); v["b_oct"] = pick ({ -1, 1 }); v["b_fine"] = R (4, 10); v["b_level"] = 0.4f;
+                    v["b_cut"] = v["a_cut"]; v["b_reso"] = v["a_reso"]; copyEnv();
+                }
+                if (chance (0.7f)) { v["dl_on"] = 1; v["dl_sync"] = pick ({ 2, 3 }); v["dl_mix"] = R (0.15f, 0.25f); v["dl_fb"] = R (0.2f, 0.4f); }
+                v["tube"] = R (0, 0.4f);
+                break;
+            }
+            case 5:   // zvonky (FM)
+            {
+                noun = chance (0.5f) ? "zvonček" : "kryštál"; cat = "Zvonky";
+                v["a_wave"] = 6; v["a_ratio"] = pick ({ 5, 6, 8, 9 }); v["a_color"] = R (0.2f, 0.5f); v["a_fenv"] = R (0.7f, 1);
+                v["a_fa"] = 0.001f; v["a_fd"] = R (0.3f, 1.2f); v["a_fs"] = 0; v["a_aa"] = 0.001f; v["a_ad"] = R (2.5f, 6); v["a_as"] = 0; v["a_ar"] = R (0.6f, 1.5f); v["a_level"] = 1;
+                if (chance (0.6f)) { v["b_on"] = 1; v["b_wave"] = 0; v["b_oct"] = pick ({ 1, 2 }); v["b_level"] = R (0.1f, 0.25f); v["b_aa"] = 0.001f; v["b_ad"] = R (1, 3); v["b_as"] = 0; v["b_ar"] = 0.6f; }
+                v["rv_mix"] = R (0.35f, 0.5f); v["rv_size"] = R (0.65f, 0.9f);
+                if (chance (0.4f)) { v["ch_on"] = 1; v["ch_mix"] = R (0.15f, 0.35f); }
+                break;
+            }
+            case 6:   // slaciky
+            {
+                noun = chance (0.5f) ? "sláčik" : "orchester"; cat = "Sláčiky";
+                v["a_wave"] = 2; v["a_uni"] = I (4, 7); v["a_spread"] = R (8, 16);
+                v["a_cut"] = LR (1500, 4500); v["a_reso"] = R (0.05f, 0.25f); v["a_fenv"] = R (0.05f, 0.2f);
+                v["a_fa"] = R (0.2f, 0.6f); v["a_fd"] = 1; v["a_fs"] = 0.7f; v["a_fr"] = 0.6f;
+                v["a_aa"] = R (0.15f, 0.6f); v["a_ad"] = 0.6f; v["a_as"] = 0.9f; v["a_ar"] = R (0.5f, 1.2f); v["a_level"] = 0.85f;
+                if (chance (0.4f)) { v["a_ftype"] = 3; v["a_uni"] = 2; v["a_spread"] = 4; }
+                v["a_lrate"] = R (5, 5.8f); v["a_ldepth"] = R (0.05f, 0.15f); v["a_ldelay"] = R (0.25f, 0.4f);
+                if (chance (0.4f)) { v["b_on"] = 1; v["b_wave"] = 2; v["b_oct"] = -1; v["b_level"] = 0.35f; v["b_cut"] = v["a_cut"]; copyEnv(); }
+                v["ch_on"] = 1; v["ch_mix"] = R (0.35f, 0.6f); v["rv_mix"] = R (0.3f, 0.45f); v["rv_size"] = 0.7f;
+                break;
+            }
+            default:  // klavir + pad
+            {
+                noun = chance (0.5f) ? "klavír" : "koncert"; cat = "Klavír";
+                v["a_wave"] = 7; v["a_src"] = 0; v["a_color"] = R (0.25f, 0.7f); v["a_level"] = 1; v["a_aa"] = 0.0015f; v["a_ar"] = 0.4f;
+                v["b_on"] = 1; v["b_wave"] = pick ({ 2, 1, 0, 3 }); v["b_uni"] = I (3, 5); v["b_spread"] = 10; v["b_cut"] = LR (800, 3000);
+                v["b_aa"] = R (0.4f, 1.5f); v["b_ad"] = 1.5f; v["b_as"] = 0.9f; v["b_ar"] = R (1, 2.5f); v["b_level"] = R (0.12f, 0.3f); v["b_oct"] = pick ({ 0, -1, 1 });
+                v["rv_mix"] = R (0.25f, 0.4f);
+                if (chance (0.5f)) { v["ch_on"] = 1; v["ch_mix"] = R (0.2f, 0.4f); }
+                break;
+            }
+        }
+        if (chance (0.4f)) v["eq_high"] = R (-4, 3);
+        p.name = juce::String::fromUTF8 (adj[r.nextInt ((int) (sizeof (adj) / sizeof (adj[0])))]) + " " + juce::String::fromUTF8 (noun);
+        p.category = juce::String::fromUTF8 (cat);
+        return p;
+    }
+
+    // cielova hlasitost podla tovarenskych zvukov: drzane zvuky okolo -19.5 dB, uderove okolo -16 dB
+    float targetLevelDb (const juce::String& cat)
+    {
+        for (auto c : { "Pady", "Sláčiky", "Leady", "Basy" }) if (cat == juce::String::fromUTF8 (c)) return -19.5f;
+        return -16.0f;
+    }
+}
+
+float NovaProcessor::measureLevel (const PatchData& p)
+{
+    // akord C3 G3 C4 E4 1.2 s; hlasitost = najvacsie RMS v okne 0.4 s
+    Settings s;
+    settingsFrom (s, [&p] (const juce::String& id)
+    {
+        if (id == "p_gain" || id == "volume") return 0.0f;
+        auto it = p.values.find (id);
+        if (it != p.values.end()) return it->second;
+        const auto* sp = findSpec (id);
+        return sp != nullptr ? sp->def : 0.0f;
+    });
+    s.arpOn = false;
+    const double sr = 48000; const int bs = 512, total = (int) (2.0 * sr);
+    auto syn = std::make_unique<Synth>();
+    syn->prepare (sr, bs);
+    std::vector<float> sq; sq.reserve ((size_t) total);
+    juce::AudioBuffer<float> b (2, bs);
+    for (int pos = 0; pos < total; pos += bs)
+    {
+        juce::MidiBuffer mb;
+        if (pos == 0) for (int n : { 48, 55, 60, 64 }) mb.addEvent (juce::MidiMessage::noteOn (1, n, 0.8f), 0);
+        if (pos <= (int) (1.2 * sr) && pos + bs > (int) (1.2 * sr)) for (int n : { 48, 55, 60, 64 }) mb.addEvent (juce::MidiMessage::noteOff (1, n), 0);
+        b.clear(); syn->process (b, mb, s);
+        for (int i = 0; i < bs; ++i) sq.push_back (0.5f * (b.getSample (0, i) * b.getSample (0, i) + b.getSample (1, i) * b.getSample (1, i)));
+    }
+    const int w = (int) (0.4 * sr);
+    double acc = 0, best = 0;
+    for (int i = 0; i < (int) sq.size(); ++i)
+    {
+        acc += sq[(size_t) i];
+        if (i >= w) acc -= sq[(size_t) (i - w)];
+        best = std::max (best, acc / w);
+    }
+    return juce::Decibels::gainToDecibels ((float) std::sqrt (best), -100.0f);
+}
+
+void NovaProcessor::surprise()
+{
+    juce::Random r;
+    auto p = randomPatch (r, synth.pianoReady());
+    const float lv = measureLevel (p);
+    p.values["p_gain"] = lv > -90.0f ? juce::jlimit (-30.0f, 6.0f, targetLevelDb (p.category) - lv) : 0.0f;
+    applyPatch (p);
+    currentKey = "r:";
+    if (onPatchChanged) onPatchChanged();
+}
+
+void NovaProcessor::newSound (const juce::String& category)
+{
+    PatchData p;
+    p.name = juce::String::fromUTF8 ("Nový zvuk"); p.category = category;
+    for (auto& sp : paramSpecs()) if (isPatchParam (sp.id)) p.values[sp.id] = sp.def;
+    p.values["a_cut"] = 5000; p.values["a_ar"] = 0.4f;
+    const float lv = measureLevel (p);
+    p.values["p_gain"] = lv > -90.0f ? juce::jlimit (-30.0f, 6.0f, -19.5f - lv) : 0.0f;
+    applyPatch (p);
+    currentKey = "r:";
+    if (onPatchChanged) onPatchChanged();
 }
 
 // ------------------------------------------------------------- vlastne WAV

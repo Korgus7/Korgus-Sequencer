@@ -13,9 +13,10 @@ namespace nova
 
     void PresetStore::loadIndex()
     {
-        order.clear(); catOverride.clear(); settings.clear();
+        order.clear(); userCats.clear(); catOverride.clear(); settings.clear();
         auto j = juce::JSON::parse (indexFile.loadFileAsString());
         if (auto* a = j["order"].getArray()) for (auto& k : *a) order.add (k.toString());
+        if (auto* a = j["folders"].getArray()) for (auto& k : *a) if (k.toString().trim().isNotEmpty()) userCats.addIfNotAlreadyThere (k.toString().trim());
         if (auto* o = j["cat"].getDynamicObject()) for (auto& p : o->getProperties()) catOverride[p.name.toString()] = p.value.toString();
         if (auto* o = j["settings"].getDynamicObject()) for (auto& p : o->getProperties()) settings[p.name.toString()] = p.value.toString();
     }
@@ -25,6 +26,8 @@ namespace nova
         auto* o = new juce::DynamicObject();
         juce::Array<juce::var> a; for (auto& k : order) a.add (k);
         o->setProperty ("order", a);
+        juce::Array<juce::var> fa; for (auto& k : userCats) fa.add (k);
+        o->setProperty ("folders", fa);
         auto* c = new juce::DynamicObject();
         for (auto& [k, v] : catOverride) c->setProperty (k, v);
         o->setProperty ("cat", juce::var (c));
@@ -201,6 +204,54 @@ namespace nova
         cur.insert (at, key);
         order = cur;
         saveIndex(); refresh();
+    }
+
+    juce::StringArray PresetStore::allCategories() const
+    {
+        const auto& fac = categories();
+        juce::StringArray c;
+        for (int i = 0; i < fac.size() - 1; ++i) c.add (fac[i]);
+        for (auto& u : userCats) c.addIfNotAlreadyThere (u);
+        for (auto& e : list) if (e.category.isNotEmpty() && ! c.contains (e.category) && e.category != fac[fac.size() - 1]) c.add (e.category);
+        c.add (fac[fac.size() - 1]);
+        return c;
+    }
+
+    bool PresetStore::addCategory (const juce::String& name)
+    {
+        const auto n = name.trim();
+        if (n.isEmpty() || allCategories().contains (n)) return false;
+        userCats.add (n);
+        saveIndex();
+        return true;
+    }
+
+    bool PresetStore::renameCategory (const juce::String& from, const juce::String& to)
+    {
+        const auto n = to.trim();
+        if (n.isEmpty() || n == from || allCategories().contains (n) || ! userCats.contains (from)) return false;
+        userCats.set (userCats.indexOf (from), n);
+        saveIndex();
+        juce::StringArray keys;
+        for (auto& e : list) if (e.category == from) keys.add (e.key);
+        for (auto& k : keys) setCategory (k, n);
+        refresh();
+        return true;
+    }
+
+    void PresetStore::removeCategory (const juce::String& name)
+    {
+        userCats.removeString (name);
+        saveIndex();
+        juce::StringArray keys;
+        for (auto& e : list) if (e.category == name) keys.add (e.key);
+        for (auto& k : keys)
+        {
+            const auto* e = find (k);
+            if (e != nullptr && e->factory) { catOverride.erase (k); saveIndex(); refresh(); }   // tovarensky sa vrati do svojej
+            else setCategory (k, categories()[categories().size() - 1]);
+        }
+        refresh();
     }
 
     juce::String PresetStore::importFile (const juce::File& f)

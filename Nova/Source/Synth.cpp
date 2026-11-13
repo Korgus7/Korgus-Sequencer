@@ -7,7 +7,8 @@ namespace nova
     void Synth::prepare (double rate, int maxBlock)
     {
         sr = rate;
-        bufL.assign ((size_t) juce::jmax (1, maxBlock), 0); bufR.assign ((size_t) juce::jmax (1, maxBlock), 0);
+        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR }) b->assign ((size_t) juce::jmax (1, maxBlock), 0);
+        layerEq[0].reset(); layerEq[1].reset();
         for (auto& v : voices)
         {
             v.note = -1;
@@ -304,7 +305,9 @@ namespace nova
     {
         const auto& s = st.L[li];
         auto& lv = v.lv[li];
-        const float shift = s.oct * 12.0f + s.semi + s.fine * 0.01f + bend + v.drift * st.fx.tube;
+        // analogove plavanie: najviac +-4 centy (nie na klavirnych samploch)
+        const bool sampleSrc = lv.wave == 7 && lv.smp != nullptr;
+        const float shift = s.oct * 12.0f + s.semi + s.fine * 0.01f + bend + (sampleSrc ? 0.0f : v.drift * 0.01f * st.fx.tube);
         const float baseHz = noteHz (v.curNote + shift);
         const float mx = st.morphX;
         const float morph = li == 0 ? (mx <= 0 ? 1.0f : 1.0f - mx) : (mx >= 0 ? 1.0f : 1.0f + mx);
@@ -509,9 +512,11 @@ namespace nova
         if (s.playing) beat = s.ppq;
 
         const int total = out.getNumSamples();
-        if ((int) bufL.size() < total) { bufL.resize ((size_t) total); bufR.resize ((size_t) total); }
-        std::fill (bufL.begin(), bufL.begin() + total, 0.0f);
-        std::fill (bufR.begin(), bufR.begin() + total, 0.0f);
+        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR })
+        {
+            if ((int) b->size() < total) b->resize ((size_t) total);
+            std::fill (b->begin(), b->begin() + total, 0.0f);
+        }
         int pos = 0, act = 0;
         auto renderTo = [&] (int end)
         {
@@ -535,7 +540,8 @@ namespace nova
                         v.drift += (v.driftTarget - v.drift) * 0.002f * (float) n / 32.0f;
                         if (std::abs (v.drift - v.driftTarget) < 0.05f) v.driftTarget = noise.next() * 4.0f;
                     }
-                    for (int li = 0; li < 2; ++li) if (v.lv[li].active) renderLayer (v, li, bufL.data() + pos, bufR.data() + pos, n);
+                    if (v.lv[0].active) renderLayer (v, 0, bufL.data() + pos, bufR.data() + pos, n);
+                    if (v.lv[1].active) renderLayer (v, 1, bufBL.data() + pos, bufBR.data() + pos, n);
                     if (! v.isActive()) v.note = -1; else ++act;
                 }
                 pos += n;
@@ -559,6 +565,17 @@ namespace nova
         }
         renderTo (total);
         active.store (act);
+
+        // EQ vrstiev A a B, potom spolu
+        const bool eqA = layerEq[0].update (s.L[0].eqLow, s.L[0].eqMid, s.L[0].eqMidF, s.L[0].eqHigh, (float) sr);
+        const bool eqB = layerEq[1].update (s.L[1].eqLow, s.L[1].eqMid, s.L[1].eqMidF, s.L[1].eqHigh, (float) sr);
+        for (int i = 0; i < total; ++i)
+        {
+            float al = bufL[(size_t) i], ar = bufR[(size_t) i], bl = bufBL[(size_t) i], br = bufBR[(size_t) i];
+            if (eqA) layerEq[0].process (al, ar);
+            if (eqB) layerEq[1].process (bl, br);
+            bufL[(size_t) i] = al + bl; bufR[(size_t) i] = ar + br;
+        }
 
         fx.process (bufL.data(), bufR.data(), total, f);
         float* oL = out.getWritePointer (0);

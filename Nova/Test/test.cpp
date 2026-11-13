@@ -28,6 +28,97 @@ int main (int argc, char** argv)
         w->clearContentComponent(); delete proc->getActiveEditor(); delete w;
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "level")
+    {
+        // hlasitost tovarenskych zvukov a nahodnych zvukov "Prekvap ma"
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int i = 0; i < 200 && ! q.synth.pianoReady(); ++i) Thread::sleep (50);
+        for (auto& f : nova::factoryPatches())
+        {
+            nova::PatchData pd; q.presets.load ("f:" + f.name, pd);
+            const float m = NovaProcessor::measureLevel (pd);
+            printf ("%-18s %6.1f dB (s p_gain %6.1f)\n", f.name.toRawUTF8(), m + pd.values["p_gain"], pd.values["p_gain"]);
+        }
+        for (int i = 0; i < 24; ++i)
+        {
+            q.surprise();
+            const auto pd = q.currentPatch();
+            const auto t0 = Time::getMillisecondCounterHiRes();
+            const float m = NovaProcessor::measureLevel (pd);
+            printf ("%-24s %-10s gain %6.1f -> %6.1f dB  (%.0f ms)\n", q.currentName.toRawUTF8(), q.currentCategory.toRawUTF8(), pd.values.at ("p_gain"), m + pd.values.at ("p_gain"), Time::getMillisecondCounterHiRes() - t0);
+        }
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "eq")
+    {
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        auto run = [&] (std::vector<std::pair<const char*, float>> set)
+        {
+            q.loadPreset (String::fromUTF8 ("f:Sláčiky"));
+            setParam (q, "drive_on", 0); setParam (q, "ch_on", 0);
+            for (auto& [k, v] : set) setParam (q, k, v);
+            double lo = 0, hi = 0, tailHi = 0;
+            for (int pos = 0; pos < (int) (3 * sr); pos += bs)
+            {
+                MidiBuffer mb; if (pos == 0) mb.addEvent (MidiMessage::noteOn (1, 57, 0.8f), 0);
+                if (pos == (int) (1 * sr) / bs * bs) mb.addEvent (MidiMessage::noteOff (1, 57), 0);
+                AudioBuffer<float> b (2, bs); b.clear(); q.processBlock (b, mb);
+                for (int i = 1; i < bs; ++i)
+                {
+                    const float x = b.getSample (0, i), d = x - b.getSample (0, i - 1);
+                    if (pos < sr) { lo += x * x; hi += d * d; } else if (pos > 1.3 * sr) tailHi += d * d;
+                }
+            }
+            printf ("  energia %.3f  vysky %.5f  vysky v dozvuku %.6f\n", lo, hi, tailHi);
+        };
+        printf ("bez EQ:\n"); run ({});
+        printf ("A vysky +12:\n"); run ({ { "a_eqh", 12 } });
+        printf ("B vysky +12 (B je vypnuta, nema sa nic zmenit):\n"); run ({ { "b_eqh", 12 } });
+        printf ("dozvuk vysky -15 (zmena len v dozvuku):\n"); run ({ { "rv_eqh", -15 }, { "rv_eql", -15 }, { "rv_eqm", -15 }, { "rv_mix", 0.5f }, { "a_ar", 0.02f } });
+        printf ("dozvuk bez EQ s mix 0.5:\n"); run ({ { "rv_mix", 0.5f }, { "a_ar", 0.02f } });
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "pitch")
+    {
+        // stabilita ladenia: drzany ton A3 (220 Hz) 10 s, efekty vypnute, vyska po 0.5 s
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int i = 0; i < 200 && ! q.synth.pianoReady(); ++i) Thread::sleep (50);
+        const int np = (int) nova::factoryPatches().size();
+        for (int pi = 0; pi < np; ++pi)
+        {
+            q.loadPreset ("f:" + nova::factoryPatches()[(size_t) pi].name);
+            if (argc > 2) setParam (q, "tube", String (argv[2]).getFloatValue());
+            for (auto id : { "ch_on", "dl_on", "rv_on", "arp_on", "b_on" }) setParam (q, id, 0);
+            setParam (q, "a_ldepth", 0);
+            const int total = (int) (10.0 * sr);
+            AudioBuffer<float> out (2, total); out.clear();
+            for (int pos = 0; pos < total; pos += bs)
+            {
+                const int n = std::min (bs, total - pos);
+                MidiBuffer mb; if (pos == 0) mb.addEvent (MidiMessage::noteOn (1, 57, 0.8f), 0);
+                AudioBuffer<float> blk (2, n); blk.clear(); q.processBlock (blk, mb);
+                for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+            }
+            dsp::FFT fft (15); const int N = 1 << 15;
+            printf ("%-18s", nova::factoryPatches()[(size_t) pi].name.toRawUTF8());
+            float mn = 1e9f, mx = 0;
+            for (double t = 1.0; t + (double) N / sr <= 10.0; t += 0.5)
+            {
+                std::vector<float> d ((size_t) N * 2, 0.0f);
+                const int s0 = (int) (t * sr);
+                for (int i = 0; i < N; ++i) d[(size_t) i] = out.getSample (0, s0 + i) * (0.5f - 0.5f * std::cos (6.2831853f * (float) i / (float) N));
+                fft.performFrequencyOnlyForwardTransform (d.data());
+                const int lo = (int) (180.0 * N / sr), hi = (int) (260.0 * N / sr);
+                int bi = lo; for (int i = lo; i <= hi; ++i) if (d[(size_t) i] > d[(size_t) bi]) bi = i;
+                const float a = d[(size_t) bi - 1], b = d[(size_t) bi], c = d[(size_t) bi + 1];
+                const float hz = ((float) bi + 0.5f * (a - c) / (a - 2 * b + c + 1e-12f)) * (float) sr / (float) N;
+                if (b < 1e-3f) continue;
+                mn = std::min (mn, hz); mx = std::max (mx, hz);
+            }
+            printf (" %.2f..%.2f Hz  (%.1f centov)\n", mn, mx, mx > 0 ? 1200.0 * std::log2 (mx / mn) : 0.0);
+        }
+        return 0;
+    }
     NovaProcessor p;
     p.setPlayConfigDetails (0, 2, sr, bs);
     p.prepareToPlay (sr, bs);

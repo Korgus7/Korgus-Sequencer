@@ -22,6 +22,7 @@ namespace nova
         bool on = true; int wave = 2; float oct = 0, semi = 0, fine = 0; int uni = 1; float spread = 10, level = 0.7f, pan = 0, color = 0.5f, ratio = 1;
         int ftype = 0; bool f24 = false; float cut = 20000, reso = 0.1f, fenv = 0, fa = 0.005f, fd = 0.3f, fs = 1, fr = 0.3f, aa = 0.003f, ad = 0.3f, as = 1, ar = 0.3f;
         int lshape = 0, ltgt = 0; float lrate = 5, ldepth = 0, ldelay = 0; int src = 0; int root = 60; bool loop = false;
+        float eqLow = 0, eqMid = 0, eqMidF = 1000, eqHigh = 0;
     };
 
     struct Settings
@@ -99,7 +100,8 @@ namespace nova
         float bend = 0, modWheel = 0;
         int lastNote = -1;
         std::vector<int> monoStack;
-        std::vector<float> bufL, bufR;
+        std::vector<float> bufL, bufR, bufBL, bufBR;
+        Eq3 layerEq[2];
         FxChain fx;
         Noise noise;
         std::atomic<int> active { 0 };
