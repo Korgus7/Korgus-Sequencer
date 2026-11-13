@@ -3086,10 +3086,10 @@ void MainView::onUpdateNow()
             juce::MessageManager::callAsync ([sp, msg] { if (sp == nullptr) return; sp->updBusy = false; auto o = obj(); put (o, "error", msg); sp->emit ("updateProgress", o); });
         };
         const auto dest = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("KorgusSequencer-Setup-" + ver + ".exe");
-        auto opts = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
-                        .withConnectionTimeoutMs (15000).withExtraHeaders ("User-Agent: KorgusSequencer").withNumRedirectsToFollow (8);
-        int status = 0; opts = opts.withStatusCode (&status);
-        auto in = juce::URL (url).createInputStream (opts);
+        int status = 0;
+        auto in = juce::URL (url).createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                        .withConnectionTimeoutMs (15000).withExtraHeaders ("User-Agent: KorgusSequencer").withNumRedirectsToFollow (8)
+                        .withStatusCode (&status));
         if (in == nullptr || (status != 0 && status >= 400)) { fail (sk ("Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.")); return; }
         dest.deleteFile();
         bool truncated = false;
