@@ -1,4 +1,4 @@
-name: Korgus Nova build
+name: Korgus Inspire build
 
 on:
   push:
@@ -28,18 +28,18 @@ jobs:
           DLL=$(find "build/KorgusNova_artefacts/Release/VST3" -path "*x86_64-win*" -name "*.vst3" -type f | head -1)
           echo "DLL: $DLL"
           test -n "$DLL"
-          cp "$DLL" "out/Korgus Nova.vst3"
+          cp "$DLL" "out/Korgus Inspire.vst3"
           ls -la out
 
       - name: Test plugin (zahra tony)
         shell: bash
         run: |
           EXE=$(find build -name "NovaHostTest.exe" | head -1)
-          "$EXE" "out/Korgus Nova.vst3"
+          "$EXE" "out/Korgus Inspire.vst3"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: KorgusNova-windows
+          name: KorgusInspire-windows
           path: out/
 
       - name: Publish to nova branch

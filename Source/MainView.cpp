@@ -772,7 +772,7 @@ void MainView::onReady()
             return false;
         };
         for (const auto& d : knownPlugins.getTypes())
-            if (inExeDir (d) && elsewhere (d)) knownPlugins.removeType (d);
+            if (inExeDir (d) && (elsewhere (d) || ! juce::File (d.fileOrIdentifier).exists())) knownPlugins.removeType (d);   // aj zmazane/premenovane
 
         const auto files = exeDir.findChildFiles (juce::File::findFilesAndDirectories, false, "*.vst3");
         for (auto* fmt : formatManager.getFormats())
@@ -1035,6 +1035,9 @@ void MainView::restorePluginStates (const juce::var& vst)
             if (! found)
                 for (const auto& k : knownPlugins.getTypes())
                     if (k.name == desc.name && k.pluginFormatName == desc.pluginFormatName) { desc = k; found = true; break; }
+            if (! found)   // premenovany plugin (napr. Korgus Nova -> Korgus Inspire): rovnake ID
+                for (const auto& k : knownPlugins.getTypes())
+                    if (k.uniqueId == desc.uniqueId && k.uniqueId != 0 && k.pluginFormatName == desc.pluginFormatName && k.manufacturerName == desc.manufacturerName) { desc = k; found = true; break; }
             if (! found)
             {
                 missing.addIfNotAlreadyThere (desc.name + (desc.manufacturerName.isNotEmpty() ? " (" + desc.manufacturerName + ")" : juce::String()));

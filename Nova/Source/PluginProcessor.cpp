@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Lang.h"
 
 using namespace nova;
 
@@ -305,7 +306,17 @@ namespace
             }
         }
         if (chance (0.4f)) v["eq_high"] = R (-4, 3);
-        p.name = juce::String::fromUTF8 (adj[r.nextInt ((int) (sizeof (adj) / sizeof (adj[0])))]) + " " + juce::String::fromUTF8 (noun);
+        if (lang() == 1)
+        {
+            static const char* adjE[] = { "Misty", "Velvet", "Shimmering", "Dreamy", "Midnight", "Amber", "Frosty", "Warm", "Cosmic", "Rainbow",
+                                          "Quiet", "Golden", "Silver", "Evening", "Forest", "Ocean", "Starry", "Gentle", "Deep", "Night", "Morning", "Glassy" };
+            static const std::map<std::string, const char*> nounE = { { "pad", "Pad" }, { "oblak", "Cloud" }, { "opar", "Haze" }, { "pluck", "Pluck" }, { "drnk", "Twang" },
+                { "klavírik", "Keys" }, { "tón", "Tone" }, { "bas", "Bass" }, { "basák", "Bass" }, { "lead", "Lead" }, { "hlas", "Voice" }, { "zvonček", "Bell" },
+                { "kryštál", "Crystal" }, { "sláčik", "Strings" }, { "orchester", "Orchestra" }, { "klavír", "Piano" }, { "koncert", "Concert" } };
+            auto it = nounE.find (noun);
+            p.name = juce::String (adjE[r.nextInt ((int) (sizeof (adjE) / sizeof (adjE[0])))]) + " " + (it != nounE.end() ? it->second : "Sound");
+        }
+        else p.name = juce::String::fromUTF8 (adj[r.nextInt ((int) (sizeof (adj) / sizeof (adj[0])))]) + " " + juce::String::fromUTF8 (noun);
         p.category = juce::String::fromUTF8 (cat);
         return p;
     }
@@ -369,7 +380,7 @@ void NovaProcessor::surprise()
 void NovaProcessor::newSound (const juce::String& category)
 {
     PatchData p;
-    p.name = juce::String::fromUTF8 ("Nový zvuk"); p.category = category;
+    p.name = T ("Nový zvuk"); p.category = category;
     for (auto& sp : paramSpecs()) if (isPatchParam (sp.id)) p.values[sp.id] = sp.def;
     p.values["a_cut"] = 5000; p.values["a_ar"] = 0.4f;
     const float lv = measureLevel (p);
@@ -398,7 +409,7 @@ bool NovaProcessor::loadSampleFile (int layer, const juce::File& f, juce::String
 {
     juce::AudioFormatManager fm; fm.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (f));
-    if (r == nullptr) { error = juce::String::fromUTF8 ("Súbor sa nedá prečítať (WAV, AIFF, FLAC, MP3, OGG)."); return false; }
+    if (r == nullptr) { error = T ("Súbor sa nedá prečítať (WAV, AIFF, FLAC, MP3, OGG)."); return false; }
     const int len = (int) juce::jmin (r->lengthInSamples, (juce::int64) (r->sampleRate * 60.0));
     const int ch = (int) juce::jlimit (1u, 2u, r->numChannels);
     juce::AudioBuffer<float> b (ch, len);
@@ -409,7 +420,7 @@ bool NovaProcessor::loadSampleFile (int layer, const juce::File& f, juce::String
         std::unique_ptr<juce::OutputStream> os (ms);
         juce::FlacAudioFormat flac;
         auto w = flac.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (r->sampleRate).withNumChannels (ch).withBitsPerSample (24));
-        if (w == nullptr) { error = juce::String::fromUTF8 ("Zvuk sa nepodarilo spracovať."); return false; }
+        if (w == nullptr) { error = T ("Zvuk sa nepodarilo spracovať."); return false; }
         w->writeFromAudioSampleBuffer (b, 0, len);
     }
     setSample (layer, mb, f.getFileNameWithoutExtension());
@@ -431,7 +442,7 @@ void NovaProcessor::setCurrentProgram (int index)
 }
 const juce::String NovaProcessor::getProgramName (int index)
 {
-    return juce::isPositiveAndBelow (index, getNumPrograms()) ? factoryPatches()[(size_t) index].name : juce::String();
+    return juce::isPositiveAndBelow (index, getNumPrograms()) ? T (factoryPatches()[(size_t) index].name) : juce::String();
 }
 
 // ------------------------------------------------------------- stav (projekt)

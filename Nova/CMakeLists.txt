@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-# Korgus Nova - jednoduchy syntezator (klavir, pady, slaciky, husle, pluck...)
+# Korgus Inspire (predtym Korgus Nova) - syntezator (klavir, pady, slaciky, husle, pluck...)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 project(KorgusNova VERSION 0.1.0)
 
@@ -16,7 +16,7 @@ else()
 endif()
 
 juce_add_plugin(KorgusNova
-    PRODUCT_NAME "Korgus Nova"
+    PRODUCT_NAME "Korgus Inspire"
     COMPANY_NAME "Korgus"
     PLUGIN_MANUFACTURER_CODE Krgs
     PLUGIN_CODE KNov
@@ -33,7 +33,8 @@ target_sources(KorgusNova PRIVATE
     Source/Synth.cpp
     Source/Params.cpp
     Source/PresetStore.cpp
-    Source/PianoBank.cpp)
+    Source/PianoBank.cpp
+    Source/Lang.cpp)
 
 if(WIN32)
     # klavirne vzorky priamo v subore pluginu (prostriedok RCDATA)
@@ -62,7 +63,7 @@ target_link_libraries(KorgusNova PRIVATE
 
 if(NOVA_TEST)
     juce_add_console_app(NovaTest PRODUCT_NAME "NovaTest")
-    target_sources(NovaTest PRIVATE Test/test.cpp Source/Synth.cpp Source/PianoBank.cpp Source/Params.cpp Source/PresetStore.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
+    target_sources(NovaTest PRIVATE Test/test.cpp Source/Synth.cpp Source/PianoBank.cpp Source/Params.cpp Source/PresetStore.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/Lang.cpp)
     target_compile_definitions(NovaTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Korgus Nova" JucePlugin_IsSynth=1)
     target_link_libraries(NovaTest PRIVATE juce::juce_dsp juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_formats)
 endif()

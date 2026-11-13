@@ -1,11 +1,12 @@
 #include "PresetStore.h"
 #include "Params.h"
+#include "Lang.h"
 
 namespace nova
 {
     PresetStore::PresetStore()
     {
-        auto base = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Korgus Nova");
+        auto base = dataDir();
         dir = base.getChildFile ("Zvuky");
         indexFile = base.getChildFile ("zoznam.json");
         refresh();
@@ -173,7 +174,7 @@ namespace nova
     {
         PatchData p;
         if (! load (key, p)) return {};
-        juce::String base = p.name + juce::String::fromUTF8 (" (kópia)"), name = base;
+        juce::String base = T (p.name) + T (" (kópia)"), name = base;
         for (int i = 2; dir.getChildFile (juce::File::createLegalFileName (name) + ".knova").existsAsFile(); ++i) name = base + " " + juce::String (i);
         p.name = name;
         if (p.category.isEmpty()) p.category = categories()[categories().size() - 1];

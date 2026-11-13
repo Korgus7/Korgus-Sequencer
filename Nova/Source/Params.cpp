@@ -1,4 +1,5 @@
 #include "Params.h"
+#include "Lang.h"
 
 namespace nova
 {
@@ -244,8 +245,8 @@ namespace nova
 
     juce::String formatValue (const ParamSpec& s, float v)
     {
-        if (s.kind == 1) return s.choices[juce::jlimit (0, s.choices.size() - 1, juce::roundToInt (v))];
-        if (s.kind == 2) return v > 0.5f ? juce::String::fromUTF8 ("Zap") : juce::String::fromUTF8 ("Vyp");
+        if (s.kind == 1) return T (s.choices[juce::jlimit (0, s.choices.size() - 1, juce::roundToInt (v))]);
+        if (s.kind == 2) return v > 0.5f ? T ("Zap") : T ("Vyp");
         const auto& u = s.unit;
         if (u == "%") return juce::String (juce::roundToInt (v * (s.hi > 1.5f ? 100.0f : 100.0f))) + " %";
         if (u == "bip") return juce::String (juce::roundToInt (v * 100.0f)) + " %";
@@ -267,15 +268,21 @@ namespace nova
         for (const auto& s : paramSpecs())
         {
             const juce::ParameterID pid { s.id, 2 };
-            if (s.kind == 1) v.push_back (std::make_unique<juce::AudioParameterChoice> (pid, s.name, s.choices, (int) s.def));
-            else if (s.kind == 2) v.push_back (std::make_unique<juce::AudioParameterBool> (pid, s.name, s.def > 0.5f));
+            if (s.id == "release") { v.push_back (std::make_unique<juce::AudioParameterFloat> (pid, T ("Dozvuk", "Release"), juce::NormalisableRange<float> (s.lo, s.hi), s.def,
+                                         juce::AudioParameterFloatAttributes().withStringFromValueFunction ([] (float x, int) { return juce::String (juce::roundToInt (x * 100.0f)) + " %"; }))); continue; }
+            if (s.kind == 1)
+            {
+                juce::StringArray ch; for (auto& c : s.choices) ch.add (T (c));
+                v.push_back (std::make_unique<juce::AudioParameterChoice> (pid, T (s.name), ch, (int) s.def));
+            }
+            else if (s.kind == 2) v.push_back (std::make_unique<juce::AudioParameterBool> (pid, T (s.name), s.def > 0.5f));
             else
             {
                 juce::NormalisableRange<float> r (s.lo, s.hi);
                 if (s.unit == "x" || s.unit == "st" || s.unit == "oct" || s.unit == "note") r.interval = 1.0f;
                 if (s.skew != 1.0f) r.skew = s.skew;
                 const ParamSpec* sp = &s;
-                v.push_back (std::make_unique<juce::AudioParameterFloat> (pid, s.name, r, s.def,
+                v.push_back (std::make_unique<juce::AudioParameterFloat> (pid, T (s.name), r, s.def,
                     juce::AudioParameterFloatAttributes().withStringFromValueFunction ([sp] (float x, int) { return formatValue (*sp, x); })));
             }
         }

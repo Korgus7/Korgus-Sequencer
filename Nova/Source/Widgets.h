@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "Params.h"
+#include "Lang.h"
 
 // Ovladacie prvky Korgus Nova (ploche, tmava ocelova, zaoblenie 3 px)
 namespace nova::ui
@@ -109,7 +110,7 @@ namespace nova::ui
         Knob (juce::AudioProcessorValueTreeState& st, const juce::String& id, const juce::String& title = {})
         {
             const auto* sp = findSpec (id);
-            label.setText (title.isNotEmpty() ? title : (sp != nullptr ? sp->name : id), juce::dontSendNotification);
+            label.setText (title.isNotEmpty() ? title : (sp != nullptr ? T (sp->name) : id), juce::dontSendNotification);
             label.setJustificationType (juce::Justification::centred);
             label.setFont (juce::FontOptions (12.5f));
             label.setColour (juce::Label::textColourId, dim.brighter (0.2f));
@@ -182,7 +183,7 @@ namespace nova::ui
         Toggle (juce::AudioProcessorValueTreeState& st, const juce::String& id, const juce::String& title = {}, juce::Colour c = arc)
         {
             const auto* sp = findSpec (id);
-            setButtonText (title.isNotEmpty() ? title : (sp != nullptr ? sp->name : id));
+            setButtonText (title.isNotEmpty() ? title : (sp != nullptr ? T (sp->name) : id));
             setColour (juce::ToggleButton::tickColourId, c);
             att = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (st, id, *this);
         }
@@ -195,7 +196,7 @@ namespace nova::ui
     public:
         Combo (juce::AudioProcessorValueTreeState& st, const juce::String& id)
         {
-            if (const auto* sp = findSpec (id)) addItemList (sp->choices, 1);
+            if (const auto* sp = findSpec (id)) for (int i = 0; i < sp->choices.size(); ++i) addItem (T (sp->choices[i]), i + 1);
             att = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (st, id, *this);
         }
     private:
