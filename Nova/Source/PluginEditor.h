@@ -5,6 +5,7 @@
 #include "Widgets.h"
 
 class NovaEditor : public juce::AudioProcessorEditor,
+                   public nova::ui::KnobHost,
                    public juce::DragAndDropContainer,
                    public juce::FileDragAndDropTarget,
                    private juce::Timer
@@ -23,6 +24,11 @@ public:
     void mouseDown (const juce::MouseEvent& e) override;
     void parentHierarchyChanged() override;
     void setScale (float s);
+    void knobMenu (juce::Component& knob, const juce::String& paramId) override;
+    int knobCc (const juce::String& paramId) override { return proc.ccFor (paramId); }
+    bool knobLearning (const juce::String& paramId) override { return proc.isLearning (paramId); }
+    // prehliadac zvukov (layer -1 = jedno tlacidlo Nacitat)
+    void openWavBrowser (int layer, std::function<void (const juce::File&, int)> onLoad);
     NovaProcessor& proc;
     nova::ui::Look look;
 
@@ -30,6 +36,8 @@ private:
     void timerCallback() override;
     void layoutSize();
     std::unique_ptr<juce::Component> view;
+    std::unique_ptr<juce::Component> overlay;
+    int lastCcVersion = -1;
     juce::Component content;
     juce::TooltipWindow tips { this, 600 };
 };

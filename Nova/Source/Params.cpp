@@ -128,6 +128,9 @@ namespace nova
             F ("mf_reso", "Rezonancia", 0, 1, 0, "%");
             F ("mf_drive", "Drive", 0, 1, 0, "%");
             F ("p_gain", "Úroveň zvuku", -30, 6, 0, "dB");
+            // spustace pre hostitela (Korgus Sequencer): kazda zmena = novy nahodny zvuk / obmena
+            B ("x_rnd", "Surprise / Prekvap ma", false);
+            B ("x_mut", "Vary / Obmena", false);
             return v;
         }
 
@@ -213,6 +216,129 @@ namespace nova
             v.push_back (P ("Organ", "Klávesy").s ("a_wave", 0).s ("a_level", 0.6f).s ("a_aa", 0.005f).s ("a_ad", 0.1f).s ("a_as", 1).s ("a_ar", 0.08f)
                          .s ("b_on", 1).s ("b_wave", 0).s ("b_oct", 1).s ("b_level", 0.4f).s ("b_aa", 0.005f).s ("b_ad", 0.1f).s ("b_as", 1).s ("b_ar", 0.08f)
                          .s ("drive_on", 1).s ("drive", 0.15f).s ("ch_on", 1).s ("ch_mix", 0.5f).s ("ch_rate", 0.8f).s ("rv_mix", 0.18f).s ("p_gain", -22).s ("veltrack", 0).f);
+
+            // ---------------------------------------------------------------- dalsie tovarenske zvuky
+            // klavir
+            v.push_back (P ("Jasný klavír", "Klavír").s ("a_wave", 7).s ("a_src", 0).s ("a_color", 0.8f).s ("a_level", 1).s ("a_aa", 0.0015f).s ("a_ar", 0.35f)
+                         .s ("eq_high", 2.5f).s ("comp_on", 1).s ("comp", 0.25f).s ("rv_mix", 0.12f).s ("rv_size", 0.4f).s ("p_gain", -2.3f).s ("veltrack", 0).f);
+            v.push_back (P ("Klavír v hale", "Klavír").s ("a_wave", 7).s ("a_src", 0).s ("a_color", 0.5f).s ("a_level", 1).s ("a_aa", 0.0015f).s ("a_ar", 0.5f)
+                         .s ("rv_mix", 0.34f).s ("rv_size", 0.82f).s ("rv_damp", 0.5f).s ("rv_pre", 30).s ("p_gain", -2.8f).s ("veltrack", 0).f);
+            v.push_back (P ("Klavír a pad", "Klavír").s ("a_wave", 7).s ("a_src", 0).s ("a_color", 0.5f).s ("a_level", 1).s ("a_aa", 0.0015f).s ("a_ar", 0.4f)
+                         .s ("b_on", 1).s ("b_wave", 2).s ("b_uni", 4).s ("b_spread", 12).s ("b_level", 0.2f).s ("b_cut", 1800).s ("b_aa", 1.2f).s ("b_ad", 1.5f).s ("b_as", 0.9f).s ("b_ar", 1.8f)
+                         .s ("ch_on", 1).s ("ch_type", 1).s ("ch_mix", 0.3f).s ("rv_mix", 0.3f).s ("rv_size", 0.75f).s ("p_gain", -1.1f).s ("veltrack", 0.2f).f);
+            v.push_back (P ("Lo-fi klavír", "Klavír").s ("a_wave", 7).s ("a_src", 0).s ("a_color", 0.3f).s ("a_level", 1).s ("a_aa", 0.0015f).s ("a_ar", 0.3f)
+                         .s ("tube", 0.5f).s ("eq_low", 2).s ("eq_high", -6).s ("mf_on", 1).s ("mf_cut", 3800).s ("ch_on", 1).s ("ch_rate", 0.35f).s ("ch_depth", 0.35f).s ("ch_mix", 0.3f)
+                         .s ("rv_mix", 0.22f).s ("rv_size", 0.5f).s ("p_gain", -3.4f).s ("veltrack", 0).f);
+            // klavesy
+            v.push_back (P ("Kalné EP", "Klávesy").s ("a_wave", 6).s ("a_ratio", 1).s ("a_color", 0.55f).s ("a_fenv", 0.6f).s ("a_fa", 0.001f).s ("a_fd", 0.8f).s ("a_fs", 0)
+                         .s ("a_aa", 0.002f).s ("a_ad", 4).s ("a_as", 0.1f).s ("a_ar", 0.3f).s ("a_level", 1).s ("tube", 0.3f)
+                         .s ("ch_on", 1).s ("ch_type", 4).s ("ch_rate", 4.5f).s ("ch_depth", 0.6f).s ("ch_mix", 0.3f).s ("rv_mix", 0.18f).s ("p_gain", -9.7f).s ("veltrack", 0.85f).f);
+            v.push_back (P ("Zvonivé EP", "Klávesy").s ("a_wave", 6).s ("a_ratio", 9).s ("a_color", 0.12f).s ("a_fenv", 0.9f).s ("a_fa", 0.001f).s ("a_fd", 0.4f).s ("a_fs", 0)
+                         .s ("a_aa", 0.001f).s ("a_ad", 3.5f).s ("a_as", 0).s ("a_ar", 0.5f).s ("a_level", 0.8f)
+                         .s ("b_on", 1).s ("b_wave", 0).s ("b_level", 0.6f).s ("b_aa", 0.002f).s ("b_ad", 3).s ("b_as", 0.1f).s ("b_ar", 0.4f)
+                         .s ("ch_on", 1).s ("ch_mix", 0.35f).s ("rv_mix", 0.22f).s ("p_gain", -12.8f).s ("veltrack", 0.85f).f);
+            v.push_back (P ("Synthwave klávesy", "Klávesy").s ("a_wave", 2).s ("a_uni", 3).s ("a_spread", 10).s ("a_cut", 2400).s ("a_reso", 0.2f).s ("a_fenv", 0.4f)
+                         .s ("a_fa", 0.002f).s ("a_fd", 0.6f).s ("a_fs", 0.3f).s ("a_aa", 0.003f).s ("a_ad", 1.2f).s ("a_as", 0.4f).s ("a_ar", 0.5f).s ("a_level", 0.8f)
+                         .s ("ch_on", 1).s ("ch_mix", 0.45f).s ("dl_on", 1).s ("dl_sync", 2).s ("dl_mix", 0.2f).s ("dl_fb", 0.3f).s ("rv_mix", 0.25f).s ("p_gain", -7.3f).s ("veltrack", 0.6f).f);
+            v.push_back (P ("Funky klávesy", "Klávesy").s ("a_wave", 3).s ("a_color", 0.2f).s ("a_cut", 2800).s ("a_reso", 0.3f).s ("a_fenv", 0.5f).s ("a_fa", 0.001f).s ("a_fd", 0.15f).s ("a_fs", 0.1f)
+                         .s ("a_aa", 0.001f).s ("a_ad", 0.3f).s ("a_as", 0).s ("a_ar", 0.08f).s ("a_level", 0.8f).s ("rv_mix", 0.1f).s ("p_gain", -7.4f).s ("veltrack", 0.9f).f);
+            v.push_back (P ("Rockový organ", "Klávesy").s ("a_wave", 0).s ("a_level", 0.6f).s ("a_aa", 0.004f).s ("a_ad", 0.1f).s ("a_as", 1).s ("a_ar", 0.06f)
+                         .s ("b_on", 1).s ("b_wave", 1).s ("b_oct", 1).s ("b_level", 0.45f).s ("b_aa", 0.004f).s ("b_ad", 0.1f).s ("b_as", 1).s ("b_ar", 0.06f)
+                         .s ("drive_on", 1).s ("drive", 0.4f).s ("ch_on", 1).s ("ch_rate", 5.5f).s ("ch_depth", 0.4f).s ("ch_mix", 0.5f).s ("rv_mix", 0.15f).s ("p_gain", -14.5f).s ("veltrack", 0).f);
+            v.push_back (P ("Kostolný organ", "Klávesy").s ("a_wave", 1).s ("a_level", 0.6f).s ("a_aa", 0.05f).s ("a_ad", 0.1f).s ("a_as", 1).s ("a_ar", 0.4f)
+                         .s ("b_on", 1).s ("b_wave", 0).s ("b_oct", 1).s ("b_level", 0.4f).s ("b_aa", 0.05f).s ("b_ad", 0.1f).s ("b_as", 1).s ("b_ar", 0.4f)
+                         .s ("rv_mix", 0.5f).s ("rv_size", 0.95f).s ("rv_damp", 0.35f).s ("rv_pre", 40).s ("p_gain", -13.9f).s ("veltrack", 0).f);
+            // pady
+            v.push_back (P ("Ambientný oblak", "Pady").s ("a_wave", 2).s ("a_uni", 7).s ("a_spread", 22).s ("a_cut", 1200).s ("a_reso", 0.15f).s ("a_fenv", 0.2f)
+                         .s ("a_fa", 3).s ("a_fd", 3).s ("a_fs", 0.6f).s ("a_fr", 3).s ("a_aa", 2.5f).s ("a_ad", 2).s ("a_as", 0.9f).s ("a_ar", 4).s ("a_level", 0.75f)
+                         .s ("a_ltgt", 1).s ("a_lrate", 0.1f).s ("a_ldepth", 0.3f)
+                         .s ("b_on", 1).s ("b_wave", 1).s ("b_oct", 1).s ("b_level", 0.2f).s ("b_aa", 2.5f).s ("b_ad", 2).s ("b_as", 0.9f).s ("b_ar", 4)
+                         .s ("ch_on", 1).s ("ch_type", 1).s ("ch_mix", 0.5f).s ("rv_mix", 0.55f).s ("rv_size", 0.95f).s ("rv_pre", 40).s ("p_gain", -6.0f).s ("veltrack", 0.5f).f);
+            v.push_back (P ("Temný pad", "Pady").s ("a_wave", 3).s ("a_color", 0.3f).s ("a_uni", 5).s ("a_spread", 12).s ("a_cut", 520).s ("a_reso", 0.25f).s ("a_fenv", 0.1f)
+                         .s ("a_aa", 1.4f).s ("a_ad", 2).s ("a_as", 0.9f).s ("a_ar", 2.5f).s ("a_level", 0.8f)
+                         .s ("b_on", 1).s ("b_wave", 0).s ("b_oct", -1).s ("b_level", 0.35f).s ("b_aa", 1.4f).s ("b_ad", 2).s ("b_as", 0.9f).s ("b_ar", 2.5f)
+                         .s ("eq_high", -4).s ("rv_mix", 0.45f).s ("rv_size", 0.85f).s ("p_gain", -18.6f).s ("veltrack", 0.5f).f);
+            v.push_back (P ("Zimný pad", "Pady").s ("a_wave", 1).s ("a_uni", 4).s ("a_spread", 14).s ("a_cut", 4000).s ("a_aa", 1.5f).s ("a_ad", 2).s ("a_as", 0.9f).s ("a_ar", 2.5f).s ("a_level", 0.8f)
+                         .s ("b_on", 1).s ("b_wave", 4).s ("b_level", 0.05f).s ("b_ftype", 1).s ("b_cut", 3000).s ("b_reso", 0.3f).s ("b_aa", 1.5f).s ("b_ad", 2).s ("b_as", 0.9f).s ("b_ar", 2.5f)
+                         .s ("ch_on", 1).s ("ch_type", 3).s ("ch_rate", 0.2f).s ("ch_depth", 0.6f).s ("ch_fb", 0.4f).s ("ch_mix", 0.45f).s ("rv_mix", 0.5f).s ("rv_size", 0.85f).s ("p_gain", -8.6f).s ("veltrack", 0.5f).f);
+            v.push_back (P ("Synthwave pad", "Pady").s ("a_wave", 2).s ("a_uni", 6).s ("a_spread", 16).s ("a_cut", 2200).s ("a_reso", 0.2f).s ("a_fenv", 0.15f).s ("a_fa", 0.8f).s ("a_fd", 2)
+                         .s ("a_fs", 0.5f).s ("a_aa", 0.6f).s ("a_ad", 1.5f).s ("a_as", 0.85f).s ("a_ar", 1.8f).s ("a_level", 0.8f)
+                         .s ("ch_on", 1).s ("ch_mix", 0.5f).s ("dl_on", 1).s ("dl_sync", 2).s ("dl_mix", 0.15f).s ("rv_mix", 0.4f).s ("rv_size", 0.8f).s ("p_gain", -14.0f).s ("veltrack", 0.6f).f);
+            v.push_back (P ("Sklenené zvony", "Pady").s ("a_wave", 6).s ("a_ratio", 5).s ("a_color", 0.25f).s ("a_fenv", 0.4f).s ("a_fa", 0.6f).s ("a_fd", 2).s ("a_fs", 0.3f)
+                         .s ("a_aa", 0.5f).s ("a_ad", 2).s ("a_as", 0.8f).s ("a_ar", 3).s ("a_level", 0.8f)
+                         .s ("b_on", 1).s ("b_wave", 2).s ("b_uni", 4).s ("b_spread", 14).s ("b_cut", 1600).s ("b_level", 0.3f).s ("b_aa", 1.2f).s ("b_ad", 2).s ("b_as", 0.9f).s ("b_ar", 3)
+                         .s ("ch_on", 1).s ("ch_type", 1).s ("ch_mix", 0.4f).s ("rv_mix", 0.5f).s ("rv_size", 0.9f).s ("rv_pre", 25).s ("p_gain", -14.7f).s ("veltrack", 0.6f).f);
+            v.push_back (P ("Dych", "Pady").s ("a_wave", 4).s ("a_color", 0.6f).s ("a_ftype", 1).s ("a_cut", 1200).s ("a_reso", 0.5f).s ("a_aa", 1.5f).s ("a_ad", 2).s ("a_as", 0.9f).s ("a_ar", 2).s ("a_level", 0.5f)
+                         .s ("a_ltgt", 1).s ("a_lrate", 0.15f).s ("a_ldepth", 0.35f)
+                         .s ("b_on", 1).s ("b_wave", 0).s ("b_level", 0.5f).s ("b_aa", 1.5f).s ("b_ad", 2).s ("b_as", 0.9f).s ("b_ar", 2)
+                         .s ("rv_mix", 0.5f).s ("rv_size", 0.85f).s ("p_gain", -13.1f).s ("veltrack", 0.5f).f);
+            // slaciky
+            v.push_back (P ("Pomalé sláčiky", "Sláčiky").s ("a_wave", 2).s ("a_uni", 6).s ("a_spread", 12).s ("a_cut", 2200).s ("a_reso", 0.15f).s ("a_fenv", 0.12f).s ("a_fa", 1).s ("a_fd", 1.5f).s ("a_fs", 0.7f)
+                         .s ("a_aa", 1.2f).s ("a_ad", 1).s ("a_as", 0.9f).s ("a_ar", 1.5f).s ("a_level", 0.85f).s ("a_lrate", 5.2f).s ("a_ldepth", 0.07f).s ("a_ldelay", 0.6f)
+                         .s ("ch_on", 1).s ("ch_type", 1).s ("ch_mix", 0.55f).s ("rv_mix", 0.42f).s ("rv_size", 0.85f).s ("rv_pre", 20).s ("p_gain", -13.5f).s ("veltrack", 0.7f).f);
+            v.push_back (P ("Pizzicato", "Sláčiky").s ("a_wave", 5).s ("a_color", 0.4f).s ("a_level", 1).s ("a_aa", 0.001f).s ("a_ad", 0.5f).s ("a_as", 1).s ("a_ar", 0.15f)
+                         .s ("b_on", 1).s ("b_wave", 0).s ("b_level", 0.25f).s ("b_aa", 0.002f).s ("b_ad", 0.25f).s ("b_as", 0).s ("b_ar", 0.1f)
+                         .s ("rv_mix", 0.3f).s ("rv_size", 0.7f).s ("p_gain", 0.3f).s ("veltrack", 0.8f).f);
+            v.push_back (P ("Violončelo", "Sláčiky").s ("a_wave", 2).s ("a_oct", -1).s ("a_uni", 2).s ("a_spread", 4).s ("a_ftype", 3).s ("a_cut", 3200).s ("a_fenv", 0.1f).s ("a_fa", 0.15f).s ("a_fd", 0.6f).s ("a_fs", 0.75f)
+                         .s ("a_aa", 0.15f).s ("a_ad", 0.4f).s ("a_as", 0.9f).s ("a_ar", 0.45f).s ("a_level", 0.9f).s ("a_lrate", 5.3f).s ("a_ldepth", 0.18f).s ("a_ldelay", 0.4f)
+                         .s ("ch_on", 1).s ("ch_mix", 0.15f).s ("rv_mix", 0.32f).s ("rv_size", 0.65f).s ("p_gain", -16.0f).s ("veltrack", 0.7f).f);
+            v.push_back (P ("Orchester", "Sláčiky").s ("a_wave", 2).s ("a_uni", 7).s ("a_spread", 14).s ("a_cut", 3000).s ("a_reso", 0.1f).s ("a_fenv", 0.1f).s ("a_fa", 0.4f).s ("a_fd", 1).s ("a_fs", 0.7f)
+                         .s ("a_aa", 0.4f).s ("a_ad", 0.8f).s ("a_as", 0.9f).s ("a_ar", 1).s ("a_level", 0.8f)
+                         .s ("b_on", 1).s ("b_wave", 3).s ("b_oct", -1).s ("b_color", 0.4f).s ("b_cut", 1500).s ("b_level", 0.4f).s ("b_aa", 0.4f).s ("b_ad", 0.8f).s ("b_as", 0.9f).s ("b_ar", 1)
+                         .s ("ch_on", 1).s ("ch_type", 1).s ("ch_mix", 0.5f).s ("rv_mix", 0.45f).s ("rv_size", 0.85f).s ("rv_pre", 25).s ("p_gain", -15.0f).s ("veltrack", 0.7f).f);
+            // plucky
+            v.push_back (P ("Nylonová gitara", "Plucky").s ("a_wave", 5).s ("a_color", 0.35f).s ("a_level", 1).s ("a_aa", 0.001f).s ("a_ad", 2.5f).s ("a_as", 1).s ("a_ar", 0.5f)
+                         .s ("b_on", 1).s ("b_wave", 5).s ("b_fine", 2).s ("b_color", 0.3f).s ("b_level", 0.3f).s ("b_aa", 0.001f).s ("b_ad", 2.5f).s ("b_as", 1).s ("b_ar", 0.5f)
+                         .s ("rv_mix", 0.2f).s ("rv_size", 0.55f).s ("p_gain", -3.8f).s ("veltrack", 0.85f).f);
+            v.push_back (P ("Kalimba", "Plucky").s ("a_wave", 6).s ("a_ratio", 4).s ("a_color", 0.3f).s ("a_fenv", 1).s ("a_fa", 0.001f).s ("a_fd", 0.08f).s ("a_fs", 0)
+                         .s ("a_aa", 0.001f).s ("a_ad", 1.2f).s ("a_as", 0).s ("a_ar", 0.3f).s ("a_level", 1)
+                         .s ("b_on", 1).s ("b_wave", 0).s ("b_oct", 2).s ("b_level", 0.12f).s ("b_aa", 0.001f).s ("b_ad", 0.15f).s ("b_as", 0).s ("b_ar", 0.1f)
+                         .s ("rv_mix", 0.25f).s ("rv_size", 0.6f).s ("p_gain", -9.3f).s ("veltrack", 0.85f).f);
+            v.push_back (P ("Synth pluck", "Plucky").s ("a_wave", 2).s ("a_uni", 2).s ("a_spread", 8).s ("a_cut", 400).s ("a_reso", 0.3f).s ("a_fenv", 0.8f).s ("a_fa", 0.001f).s ("a_fd", 0.18f).s ("a_fs", 0)
+                         .s ("a_aa", 0.001f).s ("a_ad", 0.5f).s ("a_as", 0).s ("a_ar", 0.3f).s ("a_level", 0.9f)
+                         .s ("dl_on", 1).s ("dl_sync", 2).s ("dl_mix", 0.25f).s ("dl_fb", 0.35f).s ("rv_mix", 0.25f).s ("p_gain", -5.2f).s ("veltrack", 0.8f).f);
+            v.push_back (P ("Marimba", "Plucky").s ("a_wave", 6).s ("a_ratio", 6).s ("a_color", 0.2f).s ("a_fenv", 1).s ("a_fa", 0.001f).s ("a_fd", 0.05f).s ("a_fs", 0)
+                         .s ("a_aa", 0.001f).s ("a_ad", 0.7f).s ("a_as", 0).s ("a_ar", 0.25f).s ("a_level", 1).s ("rv_mix", 0.22f).s ("rv_size", 0.55f).s ("p_gain", -7.3f).s ("veltrack", 0.85f).f);
+            v.push_back (P ("Pluck v ozvene", "Plucky").s ("a_wave", 3).s ("a_color", 0.35f).s ("a_cut", 1500).s ("a_reso", 0.2f).s ("a_fenv", 0.5f).s ("a_fa", 0.001f).s ("a_fd", 0.12f).s ("a_fs", 0)
+                         .s ("a_aa", 0.001f).s ("a_ad", 0.25f).s ("a_as", 0).s ("a_ar", 0.15f).s ("a_level", 0.8f)
+                         .s ("dl_on", 1).s ("dl_sync", 4).s ("dl_pp", 1).s ("dl_mix", 0.35f).s ("dl_fb", 0.5f).s ("dl_eql", -6).s ("rv_mix", 0.25f).s ("p_gain", -5.4f).s ("veltrack", 0.8f).f);
+            // zvonky
+            v.push_back (P ("Hudobná skrinka", "Zvonky").s ("a_wave", 6).s ("a_ratio", 8).s ("a_oct", 1).s ("a_color", 0.25f).s ("a_fenv", 0.9f).s ("a_fa", 0.001f).s ("a_fd", 0.3f).s ("a_fs", 0)
+                         .s ("a_aa", 0.001f).s ("a_ad", 2).s ("a_as", 0).s ("a_ar", 0.5f).s ("a_level", 1).s ("rv_mix", 0.3f).s ("rv_size", 0.65f).s ("p_gain", -10.5f).s ("veltrack", 0.8f).f);
+            v.push_back (P ("Vibrafón", "Zvonky").s ("a_wave", 6).s ("a_ratio", 6).s ("a_color", 0.15f).s ("a_fenv", 0.6f).s ("a_fa", 0.001f).s ("a_fd", 0.3f).s ("a_fs", 0)
+                         .s ("a_aa", 0.001f).s ("a_ad", 3).s ("a_as", 0).s ("a_ar", 0.8f).s ("a_level", 1)
+                         .s ("ch_on", 1).s ("ch_type", 4).s ("ch_rate", 5).s ("ch_depth", 0.3f).s ("ch_mix", 0.35f).s ("rv_mix", 0.28f).s ("p_gain", -10.5f).s ("veltrack", 0.85f).f);
+            v.push_back (P ("Zvony", "Zvonky").s ("a_wave", 6).s ("a_ratio", 5).s ("a_color", 0.45f).s ("a_fenv", 0.8f).s ("a_fa", 0.001f).s ("a_fd", 1.5f).s ("a_fs", 0)
+                         .s ("a_aa", 0.001f).s ("a_ad", 6).s ("a_as", 0).s ("a_ar", 3).s ("a_level", 1).s ("rv_mix", 0.38f).s ("rv_size", 0.85f).s ("p_gain", -11.9f).s ("veltrack", 0.85f).f);
+            // basy
+            v.push_back (P ("808 bas", "Basy").s ("a_wave", 0).s ("a_oct", -1).s ("a_level", 0.9f).s ("a_aa", 0.002f).s ("a_ad", 1.5f).s ("a_as", 0).s ("a_ar", 0.3f)
+                         .s ("drive_on", 1).s ("drive", 0.3f).s ("tube", 0.2f).s ("mono", 1).s ("glide", 0.05f).s ("rv_on", 0).s ("p_gain", -15.4f).s ("veltrack", 0.4f).f);
+            v.push_back (P ("Acid bas", "Basy").s ("a_wave", 2).s ("a_cut", 300).s ("a_reso", 0.75f).s ("a_fenv", 0.7f).s ("a_fa", 0.001f).s ("a_fd", 0.2f).s ("a_fs", 0).s ("a_fr", 0.1f)
+                         .s ("a_aa", 0.002f).s ("a_ad", 0.4f).s ("a_as", 0.7f).s ("a_ar", 0.1f).s ("a_level", 0.8f)
+                         .s ("drive_on", 1).s ("drive", 0.3f).s ("mono", 1).s ("glide", 0.06f).s ("dl_on", 1).s ("dl_sync", 2).s ("dl_mix", 0.12f).s ("rv_on", 0).s ("p_gain", -17.4f).s ("veltrack", 0.6f).f);
+            v.push_back (P ("Synthwave bas", "Basy").s ("a_wave", 2).s ("a_uni", 2).s ("a_spread", 6).s ("a_cut", 700).s ("a_reso", 0.2f).s ("a_fenv", 0.5f).s ("a_fa", 0.001f).s ("a_fd", 0.25f).s ("a_fs", 0.2f)
+                         .s ("a_aa", 0.002f).s ("a_ad", 0.5f).s ("a_as", 0.7f).s ("a_ar", 0.12f).s ("a_level", 0.8f)
+                         .s ("b_on", 1).s ("b_wave", 3).s ("b_oct", -1).s ("b_cut", 600).s ("b_level", 0.5f).s ("b_aa", 0.002f).s ("b_ad", 0.5f).s ("b_as", 0.7f).s ("b_ar", 0.12f)
+                         .s ("rv_on", 0).s ("p_gain", -14.6f).s ("veltrack", 0.5f).f);
+            v.push_back (P ("Kontrabas", "Basy").s ("a_wave", 5).s ("a_oct", -1).s ("a_color", 0.2f).s ("a_level", 1).s ("a_aa", 0.001f).s ("a_ad", 1.5f).s ("a_as", 1).s ("a_ar", 0.2f)
+                         .s ("b_on", 1).s ("b_wave", 0).s ("b_oct", -1).s ("b_level", 0.4f).s ("b_aa", 0.005f).s ("b_ad", 0.6f).s ("b_as", 0).s ("b_ar", 0.15f)
+                         .s ("rv_mix", 0.1f).s ("p_gain", -8.7f).s ("veltrack", 0.7f).f);
+            v.push_back (P ("Reese bas", "Basy").s ("a_wave", 2).s ("a_oct", -1).s ("a_uni", 4).s ("a_spread", 25).s ("a_cut", 900).s ("a_reso", 0.2f).s ("a_aa", 0.003f).s ("a_ad", 0.5f).s ("a_as", 0.9f).s ("a_ar", 0.15f).s ("a_level", 0.8f)
+                         .s ("b_on", 1).s ("b_wave", 0).s ("b_oct", -1).s ("b_level", 0.4f).s ("b_aa", 0.003f).s ("b_ad", 0.5f).s ("b_as", 0.9f).s ("b_ar", 0.15f)
+                         .s ("mono", 1).s ("glide", 0.04f).s ("drive_on", 1).s ("drive", 0.2f).s ("rv_on", 0).s ("p_gain", -15.1f).s ("veltrack", 0.4f).f);
+            // leady
+            v.push_back (P ("Pílový lead", "Leady").s ("a_wave", 2).s ("a_uni", 4).s ("a_spread", 12).s ("a_cut", 5000).s ("a_reso", 0.2f).s ("a_fenv", 0.2f).s ("a_fa", 0.005f).s ("a_fd", 0.5f).s ("a_fs", 0.6f)
+                         .s ("a_aa", 0.005f).s ("a_ad", 0.4f).s ("a_as", 0.9f).s ("a_ar", 0.2f).s ("a_level", 0.8f).s ("a_lrate", 5.5f).s ("a_ldepth", 0.1f).s ("a_ldelay", 0.35f)
+                         .s ("mono", 1).s ("glide", 0.05f).s ("dl_on", 1).s ("dl_sync", 2).s ("dl_mix", 0.18f).s ("rv_mix", 0.22f).s ("p_gain", -8.5f).s ("veltrack", 0.6f).f);
+            v.push_back (P ("Píšťala", "Leady").s ("a_wave", 1).s ("a_level", 0.85f).s ("a_aa", 0.06f).s ("a_ad", 0.3f).s ("a_as", 0.95f).s ("a_ar", 0.2f).s ("a_lrate", 5).s ("a_ldepth", 0.08f).s ("a_ldelay", 0.3f)
+                         .s ("b_on", 1).s ("b_wave", 4).s ("b_color", 0.7f).s ("b_ftype", 1).s ("b_cut", 2500).s ("b_reso", 0.3f).s ("b_level", 0.06f).s ("b_aa", 0.04f).s ("b_ad", 0.3f).s ("b_as", 0.8f).s ("b_ar", 0.2f)
+                         .s ("rv_mix", 0.3f).s ("rv_size", 0.7f).s ("p_gain", -14.5f).s ("veltrack", 0.6f).f);
+            v.push_back (P ("Retro lead", "Leady").s ("a_wave", 3).s ("a_color", 0.5f).s ("a_level", 0.6f).s ("a_aa", 0.002f).s ("a_ad", 0.2f).s ("a_as", 0.9f).s ("a_ar", 0.1f)
+                         .s ("a_lrate", 7).s ("a_ldepth", 0.06f).s ("a_ldelay", 0.25f).s ("mono", 1).s ("dl_on", 1).s ("dl_sync", 3).s ("dl_mix", 0.18f).s ("dl_fb", 0.25f)
+                         .s ("rv_mix", 0.15f).s ("p_gain", -10.6f).s ("veltrack", 0.3f).f);
+            v.push_back (P ("Spevavý lead", "Leady").s ("a_wave", 3).s ("a_color", 0.35f).s ("a_uni", 2).s ("a_spread", 6).s ("a_cut", 2500).s ("a_reso", 0.35f).s ("a_fenv", 0.15f)
+                         .s ("a_aa", 0.04f).s ("a_ad", 0.4f).s ("a_as", 0.9f).s ("a_ar", 0.3f).s ("a_level", 0.8f).s ("a_lrate", 5.3f).s ("a_ldepth", 0.14f).s ("a_ldelay", 0.35f)
+                         .s ("mono", 1).s ("glide", 0.1f).s ("rv_mix", 0.35f).s ("rv_size", 0.75f).s ("rv_pre", 50).s ("dl_on", 1).s ("dl_sync", 2).s ("dl_mix", 0.15f).s ("p_gain", -13.5f).s ("veltrack", 0.6f).f);
             return v;
         }();
         return list;
@@ -238,7 +364,7 @@ namespace nova
 
     bool isPatchParam (const juce::String& id)
     {
-        static const juce::StringArray macros { "preset", "bright", "attack", "release", "space", "width", "volume" };
+        static const juce::StringArray macros { "preset", "bright", "attack", "release", "space", "width", "volume", "x_rnd", "x_mut" };
         return ! macros.contains (id);
     }
 

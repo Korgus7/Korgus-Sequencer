@@ -57,6 +57,20 @@ public:
     static float measureLevel (const nova::PatchData& p); // hlasitost zvuku (dB) pri p_gain 0
     static void settingsFrom (nova::Settings& s, const std::function<float (const juce::String&)>& g);
 
+    // ukazka zvuku v prehliadaci WAV (hra cez vystup pluginu)
+    void previewFile (const juce::File& f);
+    void stopPreview();
+    bool previewPlaying() const { return prevPlaying.load(); }
+
+    // MIDI learn: gombik <- CC z klaviatury (plati vo vsetkych projektoch)
+    void midiLearn (const juce::String& paramId);
+    void midiForget (const juce::String& paramId);
+    int ccFor (const juce::String& paramId) const;
+    bool isLearning (const juce::String& paramId) const;
+    std::atomic<int> ccVersion { 0 };   // zvysi sa pri kazdej zmene priradeni (rozhranie prekresli)
+    void applyCc();                     // (volane casovacom na hlavnom vlakne)
+    void flushPending() { handleUpdateNowIfNeeded(); }
+
     juce::String currentKey, currentName, currentCategory;
     int uiMode = 0;          // 0 jednoducha, 1 rozsirena
     float uiScale = 1.0f;
@@ -72,6 +86,17 @@ private:
     std::atomic<float>* rp (const char* id) { return raw[id]; }
     juce::MemoryBlock smpFlac[2]; juce::String smpName[2];
     std::atomic<int> pendingPreset { -1 };
+    std::atomic<int> pendingAction { 0 };   // 1 = prekvap ma, 2 = obmena (zo Sequencera)
+    // ukazka
+    juce::SpinLock prevLock; std::shared_ptr<juce::AudioBuffer<float>> prevBuf; double prevRate = 44100, prevPos = 0, curRate = 48000;
+    std::atomic<bool> prevPlaying { false }; std::atomic<int> prevReq { 0 };
+    // MIDI learn
+    std::atomic<int> ccMap[128]; std::atomic<int> learnIdx { -1 };
+    juce::AbstractFifo ccFifo { 256 }; int ccFifoIdx[256] {}; float ccFifoVal[256] {};
+    struct CcApplier : juce::Timer { NovaProcessor& p; CcApplier (NovaProcessor& pr) : p (pr) {} void timerCallback() override { p.applyCc(); } } ccApplier { *this };
+    void saveCcMap();
+    void loadCcMap();
+    std::atomic<bool> ccDirty { false };
     bool restoring = false;
     int lastPresetParam = 0;
 };

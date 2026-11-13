@@ -65,14 +65,14 @@ namespace
     {
         struct PresetButton : juce::Component
         {
-            juce::String name, key; bool selected = false, hover = false; std::function<void()> onClick;
+            juce::String name, key, cat; bool selected = false, hover = false, small = false; std::function<void()> onClick;
             void paint (juce::Graphics& g) override
             {
                 auto r = getLocalBounds().toFloat().reduced (0.5f);
-                g.setColour (selected ? steelHi : (hover ? steel.brighter (0.12f) : steel));
+                g.setColour (selected ? (small ? amber : steelHi) : (hover ? steel.brighter (0.12f) : (small ? panel : steel)));
                 g.fillRoundedRectangle (r, 3.0f);
                 g.setColour (selected ? juce::Colours::white : text.withAlpha (0.9f));
-                g.setFont (juce::FontOptions (14.0f, selected ? juce::Font::bold : juce::Font::plain));
+                g.setFont (juce::FontOptions (small ? 13.0f : 14.0f, selected ? juce::Font::bold : juce::Font::plain));
                 g.drawFittedText (name, getLocalBounds().reduced (5, 2), juce::Justification::centred, 2);
             }
             void mouseUp (const juce::MouseEvent& e) override { if (e.mouseWasClicked() && onClick) onClick(); }
@@ -85,11 +85,26 @@ namespace
             for (auto& f : factoryPatches())
             {
                 auto b = std::make_unique<PresetButton>();
-                b->name = T (f.name); b->key = "f:" + f.name;
+                b->name = T (f.name); b->key = "f:" + f.name; b->cat = f.category;
                 auto key = b->key;
                 b->onClick = [this, key] { p.loadPreset (key); tick(); };
-                addAndMakeVisible (*b);
+                addChildComponent (*b);
                 buttons.push_back (std::move (b));
+            }
+            // kategorie (tovarenske, bez "Moje zvuky")
+            for (int i = 0; i < categories().size() - 1; ++i)
+            {
+                auto c = std::make_unique<PresetButton>();
+                c->name = T (categories()[i]); c->key = categories()[i]; c->small = true;
+                auto cat = c->key;
+                c->onClick = [this, cat] { setCat (cat); };
+                addAndMakeVisible (*c);
+                catButtons.push_back (std::move (c));
+            }
+            {
+                const auto* e = p.presets.find (p.currentKey);
+                const auto saved = p.presets.setting ("simpleCat");
+                setCat (e != nullptr && e->factory ? factoryPatches()[(size_t) e->factoryIndex].category : (saved.isNotEmpty() ? saved : categories()[0]));
             }
             for (auto id : { "bright", "attack", "release", "space", "width", "volume" })
             {
@@ -108,8 +123,22 @@ namespace
             setSize (SW, SH);
             tick();
         }
+        void setCat (const juce::String& c)
+        {
+            curCat = c; p.presets.setSetting ("simpleCat", c);
+            for (auto& cb : catButtons) { cb->selected = cb->key == c; cb->repaint(); }
+            for (auto& b : buttons) b->setVisible (b->cat == c);
+            resized();
+        }
         void tick() override
         {
+            // pri prepnuti zvuku sipkami ukaz jeho kategoriu
+            if (p.currentKey != lastKey)
+            {
+                lastKey = p.currentKey;
+                if (const auto* e = p.presets.find (p.currentKey); e != nullptr && e->factory && factoryPatches()[(size_t) e->factoryIndex].category != curCat)
+                    setCat (factoryPatches()[(size_t) e->factoryIndex].category);
+            }
             for (auto& b : buttons) { const bool s = b->key == p.currentKey; if (s != b->selected) { b->selected = s; b->repaint(); } }
             juce::String st;
             if (p.synth.pianoFailed()) st = T ("Klavírne zvuky sa nepodarilo načítať");
@@ -137,22 +166,244 @@ namespace
             surprise.setBounds (surCat.getX() - 2 - 104, 9, 104, 26);
             langBox.setBounds (surprise.getX() - 8 - 58, 11, 58, 22);
             auto r = getLocalBounds().reduced (16, 0);
-            r.removeFromTop (44 + 12);
-            const int cols = 7, gap = 6, bh = 44;
+            r.removeFromTop (44 + 10);
+            {
+                auto cr = r.removeFromTop (26);
+                const int n = (int) catButtons.size(), g2 = 4, cw = (cr.getWidth() - g2 * (n - 1)) / juce::jmax (1, n);
+                for (int i = 0; i < n; ++i) catButtons[(size_t) i]->setBounds (cr.getX() + i * (cw + g2), cr.getY(), cw, 26);
+            }
+            r.removeFromTop (8);
+            const int cols = 5, gap = 6, bh = 42;
             const int bw = (r.getWidth() - gap * (cols - 1)) / cols;
-            for (int i = 0; i < (int) buttons.size(); ++i)
-                buttons[(size_t) i]->setBounds (r.getX() + (i % cols) * (bw + gap), r.getY() + (i / cols) * (bh + gap), bw, bh);
-            r.removeFromTop (2 * (bh + gap) + 10);
-            auto kr = r.removeFromTop (150);
+            int k = 0;
+            for (auto& b : buttons)
+                if (b->isVisible()) { b->setBounds (r.getX() + (k % cols) * (bw + gap), r.getY() + (k / cols) * (bh + gap), bw, bh); ++k; }
+            r.removeFromTop (2 * (bh + gap) + 6);
+            auto kr = r.removeFromTop (140);
             const int kw = kr.getWidth() / 6;
             for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (12, 0));
         }
         NovaEditor& ed; NovaProcessor& p;
-        std::vector<std::unique_ptr<PresetButton>> buttons;
+        std::vector<std::unique_ptr<PresetButton>> buttons, catButtons;
         std::vector<std::unique_ptr<Knob>> knobs;
+        juce::String curCat, lastKey;
         juce::TextButton ext, surprise, surCat, mutateB;
         juce::ComboBox langBox;
         juce::String status;
+    };
+
+
+    // ===================================================================== prehliadac WAV (s prehravanim)
+    struct WavBrowser : juce::Component, juce::ListBoxModel, juce::TextEditor::Listener
+    {
+        struct Places : juce::ListBoxModel
+        {
+            WavBrowser& b; Places (WavBrowser& w) : b (w) {}
+            int getNumRows() override { return (int) b.places.size(); }
+            void paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool sel) override
+            {
+                if (! juce::isPositiveAndBelow (row, (int) b.places.size())) return;
+                const auto& pl = b.places[(size_t) row];
+                if (pl.second == juce::File()) { g.setColour (dim); g.setFont (juce::FontOptions (11.5f, juce::Font::bold)); g.drawText (pl.first, 8, 0, w - 8, h, juce::Justification::bottomLeft); return; }
+                const bool cur = pl.second == b.dir;
+                if (cur) { g.setColour (steelHi); g.fillRoundedRectangle (juce::Rectangle<float> (2, 1, (float) w - 4, (float) h - 2), 3.0f); }
+                g.setColour (cur ? juce::Colours::white : text); g.setFont (juce::FontOptions (13.5f));
+                g.drawText (pl.first, 10, 0, w - 14, h, juce::Justification::centredLeft, true);
+                (void) sel;
+            }
+            void listBoxItemClicked (int row, const juce::MouseEvent&) override
+            {
+                if (juce::isPositiveAndBelow (row, (int) b.places.size()) && b.places[(size_t) row].second != juce::File()) b.openDir (b.places[(size_t) row].second);
+            }
+        };
+
+        WavBrowser (NovaProcessor& pr, int layerIdx, std::function<void (const juce::File&, int)> load, std::function<void()> close)
+            : p (pr), layer (layerIdx), onLoad (std::move (load)), onClose (std::move (close)), placesModel (*this)
+        {
+            setWantsKeyboardFocus (false);
+            title = T ("Vybrať zvuk (WAV, MP3…)");
+            closeB.setButtonText (juce::String::charToString (0x2715)); closeB.onClick = [this] { if (onClose) onClose(); };
+            upB.setButtonText (juce::String::charToString (0x25B2)); upB.setTooltip (T ("O priečinok vyššie")); upB.onClick = [this] { goUp(); };
+            favB.setTooltip (T ("Pridať / odobrať priečinok z obľúbených")); favB.onClick = [this] { toggleFav(); };
+            search.setTextToShowWhenEmpty (T ("Hľadať v priečinku…"), dim); search.addListener (this); search.setFont (juce::FontOptions (13.5f));
+            deep.setButtonText (T ("aj podpriečinky")); deep.setToggleState (p.presets.setting ("wavDeep") == "1", juce::dontSendNotification);
+            deep.onClick = [this] { p.presets.setSetting ("wavDeep", deep.getToggleState() ? "1" : "0"); refresh(); };
+            autoP.setButtonText (T ("Prehrať pri výbere")); autoP.setToggleState (p.presets.setting ("wavAuto") != "0", juce::dontSendNotification);
+            autoP.onClick = [this] { p.presets.setSetting ("wavAuto", autoP.getToggleState() ? "1" : "0"); if (! autoP.getToggleState()) p.stopPreview(); };
+            playB.onClick = [this] { if (p.previewPlaying()) p.stopPreview(); else { const auto f = selectedFile(); if (f.existsAsFile()) p.previewFile (f); } };
+            for (int l = 0; l < 2; ++l)
+            {
+                loadB[l].setButtonText (T (l == 0 ? "Do vrstvy A" : "Do vrstvy B"));
+                loadB[l].onClick = [this, l] { const auto f = selectedFile(); if (f.existsAsFile()) doLoad (f, l); };
+            }
+            if (layer < 0) { loadB[1].setVisible (false); loadB[0].setButtonText (T ("Načítať")); }
+            cancelB.setButtonText (T ("Zrušiť")); cancelB.onClick = [this] { if (onClose) onClose(); };
+            for (auto* c : std::initializer_list<juce::Component*> { &closeB, &upB, &favB, &search, &deep, &autoP, &playB, &loadB[0], &loadB[1], &cancelB, &list, &placeList, &pathL }) addAndMakeVisible (c);
+            list.setModel (this); list.setRowHeight (24); list.setColour (juce::ListBox::backgroundColourId, juce::Colour (0xff1a2029));
+            placeList.setModel (&placesModel); placeList.setRowHeight (24); placeList.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
+            pathL.setFont (juce::FontOptions (13.0f)); pathL.setColour (juce::Label::textColourId, text); pathL.setMinimumHorizontalScale (0.6f);
+            juce::File start (p.presets.setting ("wavDir"));
+            if (! start.isDirectory()) start = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+            buildPlaces();
+            openDir (start);
+        }
+        ~WavBrowser() override { p.stopPreview(); }
+
+        void buildPlaces()
+        {
+            places.clear();
+            places.push_back ({ T ("MIESTA"), {} });
+            auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+            places.push_back ({ T ("Hudba"), juce::File::getSpecialLocation (juce::File::userMusicDirectory) });
+            places.push_back ({ T ("Plocha"), juce::File::getSpecialLocation (juce::File::userDesktopDirectory) });
+            places.push_back ({ T ("Dokumenty"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory) });
+            if (home.getChildFile ("Downloads").isDirectory()) places.push_back ({ T ("Stiahnuté"), home.getChildFile ("Downloads") });
+            juce::Array<juce::File> roots; juce::File::findFileSystemRoots (roots);
+            for (auto& r : roots) if (r.isDirectory()) places.push_back ({ r.getFullPathName(), r });
+            const auto fav = favs();
+            if (! fav.isEmpty())
+            {
+                places.push_back ({ T ("OBĽÚBENÉ"), {} });
+                for (auto& f : fav) { juce::File d (f); if (d.isDirectory()) places.push_back ({ d.getFileName().isEmpty() ? f : d.getFileName(), d }); }
+            }
+            placeList.updateContent(); placeList.repaint();
+        }
+        juce::StringArray favs() const { return juce::StringArray::fromTokens (p.presets.setting ("wavFav"), "|", ""); }
+        void toggleFav()
+        {
+            auto f = favs(); const auto path = dir.getFullPathName();
+            if (f.contains (path)) f.removeString (path); else f.add (path);
+            f.removeEmptyStrings();
+            p.presets.setSetting ("wavFav", f.joinIntoString ("|"));
+            buildPlaces(); updateFavButton();
+        }
+        void updateFavButton() { favB.setButtonText (juce::String::charToString (favs().contains (dir.getFullPathName()) ? 0x2605 : 0x2606)); }
+        static bool isAudio (const juce::File& f) { return f.hasFileExtension ("wav;aif;aiff;flac;mp3;ogg"); }
+
+        void openDir (const juce::File& d)
+        {
+            if (! d.isDirectory()) return;
+            dir = d; search.setText ({}, juce::dontSendNotification);
+            p.presets.setSetting ("wavDir", d.getFullPathName());
+            pathL.setText (d.getFullPathName(), juce::dontSendNotification);
+            updateFavButton(); refresh(); placeList.repaint();
+            list.selectRow (0); list.scrollToEnsureRowIsOnscreen (0);
+        }
+        void goUp() { const auto par = dir.getParentDirectory(); if (par != dir) { const auto old = dir; openDir (par); for (int i = 0; i < (int) items.size(); ++i) if (items[(size_t) i] == old) { list.selectRow (i); list.scrollToEnsureRowIsOnscreen (i); } } }
+        void refresh()
+        {
+            items.clear(); truncated = false;
+            const auto q = search.getText().trim().toLowerCase();
+            if (q.isNotEmpty() && deep.getToggleState())
+            {
+                int n = 0;
+                for (const auto& e : juce::RangedDirectoryIterator (dir, true, "*", juce::File::findFiles))
+                {
+                    const auto f = e.getFile();
+                    if (isAudio (f) && f.getFileName().toLowerCase().contains (q)) { items.push_back (f); if (++n >= 1500) { truncated = true; break; } }
+                }
+            }
+            else
+            {
+                juce::Array<juce::File> ds, fs;
+                for (const auto& e : juce::RangedDirectoryIterator (dir, false, "*", juce::File::findFilesAndDirectories))
+                {
+                    const auto f = e.getFile();
+                    if (f.isHidden() || f.getFileName().startsWithChar ('.')) continue;
+                    if (q.isNotEmpty() && ! f.getFileName().toLowerCase().contains (q)) continue;
+                    if (e.isDirectory()) ds.add (f); else if (isAudio (f)) fs.add (f);
+                }
+                auto byName = [] (const juce::File& a, const juce::File& b) { return a.getFileName().compareNatural (b.getFileName()) < 0; };
+                std::sort (ds.begin(), ds.end(), byName); std::sort (fs.begin(), fs.end(), byName);
+                for (auto& f : ds) items.push_back (f);
+                for (auto& f : fs) items.push_back (f);
+            }
+            list.updateContent(); list.repaint(); repaint();
+        }
+        juce::File selectedFile() const { const int r = list.getSelectedRow(); return juce::isPositiveAndBelow (r, (int) items.size()) ? items[(size_t) r] : juce::File(); }
+        void doLoad (const juce::File& f, int l) { p.stopPreview(); if (onLoad) onLoad (f, l); }
+        void textEditorTextChanged (juce::TextEditor&) override { refresh(); list.selectRow (0); }
+        void textEditorReturnKeyPressed (juce::TextEditor&) override { list.grabKeyboardFocus(); }
+
+        // ListBoxModel
+        int getNumRows() override { return (int) items.size(); }
+        void paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool sel) override
+        {
+            if (! juce::isPositiveAndBelow (row, (int) items.size())) return;
+            const auto& f = items[(size_t) row];
+            const bool d = f.isDirectory();
+            if (sel) { g.setColour (steelHi); g.fillRoundedRectangle (juce::Rectangle<float> (2, 1, (float) w - 4, (float) h - 2), 3.0f); }
+            g.setColour (d ? amber.brighter (0.3f) : arc); g.setFont (juce::FontOptions (13.0f));
+            g.drawText (juce::String::charToString (d ? 0x25B8 : 0x266A), 6, 0, 18, h, juce::Justification::centred);
+            g.setColour (sel ? juce::Colours::white : text); g.setFont (juce::FontOptions (13.5f));
+            const auto nm = (search.getText().isNotEmpty() && deep.getToggleState()) ? f.getRelativePathFrom (dir) : f.getFileName();
+            g.drawText (nm, 28, 0, w - 110, h, juce::Justification::centredLeft, true);
+            if (! d)
+            {
+                const auto sz = f.getSize();
+                g.setColour (sel ? text : dim); g.setFont (juce::FontOptions (12.0f));
+                g.drawText (sz >= 1048576 ? juce::String ((double) sz / 1048576.0, 1) + " MB" : juce::String (juce::jmax ((juce::int64) 1, sz / 1024)) + " kB", w - 80, 0, 72, h, juce::Justification::centredRight);
+            }
+        }
+        void selectedRowsChanged (int row) override
+        {
+            if (! juce::isPositiveAndBelow (row, (int) items.size())) return;
+            const auto f = items[(size_t) row];
+            if (f.existsAsFile() && autoP.getToggleState()) p.previewFile (f); else if (f.isDirectory()) p.stopPreview();
+        }
+        void listBoxItemDoubleClicked (int row, const juce::MouseEvent&) override { activate (row); }
+        void returnKeyPressed (int row) override { activate (row); }
+        void activate (int row)
+        {
+            if (! juce::isPositiveAndBelow (row, (int) items.size())) return;
+            const auto f = items[(size_t) row];
+            if (f.isDirectory()) openDir (f); else doLoad (f, juce::jmax (0, layer));
+        }
+        bool keyPressed (const juce::KeyPress& k) override
+        {
+            if (k == juce::KeyPress::escapeKey) { if (onClose) onClose(); return true; }
+            if (k == juce::KeyPress::backspaceKey && ! search.hasKeyboardFocus (true)) { goUp(); return true; }
+            if (k == juce::KeyPress::spaceKey && ! search.hasKeyboardFocus (true)) { playB.triggerClick(); return true; }
+            return true;   // sipky a ine klavesy neprepinaju zvuky pod oknom
+        }
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colours::black.withAlpha (0.55f));
+            g.setColour (panel); g.fillRoundedRectangle (box.toFloat(), 3.0f);
+            g.setColour (line); g.drawRoundedRectangle (box.toFloat(), 3.0f, 1.0f);
+            g.setColour (text); g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+            g.drawText (title + (layer >= 0 ? (layer == 0 ? T (" – vrstva A") : T (" – vrstva B")) : juce::String()), box.getX() + 14, box.getY() + 10, box.getWidth() - 60, 22, juce::Justification::centredLeft);
+            g.setColour (dim); g.setFont (juce::FontOptions (11.5f));
+            juce::String info = juce::String ((int) items.size()) + T (" položiek");
+            if (truncated) info << T (" (zobrazené sú len prvé)");
+            info << T ("  ·  ↑↓ výber, Enter načíta, medzerník prehrá, Backspace = vyššie");
+            g.drawText (info, list.getBounds().translated (0, list.getHeight() + 4).withHeight (16), juce::Justification::centredLeft);
+        }
+        void resized() override
+        {
+            box = getLocalBounds().withSizeKeepingCentre (juce::jmin (860, getWidth() - 40), juce::jmin (620, getHeight() - 40));
+            auto r = box.reduced (14, 10);
+            auto top = r.removeFromTop (24); closeB.setBounds (top.removeFromRight (28));
+            r.removeFromTop (8);
+            auto left = r.removeFromLeft (170); r.removeFromLeft (10);
+            placeList.setBounds (left);
+            auto row1 = r.removeFromTop (26); upB.setBounds (row1.removeFromLeft (30)); row1.removeFromLeft (6); favB.setBounds (row1.removeFromRight (30)); row1.removeFromRight (6); pathL.setBounds (row1);
+            r.removeFromTop (6);
+            auto row2 = r.removeFromTop (26); deep.setBounds (row2.removeFromRight (140)); row2.removeFromRight (8); search.setBounds (row2);
+            r.removeFromTop (8);
+            auto bottom = r.removeFromBottom (30); r.removeFromBottom (24);
+            list.setBounds (r);
+            autoP.setBounds (bottom.removeFromLeft (170)); playB.setBounds (bottom.removeFromLeft (44).reduced (0, 1));
+            cancelB.setBounds (bottom.removeFromRight (90)); bottom.removeFromRight (8);
+            loadB[1].setBounds (bottom.removeFromRight (120)); bottom.removeFromRight (6); loadB[0].setBounds (bottom.removeFromRight (120));
+        }
+        void tickPlay() { const auto t = juce::String::charToString (p.previewPlaying() ? 0x25A0 : 0x25B6); if (playB.getButtonText() != t) playB.setButtonText (t); }
+
+        NovaProcessor& p; int layer; std::function<void (const juce::File&, int)> onLoad; std::function<void()> onClose;
+        Places placesModel; std::vector<std::pair<juce::String, juce::File>> places;
+        juce::File dir; std::vector<juce::File> items; bool truncated = false; juce::String title; juce::Rectangle<int> box;
+        juce::TextButton closeB, upB, favB, playB, loadB[2], cancelB; juce::ToggleButton deep, autoP;
+        juce::TextEditor search; juce::ListBox list, placeList; juce::Label pathL;
     };
 
     // ===================================================================== vrstva A / B
@@ -203,19 +454,17 @@ namespace
         }
         void chooseFile()
         {
-            juce::File lastDir (p.presets.setting ("wavDir"));
-            if (! lastDir.isDirectory()) lastDir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
-            chooser = std::make_unique<juce::FileChooser> (T ("Zvuk do vrstvy"), lastDir, "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
-            juce::Component::SafePointer<LayerPanel> sp (this);
-            chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [sp] (const juce::FileChooser& fc)
+            if (auto* ed = findParentComponentOfClass<NovaEditor>())
             {
-                const auto f = fc.getResult();
-                if (sp == nullptr || ! f.existsAsFile()) return;
-                sp->p.presets.setSetting ("wavDir", f.getParentDirectory().getFullPathName());
-                juce::String err;
-                if (! sp->p.loadSampleFile (sp->li, f, err)) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspire", err);
-                sp->update();
-            });
+                juce::Component::SafePointer<LayerPanel> sp (this);
+                ed->openWavBrowser (li, [sp] (const juce::File& f, int layer)
+                {
+                    if (sp == nullptr) return;
+                    juce::String err;
+                    if (! sp->p.loadSampleFile (layer, f, err)) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspire", err);
+                    sp->update();
+                });
+            }
         }
         void update()
         {
@@ -901,22 +1150,20 @@ namespace
         }
         void wavDialog (const juce::String& cat)
         {
-            juce::File lastDir (p.presets.setting ("wavDir"));
-            if (! lastDir.isDirectory()) lastDir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
-            chooser = std::make_unique<juce::FileChooser> (T ("Zvuk z nahrávky"), lastDir, "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
-            juce::Component::SafePointer<Browser> sp (this);
-            chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [sp, cat] (const juce::FileChooser& fc)
+            if (auto* ed = findParentComponentOfClass<NovaEditor>())
             {
-                const auto f = fc.getResult();
-                if (sp == nullptr || ! f.existsAsFile()) return;
-                sp->p.presets.setSetting ("wavDir", f.getParentDirectory().getFullPathName());
-                sp->p.newSound (cat);
-                juce::String err;
-                if (! sp->p.loadSampleFile (0, f, err)) { juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspire", err); return; }
-                sp->p.currentName = f.getFileNameWithoutExtension();
-                if (sp->p.onPatchChanged) sp->p.onPatchChanged();
-                sp->refresh();
-            });
+                juce::Component::SafePointer<Browser> sp (this);
+                ed->openWavBrowser (-1, [sp, cat] (const juce::File& f, int)
+                {
+                    if (sp == nullptr) return;
+                    sp->p.newSound (cat);
+                    juce::String err;
+                    if (! sp->p.loadSampleFile (0, f, err)) { juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspire", err); return; }
+                    sp->p.currentName = f.getFileNameWithoutExtension();
+                    if (sp->p.onPatchChanged) sp->p.onPatchChanged();
+                    sp->refresh();
+                });
+            }
         }
         void itemMenu (const PresetStore::Entry& e)
         {
@@ -1253,13 +1500,47 @@ NovaEditor::NovaEditor (NovaProcessor& p) : AudioProcessorEditor (p), proc (p)
 
 NovaEditor::~NovaEditor()
 {
+    overlay = nullptr;
     proc.onPatchChanged = nullptr;
     view = nullptr;
     setLookAndFeel (nullptr);
 }
 
+void NovaEditor::openWavBrowser (int layer, std::function<void (const juce::File&, int)> onLoad)
+{
+    if (view == nullptr) return;
+    juce::Component::SafePointer<NovaEditor> sp (this);
+    auto close = [sp] { juce::MessageManager::callAsync ([sp] { if (sp != nullptr) sp->overlay = nullptr; }); };
+    auto* wb = new WavBrowser (proc, layer, [onLoad, close] (const juce::File& f, int l) { if (onLoad) onLoad (f, l); close(); }, close);
+    overlay.reset (wb);
+    view->addAndMakeVisible (*wb);
+    wb->setBounds (view->getLocalBounds());
+    wb->list.grabKeyboardFocus();
+}
+
+void NovaEditor::knobMenu (juce::Component& knob, const juce::String& id)
+{
+    juce::PopupMenu m;
+    const int cc = proc.ccFor (id);
+    m.addSectionHeader (T ("MIDI ovládač"));
+    m.addItem (1, T ("MIDI learn – potom pohni gombíkom na klaviatúre"));
+    m.addItem (2, cc >= 0 ? T ("Zrušiť priradenie") + " (CC " + juce::String (cc) + ")" : T ("Zrušiť priradenie"), cc >= 0 || proc.isLearning (id));
+    if (const auto* sp = findSpec (id)) { m.addSeparator(); m.addItem (3, T ("Pôvodná hodnota")); (void) sp; }
+    juce::Component::SafePointer<NovaEditor> safe (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&knob), [safe, id] (int r)
+    {
+        if (safe == nullptr) return;
+        auto& p = safe->proc;
+        if (r == 1) p.midiLearn (id);
+        else if (r == 2) p.midiForget (id);
+        else if (r == 3) if (auto* prm = p.params.getParameter (id)) if (const auto* sp = findSpec (id)) prm->setValueNotifyingHost (prm->convertTo0to1 (sp->def));
+        if (safe->view != nullptr) safe->view->repaint();
+    });
+}
+
 void NovaEditor::setMode (int mode)
 {
+    overlay = nullptr;
     proc.uiMode = mode;
     content.removeAllChildren();
     view = nullptr;
@@ -1318,6 +1599,8 @@ void NovaEditor::resized() {}
 
 void NovaEditor::timerCallback()
 {
+    if (auto* wb = dynamic_cast<WavBrowser*> (overlay.get())) wb->tickPlay();
+    if (proc.ccVersion.load() != lastCcVersion) { lastCcVersion = proc.ccVersion.load(); if (view != nullptr) view->repaint(); }
     if (auto* t = dynamic_cast<Tickable*> (view.get())) t->tick();
 }
 

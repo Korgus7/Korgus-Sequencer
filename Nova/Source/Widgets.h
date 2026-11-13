@@ -103,11 +103,20 @@ namespace nova::ui
         }
     };
 
+    // editor poskytuje gombikom MIDI learn (prave tlacidlo)
+    struct KnobHost
+    {
+        virtual ~KnobHost() = default;
+        virtual void knobMenu (juce::Component& knob, const juce::String& paramId) = 0;
+        virtual int knobCc (const juce::String& paramId) = 0;
+        virtual bool knobLearning (const juce::String& paramId) = 0;
+    };
+
     // otocny gombik s nazvom nad a hodnotou pod
     class Knob : public juce::Component
     {
     public:
-        Knob (juce::AudioProcessorValueTreeState& st, const juce::String& id, const juce::String& title = {})
+        Knob (juce::AudioProcessorValueTreeState& st, const juce::String& id, const juce::String& title = {}) : pid (id)
         {
             const auto* sp = findSpec (id);
             label.setText (title.isNotEmpty() ? title : (sp != nullptr ? T (sp->name) : id), juce::dontSendNotification);
@@ -125,7 +134,28 @@ namespace nova::ui
             addAndMakeVisible (s);
             att = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (st, id, s);
             if (sp != nullptr) s.setDoubleClickReturnValue (true, sp->def);
+            s.addMouseListener (this, false);
         }
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu())
+                if (auto* h = findParentComponentOfClass<KnobHost>()) h->knobMenu (*this, pid);
+        }
+        void paintOverChildren (juce::Graphics& g) override
+        {
+            auto* h = findParentComponentOfClass<KnobHost>();
+            if (h == nullptr) return;
+            const bool learning = h->knobLearning (pid);
+            const int cc = h->knobCc (pid);
+            if (! learning && cc < 0) return;
+            const juce::String t = learning ? juce::String ("MIDI?") : "CC" + juce::String (cc);
+            g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+            const int w = juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), t) + 6;
+            auto r = juce::Rectangle<int> (getWidth() - w, 15, w, 13);
+            g.setColour (learning ? amber.brighter (0.3f) : amber.withAlpha (0.85f)); g.fillRoundedRectangle (r.toFloat(), 3.0f);
+            g.setColour (bg); g.drawText (t, r, juce::Justification::centred);
+        }
+        juce::String pid;
         void setTitle (const juce::String& t) { label.setText (t, juce::dontSendNotification); }
         void setArc (juce::Colour c) { s.setColour (juce::Slider::rotarySliderFillColourId, c); }
         void resized() override

@@ -92,6 +92,21 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "calib")
+    {
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int i = 0; i < 300 && ! q.synth.pianoReady(); ++i) Thread::sleep (50);
+        const auto& fp = nova::factoryPatches();
+        for (int i = 0; i < (int) fp.size(); ++i)
+        {
+            nova::PatchData pd; q.presets.load ("f:" + fp[(size_t) i].name, pd);
+            const float m = NovaProcessor::measureLevel (pd);
+            const bool sus = fp[(size_t) i].category == String::fromUTF8 ("Pady") || fp[(size_t) i].category == String::fromUTF8 ("Sláčiky") || fp[(size_t) i].category == String::fromUTF8 ("Leady") || fp[(size_t) i].category == String::fromUTF8 ("Basy");
+            const float tgt = sus ? -19.5f : -16.0f;
+            printf ("%d|%s|%.1f|%.1f|%.1f\n", i, fp[(size_t) i].name.toRawUTF8(), m, pd.values["p_gain"], jlimit (-30.0f, 6.0f, tgt - m));
+        }
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "level")
     {
         // hlasitost tovarenskych zvukov a nahodnych zvukov "Prekvap ma"
@@ -162,6 +177,22 @@ int main (int argc, char** argv)
                 AudioBuffer<float> b (2, bs); b.clear(); q.processBlock (b, mb); pk = std::max (pk, b.getMagnitude (0, bs));
                 for (int c = 0; c < 2; ++c) for (int i = 0; i < bs; ++i) { const float x = b.getSample (c, i); if (! std::isfinite (x)) bad = true; e += x * x; } }
             printf ("modulacia typ %d: spicka %.2f energia %.1f %s\n", ty, pk, e, bad ? "NAN!" : "ok");
+        }
+        {
+            q.midiForget ("a_cut"); q.midiLearn ("a_cut");
+            auto sendCc = [&] (int cc, int v) { MidiBuffer mb; mb.addEvent (MidiMessage::controllerEvent (1, cc, v), 0); AudioBuffer<float> b (2, bs); b.clear(); q.processBlock (b, mb); q.applyCc(); };
+            sendCc (21, 10); const int c1 = q.ccFor ("a_cut");
+            sendCc (21, 127); const float v1 = q.params.getRawParameterValue ("a_cut")->load();
+            sendCc (21, 0); const float v0 = q.params.getRawParameterValue ("a_cut")->load();
+            printf ("MIDI learn: CC %d, cutoff pri 127 = %.0f Hz, pri 0 = %.0f Hz, ulozene: %s\n", c1, v1, v0, q.presets.setting ("midimap").toRawUTF8());
+            q.midiForget ("a_cut"); printf ("po zruseni: CC %d, ulozene '%s'\n", q.ccFor ("a_cut"), q.presets.setting ("midimap").toRawUTF8());
+        }
+        {
+            q.loadPreset ("f:Organ"); const auto n0 = q.currentName;
+            setParam (q, "x_rnd", 1); q.flushPending(); const auto n1 = q.currentName;
+            setParam (q, "x_mut", 1); q.flushPending(); const auto n2 = q.currentName;
+            printf ("spustace: %s -> %s -> %s\n", n0.toRawUTF8(), n1.toRawUTF8(), n2.toRawUTF8());
+            for (auto* prm : q.getParameters()) if (prm->getName (64).contains ("Prekvap") || prm->getName (64).contains ("Obmena")) printf ("  parameter: %s\n", prm->getName (64).toRawUTF8());
         }
         printf ("bez EQ:\n"); run ({});
         printf ("A vysky +12:\n"); run ({ { "a_eqh", 12 } });

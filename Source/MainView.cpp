@@ -286,6 +286,20 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 if (p != nullptr && juce::isPositiveAndBelow (i, p->getParameters().size()))
                                     p->getParameters()[i]->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, (float) (double) v.getProperty ("v", 0.0)));
                             })
+        .withEventListener ("instAction",  [this] (const juce::var& v)
+                            {
+                                // Korgus Inspire: "Prekvap ma" / "Obmena" z hlavicky stopy (prepne skryty spustac v plugine)
+                                const int slot = engine.getOrCreateSlot (v["track"].toString());
+                                auto* p = engine.getPlugin (slot);
+                                if (p == nullptr) return;
+                                const auto key = v["what"].toString() == "mut" ? juce::String ("Obmena") : juce::String ("Prekvap ma");
+                                for (auto* prm : p->getParameters())
+                                    if (prm->getName (64).contains (key))
+                                    {
+                                        prm->setValueNotifyingHost (prm->getValue() > 0.5f ? 0.0f : 1.0f);
+                                        break;
+                                    }
+                            })
         .withEventListener ("bounce",      [this] (const juce::var& v) { onBounce (v); })
         .withEventListener ("exportMp3",   [this] (const juce::var& v) { onExportMp3 (v); })
         .withEventListener ("exportVideo", [this] (const juce::var& v) { onExportVideo (v); })

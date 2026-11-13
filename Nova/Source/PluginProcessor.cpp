@@ -10,14 +10,19 @@ NovaProcessor::NovaProcessor()
 {
     for (auto& s : paramSpecs()) raw[s.id] = params.getRawParameterValue (s.id);
     params.addParameterListener ("preset", this);
+    params.addParameterListener ("x_rnd", this);
+    params.addParameterListener ("x_mut", this);
     // na zaciatku tovarensky zvuk 0
     PatchData p;
     if (presets.load ("f:" + factoryPatches()[0].name, p)) { applyPatch (p); currentKey = "f:" + p.name; }
     undo.clearUndoHistory();
     startTimer (400);
+    for (auto& m : ccMap) m.store (-1);
+    loadCcMap();
+    ccApplier.startTimerHz (40);
 }
 
-NovaProcessor::~NovaProcessor() { stopTimer(); params.removeParameterListener ("preset", this); cancelPendingUpdate(); }
+NovaProcessor::~NovaProcessor() { ccApplier.stopTimer(); stopTimer(); params.removeParameterListener ("preset", this); params.removeParameterListener ("x_rnd", this); params.removeParameterListener ("x_mut", this); cancelPendingUpdate(); prevReq += 1; }
 
 bool NovaProcessor::isBusesLayoutSupported (const BusesLayout& l) const
 {
@@ -28,6 +33,7 @@ bool NovaProcessor::isBusesLayoutSupported (const BusesLayout& l) const
 void NovaProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     synth.prepare (sampleRate, samplesPerBlock);
+    curRate = sampleRate;
 }
 
 void NovaProcessor::fillSettings (Settings& s)
@@ -82,9 +88,146 @@ void NovaProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     juce::ScopedNoDenormals nd;
     for (int c = getTotalNumInputChannels(); c < buffer.getNumChannels(); ++c) buffer.clear (c, 0, buffer.getNumSamples());
     keyboard.processNextMidiBuffer (midi, 0, buffer.getNumSamples(), true);
+    // MIDI learn a priradene CC (priradene CC sa do syntetizatora neposielaju)
+    bool anyCc = false;
+    for (const auto m : midi) if (m.getMessage().isController()) { anyCc = true; break; }
+    if (anyCc)
+    {
+        juce::MidiBuffer keep;
+        for (const auto meta : midi)
+        {
+            const auto msg = meta.getMessage();
+            if (msg.isController())
+            {
+                const int cc = msg.getControllerNumber();
+                const int li = learnIdx.load();
+                if (li >= 0 && cc != 64 && cc < 120)
+                {
+                    for (auto& m : ccMap) if (m.load() == li) m.store (-1);
+                    ccMap[cc].store (li); learnIdx.store (-1); ccDirty = true;
+                }
+                const int pi = ccMap[cc].load();
+                if (pi >= 0)
+                {
+                    int s1, n1, s2, n2; ccFifo.prepareToWrite (1, s1, n1, s2, n2);
+                    if (n1 > 0) { ccFifoIdx[s1] = pi; ccFifoVal[s1] = (float) msg.getControllerValue() / 127.0f; ccFifo.finishedWrite (1); }
+                    continue;
+                }
+            }
+            keep.addEvent (msg, meta.samplePosition);
+        }
+        midi.swapWith (keep);
+    }
     Settings s;
     fillSettings (s);
     synth.process (buffer, midi, s);
+    // ukazka z prehliadaca WAV
+    if (prevPlaying.load())
+    {
+        std::shared_ptr<juce::AudioBuffer<float>> b;
+        { const juce::SpinLock::ScopedTryLockType l (prevLock); if (l.isLocked()) b = prevBuf; }
+        if (b != nullptr && b->getNumSamples() > 1)
+        {
+            const double step = prevRate / curRate;
+            const int len = b->getNumSamples(), nch = b->getNumChannels();
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const int ip = (int) prevPos;
+                if (ip + 1 >= len) { prevPlaying = false; break; }
+                const float fr = (float) (prevPos - ip);
+                for (int c = 0; c < buffer.getNumChannels(); ++c)
+                {
+                    const float* d = b->getReadPointer (juce::jmin (c, nch - 1));
+                    buffer.addSample (c, i, 0.8f * (d[ip] + fr * (d[ip + 1] - d[ip])));
+                }
+                prevPos += step;
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------- ukazka WAV
+void NovaProcessor::previewFile (const juce::File& f)
+{
+    const int req = ++prevReq;
+    prevPlaying = false;
+    juce::Thread::launch ([this, f, req]
+    {
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (f));
+        if (r == nullptr || req != prevReq.load()) return;
+        const int len = (int) juce::jmin (r->lengthInSamples, (juce::int64) (r->sampleRate * 30.0));
+        auto b = std::make_shared<juce::AudioBuffer<float>> ((int) juce::jlimit (1u, 2u, r->numChannels), juce::jmax (2, len));
+        r->read (b.get(), 0, len, 0, true, b->getNumChannels() > 1);
+        if (req != prevReq.load()) return;
+        { const juce::SpinLock::ScopedLockType l (prevLock); prevBuf = b; prevRate = r->sampleRate; prevPos = 0; }
+        prevPlaying = true;
+    });
+}
+
+void NovaProcessor::stopPreview() { ++prevReq; prevPlaying = false; }
+
+// ------------------------------------------------------------- MIDI learn
+static int specIndex (const juce::String& id)
+{
+    const auto& sp = paramSpecs();
+    for (int i = 0; i < (int) sp.size(); ++i) if (sp[(size_t) i].id == id) return i;
+    return -1;
+}
+
+void NovaProcessor::midiLearn (const juce::String& id) { learnIdx.store (specIndex (id)); ++ccVersion; }
+bool NovaProcessor::isLearning (const juce::String& id) const { const int i = learnIdx.load(); return i >= 0 && i == specIndex (id); }
+int NovaProcessor::ccFor (const juce::String& id) const
+{
+    const int i = specIndex (id);
+    if (i < 0) return -1;
+    for (int c = 0; c < 128; ++c) if (ccMap[c].load() == i) return c;
+    return -1;
+}
+void NovaProcessor::midiForget (const juce::String& id)
+{
+    const int i = specIndex (id);
+    for (auto& m : ccMap) if (m.load() == i) m.store (-1);
+    if (learnIdx.load() == i) learnIdx.store (-1);
+    saveCcMap(); ++ccVersion;
+}
+
+void NovaProcessor::applyCc()
+{
+    int s1, n1, s2, n2;
+    const int ready = ccFifo.getNumReady();
+    if (ready > 0)
+    {
+        ccFifo.prepareToRead (ready, s1, n1, s2, n2);
+        // posledna hodnota pre kazdy parameter
+        std::map<int, float> last;
+        for (int k = 0; k < n1; ++k) last[ccFifoIdx[s1 + k]] = ccFifoVal[s1 + k];
+        for (int k = 0; k < n2; ++k) last[ccFifoIdx[s2 + k]] = ccFifoVal[s2 + k];
+        ccFifo.finishedRead (n1 + n2);
+        const auto& sp = paramSpecs();
+        for (auto& [i, v] : last)
+            if (juce::isPositiveAndBelow (i, (int) sp.size()))
+                if (auto* prm = params.getParameter (sp[(size_t) i].id)) prm->setValueNotifyingHost (v);
+    }
+    if (ccDirty.exchange (false)) { saveCcMap(); ++ccVersion; }
+}
+
+void NovaProcessor::saveCcMap()
+{
+    juce::StringArray a;
+    const auto& sp = paramSpecs();
+    for (int c = 0; c < 128; ++c) { const int i = ccMap[c].load(); if (juce::isPositiveAndBelow (i, (int) sp.size())) a.add (juce::String (c) + ":" + sp[(size_t) i].id); }
+    presets.setSetting ("midimap", a.joinIntoString (","));
+}
+
+void NovaProcessor::loadCcMap()
+{
+    for (auto& t : juce::StringArray::fromTokens (presets.setting ("midimap"), ",", ""))
+    {
+        const int c = t.upToFirstOccurrenceOf (":", false, false).getIntValue();
+        const int i = specIndex (t.fromFirstOccurrenceOf (":", false, false));
+        if (juce::isPositiveAndBelow (c, 128) && i >= 0) ccMap[c].store (i);
+    }
 }
 
 // ------------------------------------------------------------- zvuky
@@ -147,7 +290,9 @@ juce::String NovaProcessor::savePreset (const juce::String& name, const juce::St
 
 void NovaProcessor::parameterChanged (const juce::String& id, float v)
 {
-    if (id != "preset" || restoring) return;
+    if (restoring) return;
+    if (id == "x_rnd" || id == "x_mut") { pendingAction = id == "x_rnd" ? 1 : 2; triggerAsyncUpdate(); return; }
+    if (id != "preset") return;
     if (pendingPreset.load() == -2) { pendingPreset = -1; return; }   // zmenu sme spravili sami
     pendingPreset = juce::roundToInt (v);
     triggerAsyncUpdate();
@@ -155,6 +300,12 @@ void NovaProcessor::parameterChanged (const juce::String& id, float v)
 
 void NovaProcessor::handleAsyncUpdate()
 {
+    if (const int a = pendingAction.exchange (0); a != 0)
+    {
+        if (a == 1) { const auto st = presets.setting ("surpriseCat"); surprise (st.isEmpty() ? -1 : juce::jlimit (-1, 7, st.getIntValue())); }
+        else mutate();
+        if (pendingPreset.load() < 0) return;
+    }
     const int idx = pendingPreset.exchange (-1);
     if (idx < 0 || idx == lastPresetParam && currentKey == "f:" + factoryPatches()[(size_t) juce::jlimit (0, (int) factoryPatches().size() - 1, idx)].name) return;
     if (! juce::isPositiveAndBelow (idx, (int) factoryPatches().size())) return;
