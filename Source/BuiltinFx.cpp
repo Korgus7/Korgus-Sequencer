@@ -1,4 +1,5 @@
 #include "BuiltinFx.h"
+#include "UiCommon.h"
 #include <juce_dsp/juce_dsp.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -117,7 +118,7 @@ public:
 
     FxParam* add (String id, const char* utf8Name, float lo, float hi, float def, String u, float skew = 1.0f, int dec = 1)
     {
-        auto p = std::make_unique<FxParam> (std::move (id), String::fromUTF8 (utf8Name), lo, hi, def, std::move (u), skew, dec);
+        auto p = std::make_unique<FxParam> (std::move (id), sk (utf8Name), lo, hi, def, std::move (u), skew, dec);
         auto* raw = p.get();
         addHostedParameter (std::move (p));
         knobs.push_back (raw);
@@ -347,7 +348,7 @@ public:
         mix  = add ("mix", "Mix", 0, 100, 100, "%", 1.0f, 0);
         key  = add ("key", "Riadenie", 0, 1, 0, "", 1.0f, 0);
         key->range.interval = 1.0f;
-        key->choices = StringArray { String::fromUTF8 ("Vlastný"), String ("Sidechain") };
+        key->choices = StringArray { sk ("Vlastný"), String ("Sidechain") };
     }
 
 private:
@@ -433,7 +434,7 @@ public:
     {
         sync = add ("sync", "Synchro", 0, 5, 2, "", 1.0f, 0);
         sync->range.interval = 1.0f;
-        sync->choices = StringArray::fromTokens (String::fromUTF8 ("Voľne|1/4|1/8 bodka|1/8|1/8 triola|1/16"), "|", "");
+        sync->choices = StringArray::fromTokens (sk ("Voľne|1/4|1/8 bodka|1/8|1/8 triola|1/16"), "|", "");
         time = add ("time", "Čas", 10, 2000, 375, "ms", 0.5f, 0);
         time->textFn = [this] (float) { const int sy = roundToInt (sync->get()); return sy > 0 ? sync->choices[sy] : String(); };
         fb   = add ("feedback", "Opakovanie", 0, 95, 35, "%", 1.0f, 0);
@@ -615,7 +616,7 @@ public:
         auto r = getLocalBounds().toFloat().reduced (12, 10);
         g.setColour (Colour (0xffe4e9ef));
         g.setFont (FontOptions (13.0f));
-        g.drawText (String::fromUTF8 ("Stíšenie sykaviek"), r.removeFromLeft (130), Justification::centredLeft);
+        g.drawText (sk ("Stíšenie sykaviek"), r.removeFromLeft (130), Justification::centredLeft);
         const float v = jlimit (0.0f, 24.0f, fx.grDb.load());
         auto bar = r.reduced (0, 4);
         g.setColour (Colour (0xff1c2430)); g.fillRoundedRectangle (bar, 3.0f);
@@ -701,7 +702,7 @@ public:
         shp = add ("shape", "Tvar", 0, 15, 1, "", 1.0f, 0);
         shp->range.interval = 1.0f;
         shp->inEditor = false;
-        shp->choices = StringArray::fromTokens (String::fromUTF8 ("Mäkký nábeh|Klasika|Neskorý nástup|Hlboká pumpa|Rýchly nábeh|Opačne|Mäkký pokles|"
+        shp->choices = StringArray::fromTokens (sk ("Mäkký nábeh|Klasika|Neskorý nástup|Hlboká pumpa|Rýchly nábeh|Opačne|Mäkký pokles|"
                                                                  "Vrchol|Dlhé podržanie|Plynulý nábeh|Tvrdá pumpa|Brána|Plató|Svah|Údolie|Dvojitá"), "|", "");
         mix = add ("mix", "Hĺbka", 0, 100, 100, "%", 1.0f, 0);
         out = add ("output", "Výstup", -12, 12, 0, "dB");
@@ -841,7 +842,7 @@ void PulseDisplay::paint (Graphics& g)
     g.setColour (Colour (0xff8a96a3));
     g.drawText ("PULSEDIP", r.reduced (10, 4).removeFromTop (14), Justification::centredLeft);
     if (fx.keyMode.load())
-        g.drawText (String::fromUTF8 ("SIDECHAIN – riadi kľúčová stopa"), r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
+        g.drawText (sk ("SIDECHAIN – riadi kľúčová stopa"), r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
     else
     g.drawText (String (fx.bpmNow.load(), 1) + " BPM  /  " + fx.rateP->choices[roundToInt (fx.rateP->get())] + "  /  " + fx.shp->choices[hover >= 0 ? hover : s],
                 r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
@@ -885,7 +886,7 @@ public:
         vol  = add ("volume", "Hlasitosť", -24, 12, 0, "dB");
         mode = add ("mode", "Hrať", 0, 1, 0, "", 1.0f, 0);
         mode->range.interval = 1.0f;
-        mode->choices = StringArray { String::fromUTF8 ("Kým držím klávesu"), String::fromUTF8 ("Celý zvuk") };
+        mode->choices = StringArray { sk ("Kým držím klávesu"), sk ("Celý zvuk") };
     }
 
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<SamplerDisplay> (*this); }
@@ -902,8 +903,8 @@ public:
         AudioFormatManager fm;
         fm.registerBasicFormats();
         std::unique_ptr<AudioFormatReader> r (fm.createReaderFor (f));
-        if (r == nullptr || r->lengthInSamples <= 0) { err = String::fromUTF8 ("Tento súbor sa nedá prečítať."); return false; }
-        if (r->lengthInSamples > (int64) (r->sampleRate * 120)) { err = String::fromUTF8 ("Zvuk je dlhší ako 2 minúty."); return false; }
+        if (r == nullptr || r->lengthInSamples <= 0) { err = sk ("Tento súbor sa nedá prečítať."); return false; }
+        if (r->lengthInSamples > (int64) (r->sampleRate * 120)) { err = sk ("Zvuk je dlhší ako 2 minúty."); return false; }
         auto b = std::make_shared<AudioBuffer<float>> (jlimit (1, 2, (int) r->numChannels), (int) r->lengthInSamples);
         r->read (b.get(), 0, (int) r->lengthInSamples, 0, true, b->getNumChannels() > 1);
         MemoryBlock bytes;
@@ -1037,7 +1038,7 @@ private:
 
 SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
 {
-    load.setButtonText (String::fromUTF8 ("Načítať zvuk…"));
+    load.setButtonText (sk ("Načítať zvuk…"));
     load.setColour (TextButton::buttonColourId, Colour (0xff2d4362));
     load.setColour (TextButton::textColourOffId, Colour (0xffe4e9ef));
     load.onClick = [this] { choose(); };
@@ -1060,7 +1061,7 @@ void SamplerDisplay::choose()
         });
         return;
     }
-    chooser = std::make_unique<FileChooser> (String::fromUTF8 ("Vyber zvuk pre sampler"), File (sm.filePath).existsAsFile() ? File (sm.filePath) : File::getSpecialLocation (File::userMusicDirectory),
+    chooser = std::make_unique<FileChooser> (sk ("Vyber zvuk pre sampler"), File (sm.filePath).existsAsFile() ? File (sm.filePath) : File::getSpecialLocation (File::userMusicDirectory),
                                              "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
     SafePointer<SamplerDisplay> sp (this);
     chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles, [sp] (const FileChooser& fc)
@@ -1099,7 +1100,7 @@ void SamplerDisplay::paint (Graphics& g)
     if (smp == nullptr)
     {
         g.setColour (Colour (0xffc9d2dc));
-        g.drawText (String::fromUTF8 ("Pretiahni sem zvuk (wav, mp3…) alebo klikni na „Načítať zvuk…“"), area, Justification::centred);
+        g.drawText (sk ("Pretiahni sem zvuk (wav, mp3…) alebo klikni na „Načítať zvuk…“"), area, Justification::centred);
         return;
     }
     g.setColour (Colour (0xffc9d2dc));
@@ -1178,16 +1179,16 @@ public:
     {
         mode = add ("mode", "Režim", 0, 2, 0, "", 1.0f, 0);
         mode->range.interval = 1.0f;
-        mode->choices = StringArray::fromTokens (String::fromUTF8 ("Dvojhlas|Harmonizér|Oboje"), "|", "");
+        mode->choices = StringArray::fromTokens (sk ("Dvojhlas|Harmonizér|Oboje"), "|", "");
         voices = add ("voices", "Hlasy", 0, 2, 1, "", 1.0f, 0);
         voices->range.interval = 1.0f;
-        voices->choices = StringArray::fromTokens (String::fromUTF8 ("2 hlasy|4 hlasy|6 hlasov"), "|", "");
+        voices->choices = StringArray::fromTokens (sk ("2 hlasy|4 hlasy|6 hlasov"), "|", "");
         interval = add ("interval", "Interval", 0, 7, 4, "", 1.0f, 0);
         interval->range.interval = 1.0f;
-        interval->choices = StringArray::fromTokens (String::fromUTF8 ("−12 oktáva dole|−7 kvinta dole|−5 kvarta dole|+3 malá terca|+4 veľká terca|+5 kvarta|+7 kvinta|+12 oktáva"), "|", "");
+        interval->choices = StringArray::fromTokens (sk ("−12 oktáva dole|−7 kvinta dole|−5 kvarta dole|+3 malá terca|+4 veľká terca|+5 kvarta|+7 kvinta|+12 oktáva"), "|", "");
         interval2 = add ("interval2", "Interval 2", 0, 8, 0, "", 1.0f, 0);
         interval2->range.interval = 1.0f;
-        interval2->choices = StringArray::fromTokens (String::fromUTF8 ("žiadny|−12 oktáva dole|−7 kvinta dole|−5 kvarta dole|+3 malá terca|+4 veľká terca|+5 kvarta|+7 kvinta|+12 oktáva"), "|", "");
+        interval2->choices = StringArray::fromTokens (sk ("žiadny|−12 oktáva dole|−7 kvinta dole|−5 kvarta dole|+3 malá terca|+4 veľká terca|+5 kvarta|+7 kvinta|+12 oktáva"), "|", "");
         detune = add ("detune", "Rozladenie", 0, 40, 14, "cent", 1.0f, 0);
         delayMs = add ("delay", "Oneskorenie", 5, 60, 25, "ms", 1.0f, 0);
         width = add ("width", "Šírka", 0, 100, 100, "%", 1.0f, 0);
@@ -1304,10 +1305,10 @@ public:
     {
         rateP = add ("rate", "Rýchlosť", 0, 6, 4, "", 1.0f, 0);
         rateP->range.interval = 1.0f;
-        rateP->choices = StringArray::fromTokens (String::fromUTF8 ("1/4|1/8|1/8 triola|1/8 bodka|1/16|1/16 triola|1/32"), "|", "");
+        rateP->choices = StringArray::fromTokens (sk ("1/4|1/8|1/8 triola|1/8 bodka|1/16|1/16 triola|1/32"), "|", "");
         modeP = add ("mode", "Smer", 0, 6, 0, "", 1.0f, 0);
         modeP->range.interval = 1.0f;
-        modeP->choices = StringArray::fromTokens (String::fromUTF8 ("Hore|Dole|Hore-dole|Dole-hore|Náhodne|Ako hráš|Akord"), "|", "");
+        modeP->choices = StringArray::fromTokens (sk ("Hore|Dole|Hore-dole|Dole-hore|Náhodne|Ako hráš|Akord"), "|", "");
         octP = add ("octaves", "Oktávy", 1, 4, 1, "", 1.0f, 0);
         octP->range.interval = 1.0f;
         octP->choices = StringArray ("", "1", "2", "3", "4");
@@ -1318,7 +1319,7 @@ public:
         swingP = add ("swing", "Swing", 0, 75, 0, "%", 1.0f, 0);
         velP = add ("velmode", "Sila", 0, 2, 2, "", 1.0f, 0);
         velP->range.interval = 1.0f;
-        velP->choices = StringArray::fromTokens (String::fromUTF8 ("Z hry|Zo vzoru|Kombinácia"), "|", "");
+        velP->choices = StringArray::fromTokens (sk ("Z hry|Zo vzoru|Kombinácia"), "|", "");
         latchP = add ("latch", "Podržať", 0, 1, 0, "", 1.0f, 0);
         latchP->toggle = true;
         patP = add ("pattern", "Vzor", 0, 1, 1, "", 1.0f, 0);
@@ -1493,8 +1494,8 @@ void ArpGrid::paint (Graphics& g)
     g.fillRoundedRectangle (r, 3.0f);
     g.setFont (FontOptions (12.0f));
     g.setColour (Colour (0xff8a96a3));
-    g.drawText (String::fromUTF8 ("klik = krok zap/vyp · ťahanie = sila · dolný riadok = oktáva"), r.reduced (10, 4).removeFromTop (14), Justification::centredLeft);
-    if (arp.patP->get() < 0.5f) { g.setColour (Colour (0xcc161c24)); g.fillRoundedRectangle (r, 3.0f); g.setColour (Colour (0xff8a96a3)); g.drawText (String::fromUTF8 ("Vzor vypnutý – hrá každý krok, sila z hry"), r, Justification::centred); return; }
+    g.drawText (sk ("klik = krok zap/vyp · ťahanie = sila · dolný riadok = oktáva"), r.reduced (10, 4).removeFromTop (14), Justification::centredLeft);
+    if (arp.patP->get() < 0.5f) { g.setColour (Colour (0xcc161c24)); g.fillRoundedRectangle (r, 3.0f); g.setColour (Colour (0xff8a96a3)); g.drawText (sk ("Vzor vypnutý – hrá každý krok, sila z hry"), r, Justification::centred); return; }
     const auto va = velArea(), oa = octArea();
     const float w = va.getWidth() / 16.0f;
     const int len = jlimit (1, 16, roundToInt (arp.lenP->get())), cur = arp.curStep.load();
@@ -1613,13 +1614,13 @@ public:
         for (int i = 1; i <= 4; ++i) oct.addItem (String (i), i);
         oct.onChange = [this] { set (arp.octP, (float) oct.getSelectedId()); };
         style (oct);
-        toggle (hold, arp.latchP, String::fromUTF8 ("Podržať"));
-        toggle (pat, arp.patP, "Vzor");
+        toggle (hold, arp.latchP, sk ("Podržať"));
+        toggle (pat, arp.patP, sk ("Vzor"));
         const char* vm[3] = { "Z hry", "Vzor", "Mix" };
         for (int i = 0; i < 3; ++i)
         {
             auto& b = velB[i];
-            b.setButtonText (String::fromUTF8 (vm[i]));
+            b.setButtonText (sk (vm[i]));
             b.setClickingTogglesState (false);
             b.setColour (TextButton::buttonColourId, Colour (0xff2a3442));
             b.setColour (TextButton::buttonOnColourId, Colour (0xff6f8fb3));
@@ -1634,7 +1635,7 @@ public:
         len.setColour (Slider::backgroundColourId, Colour (0xff1f2630));
         len.setColour (Slider::textBoxTextColourId, Colour (0xffe4e9ef));
         len.setColour (Slider::textBoxOutlineColourId, Colours::transparentBlack);
-        len.textFromValueFunction = [] (double v) { return String::fromUTF8 ("Dĺžka vzoru: ") + String ((int) v) + String::fromUTF8 (" krokov"); };
+        len.textFromValueFunction = [] (double v) { return sk ("Dĺžka vzoru: ") + String ((int) v) + sk (" krokov"); };
         len.onValueChange = [this] { set (arp.lenP, (float) len.getValue()); };
         for (auto* c : std::initializer_list<Component*> { &rate, &swing, &gate, &oct, &hold, &pat, &len, &grid, &modes }) addAndMakeVisible (c);
         setSize (840, 330);
@@ -1654,11 +1655,11 @@ public:
         g.fillRoundedRectangle (mid.toFloat(), 3.0f);
         g.setColour (Colour (0xffc9d2dc));
         g.setFont (FontOptions (13.0f));
-        g.drawText (String::fromUTF8 ("Oktávy"), left.getX() + 10, left.getY() + 8, 70, 22, Justification::centredLeft);
-        g.drawText (String::fromUTF8 ("Rýchlosť"), left.getX(), left.getY() + 38, left.getWidth(), 18, Justification::centred);
+        g.drawText (sk ("Oktávy"), left.getX() + 10, left.getY() + 8, 70, 22, Justification::centredLeft);
+        g.drawText (sk ("Rýchlosť"), left.getX(), left.getY() + 38, left.getWidth(), 18, Justification::centred);
         g.drawText ("Swing", swing.getX(), swing.getBottom() - 2, swing.getWidth(), 18, Justification::centred);
-        g.drawText (String::fromUTF8 ("Dĺžka tónu"), gate.getX() - 10, gate.getBottom() - 2, gate.getWidth() + 20, 18, Justification::centred);
-        g.drawText ("Sila", mid.getX(), velB[0].getY() - 22, mid.getWidth(), 18, Justification::centred);
+        g.drawText (sk ("Dĺžka tónu"), gate.getX() - 10, gate.getBottom() - 2, gate.getWidth() + 20, 18, Justification::centred);
+        g.drawText (sk ("Sila"), mid.getX(), velB[0].getY() - 22, mid.getWidth(), 18, Justification::centred);
     }
 
     void resized() override

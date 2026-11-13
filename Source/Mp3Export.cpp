@@ -1,4 +1,5 @@
 #include "Mp3Export.h"
+#include "UiCommon.h"
 #include <cmath>
 #include <deque>
 #include <vector>
@@ -158,13 +159,13 @@ bool writeMp3 (const juce::AudioBuffer<float>& src, double sr, int kbps, const j
     cfg.wave.samplerate = rate;
     cfg.mpeg.mode = STEREO;
     cfg.mpeg.bitr = kbps;
-    if (shine_check_config (rate, kbps) < 0) { error = juce::String::fromUTF8 ("MP3: nepodporované nastavenie."); return false; }
+    if (shine_check_config (rate, kbps) < 0) { error = sk ("MP3: nepodporované nastavenie."); return false; }
     shine_t enc = shine_initialise (&cfg);
-    if (enc == nullptr) { error = juce::String::fromUTF8 ("MP3: enkóder sa nespustil."); return false; }
+    if (enc == nullptr) { error = sk ("MP3: enkóder sa nespustil."); return false; }
 
     out.deleteFile();
     juce::FileOutputStream os (out);
-    if (! os.openedOk()) { shine_close (enc); error = juce::String::fromUTF8 ("Nedá sa zapísať: ") + out.getFullPathName(); return false; }
+    if (! os.openedOk()) { shine_close (enc); error = sk ("Nedá sa zapísať: ") + out.getFullPathName(); return false; }
 
     const int spp = shine_samples_per_pass (enc), n = b->getNumSamples();
     const float* L = b->getReadPointer (0);

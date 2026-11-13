@@ -2,7 +2,9 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
-juce::String sk (const char* utf8);
+juce::String sk (const char* utf8);          // slovensky text; v anglictine preklad
+juce::String skTranslate (const char* utf8);
+int& appLang();                                // 0 slovencina, 1 anglictina
 
 namespace Col
 {

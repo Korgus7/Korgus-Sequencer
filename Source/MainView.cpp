@@ -188,6 +188,12 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("saveFile",    [this] (const juce::var& v) { onSaveFile (v); })
         .withEventListener ("openSong",    [this] (const juce::var& v) { onOpenSong (v); })
         .withEventListener ("packProject", [this] (const juce::var& v) { onPackProject (v); })
+        .withEventListener ("lang",        [this] (const juce::var& v)
+        {
+            const auto l = v["lang"].toString() == "en" ? juce::String ("en") : juce::String ("sk");
+            appLang() = l == "en" ? 1 : 0;
+            props.getUserSettings()->setValue ("lang", l);
+        })
         .withEventListener ("importAudio", [this] (const juce::var& v) { onImportAudio (v); })
         .withEventListener ("audioChunk",  [this] (const juce::var& v) { onAudioChunk (v); })
         .withEventListener ("needPeaks",   [this] (const juce::var& v) { onNeedPeaks (v); })
@@ -1174,7 +1180,7 @@ namespace
     struct PackJob : juce::ThreadWithProgressWindow
     {
         PackJob (juce::File target, juce::String json, juce::String info, std::vector<std::pair<juce::String, juce::File>> files)
-            : ThreadWithProgressWindow (juce::String::fromUTF8 ("Balím projekt"), true, true),
+            : ThreadWithProgressWindow (sk ("Balím projekt"), true, true),
               out (std::move (target)), projectJson (std::move (json)), infoTxt (std::move (info)), audio (std::move (files)) {}
 
         void run() override
@@ -1187,7 +1193,7 @@ namespace
             for (const auto& [id, f] : audio)
             {
                 if (threadShouldExit()) return;
-                setStatusMessage (juce::String::fromUTF8 ("Balím zvuk ") + juce::String (k + 1) + " / " + juce::String ((int) audio.size()) + "…");
+                setStatusMessage (sk ("Balím zvuk ") + juce::String (k + 1) + " / " + juce::String ((int) audio.size()) + "…");
                 setProgress (0.8 * k / juce::jmax (1, (int) audio.size()));
                 ++k;
                 juce::MemoryBlock mb;
@@ -1213,26 +1219,26 @@ namespace
             }
             zb.addEntry (new juce::MemoryInputStream (projectJson.toRawUTF8(), projectJson.getNumBytesAsUTF8(), true), 6, "project.json", juce::Time::getCurrentTime());
             zb.addEntry (new juce::MemoryInputStream (infoTxt.toRawUTF8(), infoTxt.getNumBytesAsUTF8(), true), 6, "info.txt", juce::Time::getCurrentTime());
-            setStatusMessage (juce::String::fromUTF8 ("Zapisujem súbor…"));
+            setStatusMessage (sk ("Zapisujem súbor…"));
             const auto tmp = out.getSiblingFile (out.getFileName() + ".tmp");
             {
                 juce::FileOutputStream fos (tmp);
-                if (! fos.openedOk()) { error = juce::String::fromUTF8 ("Súbor sa nedá zapísať."); return; }
+                if (! fos.openedOk()) { error = sk ("Súbor sa nedá zapísať."); return; }
                 fos.setPosition (0); fos.truncate();
                 double prog = 0;
-                if (! zb.writeToStream (fos, &prog)) { error = juce::String::fromUTF8 ("Zápis sa nepodaril."); return; }
+                if (! zb.writeToStream (fos, &prog)) { error = sk ("Zápis sa nepodaril."); return; }
             }
             ok = tmp.moveFileTo (out);
-            if (! ok) error = juce::String::fromUTF8 ("Súbor sa nedá zapísať.");
+            if (! ok) error = sk ("Súbor sa nedá zapísať.");
         }
         void threadComplete (bool cancelled) override
         {
             if (! cancelled)
             {
-                if (ok) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, juce::String::fromUTF8 ("Projekt je zbalený"),
+                if (ok) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, sk ("Projekt je zbalený"),
                                                                out.getFullPathName() + "\n" + juce::String (out.getSize() / 1048576.0, 1) + " MB\n\n"
-                                                               + juce::String::fromUTF8 ("Na inom počítači ho otvor cez Súbor → Otvoriť."));
-                else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, juce::String::fromUTF8 ("Zbaliť projekt"), error);
+                                                               + sk ("Na inom počítači ho otvor cez Súbor → Otvoriť."));
+                else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, sk ("Zbaliť projekt"), error);
             }
             out.getSiblingFile (out.getFileName() + ".tmp").deleteFile();
             delete this;
@@ -1285,10 +1291,10 @@ void MainView::onPackProject (const juce::var& v)
             if (prop.value.hasProperty ("desc")) addPlug (prop.value);
             if (const auto* fx = prop.value["fx"].getArray()) for (const auto& f : *fx) addPlug (f);
         }
-    juce::String info = juce::String::fromUTF8 ("Korgus Sequencer – zbalený projekt\r\n\r\nOtvor ho v programe: Súbor → Otvoriť (súbor .kpack).\r\n\r\n");
-    info << juce::String::fromUTF8 ("Zvukové súbory: ") << (int) files.size() << "\r\n\r\n";
-    info << (plugs.isEmpty() ? juce::String::fromUTF8 ("Projekt nepotrebuje žiadne ďalšie VST pluginy.\r\n")
-                             : juce::String::fromUTF8 ("Potrebné VST pluginy (musia byť nainštalované aj na druhom počítači):\r\n- ") + plugs.joinIntoString ("\r\n- ") + "\r\n");
+    juce::String info = sk ("Korgus Sequencer – zbalený projekt\r\n\r\nOtvor ho v programe: Súbor → Otvoriť (súbor .kpack).\r\n\r\n");
+    info << sk ("Zvukové súbory: ") << (int) files.size() << "\r\n\r\n";
+    info << (plugs.isEmpty() ? sk ("Projekt nepotrebuje žiadne ďalšie VST pluginy.\r\n")
+                             : sk ("Potrebné VST pluginy (musia byť nainštalované aj na druhom počítači):\r\n- ") + plugs.joinIntoString ("\r\n- ") + "\r\n");
     const auto json = juce::JSON::toString (j, true);
     auto name = juce::File::createLegalFileName (v["name"].toString().trim());
     if (name.isEmpty()) name = "projekt";
@@ -2602,7 +2608,7 @@ namespace
     {
         SeparateJob (juce::AudioBuffer<float> clip, double sr, juce::File dataAi, juce::File exeAi, bool fourStems,
                      std::function<void (bool, juce::String, std::vector<juce::AudioBuffer<float>>&)> onDone)
-            : ThreadWithProgressWindow (juce::String::fromUTF8 (fourStems ? "Rozkladám pesničku na stopy" : "Oddeľujem spev a hudbu"), true, true),
+            : ThreadWithProgressWindow (sk (fourStems ? "Rozkladám pesničku na stopy" : "Oddeľujem spev a hudbu"), true, true),
               mix (std::move (clip)), rate (sr), dataDir (dataAi), exeDir (exeAi), four (fourStems), done (std::move (onDone)) {}
 
         juce::File find (const juce::String& name) const
@@ -2615,7 +2621,7 @@ namespace
         {
             out = find (name);
             if (out.existsAsFile()) return true;
-            setStatusMessage (juce::String::fromUTF8 ("Sťahujem model ") + name + " (" + sizeTxt + juce::String::fromUTF8 (") – len prvý raz…"));
+            setStatusMessage (sk ("Sťahujem model ") + name + " (" + sizeTxt + sk (") – len prvý raz…"));
             const auto tmp = out.getSiblingFile (name + ".part");
             if (! downloadFile (url, tmp, error, prog)) { tmp.deleteFile(); return false; }
             return tmp.moveFileTo (out);
@@ -2635,7 +2641,7 @@ namespace
             if (! ort.existsAsFile())
             {
                #if JUCE_WINDOWS
-                setStatusMessage (juce::String::fromUTF8 ("Sťahujem ONNX Runtime (65 MB) – len prvý raz…"));
+                setStatusMessage (sk ("Sťahujem ONNX Runtime (65 MB) – len prvý raz…"));
                 const auto zip = dataDir.getChildFile ("ort.zip");
                 if (! downloadFile (ortZipUrl, zip, error, prog)) return;
                 juce::ZipFile zf (zip);
@@ -2649,7 +2655,7 @@ namespace
                         }
                 zip.deleteFile();
                #endif
-                if (! ort.existsAsFile()) { error = juce::String::fromUTF8 ("Chýba ONNX Runtime: ") + ort.getFullPathName(); return; }
+                if (! ort.existsAsFile()) { error = sk ("Chýba ONNX Runtime: ") + ort.getFullPathName(); return; }
             }
             auto in44 = resampleTo (mix, rate, 44100.0);
             if (in44.getNumChannels() < 2) { in44.setSize (2, in44.getNumSamples(), true); in44.copyFrom (1, 0, in44, 0, 0, in44.getNumSamples()); }
@@ -2657,7 +2663,7 @@ namespace
             const int steps = four ? 3 : 1;
             auto part = [this, steps] (int k) { return [this, k, steps] (double p) { setProgress ((k + p) / steps); return ! threadShouldExit(); }; };
 
-            setStatusMessage (juce::String::fromUTF8 (four ? "Spev… (1/3)" : "Oddeľujem spev a hudbu… (pesnička 3 min ≈ 1 – 3 min)"));
+            setStatusMessage (sk (four ? "Spev… (1/3)" : "Oddeľujem spev a hudbu… (pesnička 3 min ≈ 1 – 3 min)"));
             setProgress (0.0);
             juce::AudioBuffer<float> voc44;
             if (! separateVocals (ort, model, in44, voc44, error, part (0))) return;
@@ -2667,9 +2673,9 @@ namespace
             if (four)
             {
                 juce::AudioBuffer<float> dr44, bs44;
-                setStatusMessage (juce::String::fromUTF8 ("Bicie… (2/3)"));
+                setStatusMessage (sk ("Bicie… (2/3)"));
                 if (! separateMdx (ort, mDrums, MdxParams { 4096, 2048, 512, 1.0f }, in44, dr44, error, part (1))) return;
-                setStatusMessage (juce::String::fromUTF8 ("Basa… (3/3)"));
+                setStatusMessage (sk ("Basa… (3/3)"));
                 if (! separateMdx (ort, mBass, MdxParams { 16384, 2048, 512, 1.0f }, in44, bs44, error, part (2))) return;
                 for (int c = 0; c < 2; ++c) { rest.addFrom (c, 0, dr44, c, 0, n, -1.0f); rest.addFrom (c, 0, bs44, c, 0, n, -1.0f); }
                 outs.push_back (resampleTo (dr44, 44100.0, rate));
@@ -2680,7 +2686,7 @@ namespace
         }
         void threadComplete (bool cancelled) override
         {
-            if (done) done (ok && ! cancelled, cancelled ? juce::String::fromUTF8 ("Zrušené.") : error, outs);
+            if (done) done (ok && ! cancelled, cancelled ? sk ("Zrušené.") : error, outs);
             delete this;
         }
 
@@ -2701,12 +2707,12 @@ namespace
     {
         AutotuneJob (juce::AudioBuffer<float> clip, double sr, int k, int s, int sp,
                      std::function<void (bool, AutotuneResult, juce::AudioBuffer<float>&)> onDone)
-            : ThreadWithProgressWindow (juce::String::fromUTF8 ("Dolaďujem spev"), true, true),
+            : ThreadWithProgressWindow (sk ("Dolaďujem spev"), true, true),
               src (std::move (clip)), rate (sr), key (k), scale (s), speed (sp), done (std::move (onDone)) {}
 
         void run() override
         {
-            setStatusMessage (juce::String::fromUTF8 ("Dolaďujem spev…"));
+            setStatusMessage (sk ("Dolaďujem spev…"));
             res = autotune (src, rate, key, scale, speed, out, [this] (double p) { setProgress (p); return ! threadShouldExit(); });
         }
         void threadComplete (bool cancelled) override
@@ -2760,12 +2766,12 @@ namespace
     {
         DenoiseJob (juce::AudioBuffer<float> clip, double sr, float amt, int ps, int pl,
                     std::function<void (bool, juce::AudioBuffer<float>&)> onDone)
-            : ThreadWithProgressWindow (juce::String::fromUTF8 ("Odšumujem nahrávku"), true, true),
+            : ThreadWithProgressWindow (sk ("Odšumujem nahrávku"), true, true),
               src (std::move (clip)), rate (sr), amount (amt), pStart (ps), pLen (pl), done (std::move (onDone)) {}
 
         void run() override
         {
-            setStatusMessage (juce::String::fromUTF8 ("Odšumujem nahrávku…"));
+            setStatusMessage (sk ("Odšumujem nahrávku…"));
             ok = denoise (src, rate, amount, pStart, pLen, out, [this] (double p) { setProgress (p); return ! threadShouldExit(); });
         }
         void threadComplete (bool cancelled) override

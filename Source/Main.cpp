@@ -1,5 +1,6 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "MainView.h"
+#include "UiCommon.h"
 
 class KorgusApp : public juce::JUCEApplication
 {
@@ -10,7 +11,26 @@ public:
 
     void initialise (const juce::String&) override
     {
+        juce::PropertiesFile::Options o;
+        o.applicationName     = "Korgus Sequencer";
+        o.filenameSuffix      = ".settings";
+        o.folderName          = "Korgus Sequencer";
+        o.osxLibrarySubFolder = "Application Support";
+        properties.setStorageParameters (o);
+
+        // jazyk: ulozena volba, inak podla jazyka Windows
+        {
+            auto lang = properties.getUserSettings()->getValue ("lang");
+            if (lang.isEmpty())
+            {
+                const auto ul = juce::SystemStats::getUserLanguage().toLowerCase();
+                lang = (ul.startsWith ("sk") || ul.startsWith ("cs")) ? "sk" : "en";
+            }
+            appLang() = lang == "en" ? 1 : 0;
+        }
+
         // slovenske texty pre standardne JUCE ovladacie prvky (vyber zvukovej karty a pod.)
+        if (appLang() == 0)
         juce::LocalisedStrings::setCurrentMappings (new juce::LocalisedStrings (juce::String::fromUTF8 (
             "language: Slovak\n"
             "\"Audio device type:\" = \"Typ zariadenia:\"\n"
@@ -54,13 +74,6 @@ public:
             "\"Description\" = \"Popis\"\n"
             "\"Deactivated after failing to initialise correctly\" = \"Vypnutý – nepodarilo sa ho spustiť\"\n"
             ), false));
-
-        juce::PropertiesFile::Options o;
-        o.applicationName     = "Korgus Sequencer";
-        o.filenameSuffix      = ".settings";
-        o.folderName          = "Korgus Sequencer";
-        o.osxLibrarySubFolder = "Application Support";
-        properties.setStorageParameters (o);
 
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), properties);
     }

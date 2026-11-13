@@ -1,4 +1,5 @@
 #include "Separator.h"
+#include "UiCommon.h"
 #include <juce_core/juce_core.h>
 #include "../third_party/onnxruntime/onnxruntime_c_api.h"
 #include "../third_party/pocketfft_hdronly.hpp"
@@ -59,15 +60,15 @@ bool separateMdx (const juce::File& ortLibrary, const juce::File& model, const M
     const int gen = chunk - 2 * trim;
     const float compensate = prm.compensate;
     juce::DynamicLibrary lib;
-    if (! lib.open (ortLibrary.getFullPathName())) { error = juce::String::fromUTF8 ("ONNX Runtime sa nedá načítať: ") + ortLibrary.getFullPathName(); return false; }
+    if (! lib.open (ortLibrary.getFullPathName())) { error = sk ("ONNX Runtime sa nedá načítať: ") + ortLibrary.getFullPathName(); return false; }
     using GetBase = const OrtApiBase* (ORT_API_CALL*) ();
     auto getBase = (GetBase) lib.getFunction ("OrtGetApiBase");
-    if (getBase == nullptr) { error = juce::String::fromUTF8 ("ONNX Runtime: chýba OrtGetApiBase."); return false; }
+    if (getBase == nullptr) { error = sk ("ONNX Runtime: chýba OrtGetApiBase."); return false; }
 
     {
         Ort o;
         o.api = getBase()->GetApi (ORT_API_VERSION);
-        if (o.api == nullptr) { error = juce::String::fromUTF8 ("ONNX Runtime má nesprávnu verziu."); return false; }
+        if (o.api == nullptr) { error = sk ("ONNX Runtime má nesprávnu verziu."); return false; }
         auto& api = *o.api;
         if (! o.ok (api.CreateEnv (ORT_LOGGING_LEVEL_WARNING, "korgus", &o.env))
             || ! o.ok (api.CreateSessionOptions (&o.opts))
@@ -169,7 +170,7 @@ bool separateMdx (const juce::File& ortLibrary, const juce::File& model, const M
             }
             api.ReleaseValue (outVal);
             written = juce::jmin (n, i0 + gen);
-            if (progress && ! progress ((double) (k + 1) / (double) chunks)) { error = juce::String::fromUTF8 ("Zrušené."); return false; }
+            if (progress && ! progress ((double) (k + 1) / (double) chunks)) { error = sk ("Zrušené."); return false; }
         }
         juce::ignoreUnused (written);
     }
@@ -184,13 +185,13 @@ bool downloadFile (const juce::String& url, const juce::File& dest, juce::String
                                                      .withConnectionTimeoutMs (30000)
                                                      .withNumRedirectsToFollow (10)
                                                      .withStatusCode (&status));
-    if (in == nullptr || (status != 0 && status >= 400)) { error = juce::String::fromUTF8 ("Sťahovanie zlyhalo (") + juce::String (status) + "): " + url; return false; }
+    if (in == nullptr || (status != 0 && status >= 400)) { error = sk ("Sťahovanie zlyhalo (") + juce::String (status) + "): " + url; return false; }
     dest.getParentDirectory().createDirectory();
     const auto tmp = dest.getSiblingFile (dest.getFileName() + ".part");
     tmp.deleteFile();
     {
         juce::FileOutputStream out (tmp);
-        if (! out.openedOk()) { error = juce::String::fromUTF8 ("Nedá sa zapísať: ") + tmp.getFullPathName(); return false; }
+        if (! out.openedOk()) { error = sk ("Nedá sa zapísať: ") + tmp.getFullPathName(); return false; }
         const auto totalLen = in->getTotalLength();
         juce::HeapBlock<char> buf (1 << 16);
         juce::int64 done = 0;
@@ -200,10 +201,10 @@ bool downloadFile (const juce::String& url, const juce::File& dest, juce::String
             if (r <= 0) break;
             out.write (buf, (size_t) r);
             done += r;
-            if (progress && ! progress (totalLen > 0 ? (double) done / (double) totalLen : 0.0)) { out.flush(); tmp.deleteFile(); error = juce::String::fromUTF8 ("Zrušené."); return false; }
+            if (progress && ! progress (totalLen > 0 ? (double) done / (double) totalLen : 0.0)) { out.flush(); tmp.deleteFile(); error = sk ("Zrušené."); return false; }
         }
         out.flush();
-        if (totalLen > 0 && done < totalLen) { error = juce::String::fromUTF8 ("Sťahovanie sa prerušilo."); tmp.deleteFile(); return false; }
+        if (totalLen > 0 && done < totalLen) { error = sk ("Sťahovanie sa prerušilo."); tmp.deleteFile(); return false; }
     }
     dest.deleteFile();
     return tmp.moveFileTo (dest);
