@@ -11,6 +11,8 @@ struct VideoOptions
     juce::Image background;     // prazdny = farebny prechod
     int style = 0;              // 0 = stlpce, 1 = vlna
     bool portrait = true;       // 1080x1920 (TikTok) / 1920x1080 (YouTube)
+    juce::Array<double> lyrT;   // titulky (karaoke): zaciatok riadku v sekundach
+    juce::StringArray lyrX;     // text riadku
     int width() const  { return portrait ? 1080 : 1920; }
     int height() const { return portrait ? 1920 : 1080; }
 };

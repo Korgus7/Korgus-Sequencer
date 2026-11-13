@@ -96,8 +96,12 @@ struct VideoFrameRenderer::Impl
             g.drawFittedText (opt.subtitle, juce::Rectangle<int> ((int) margin, (int) (titleY + 230 * u), (int) (fw - 2 * margin), (int) (70 * u)), juce::Justification::centred, 1);
         }
 
+        // titulky (karaoke)
+        const bool lyr = opt.lyrT.size() > 0 && opt.lyrT.size() == opt.lyrX.size();
+        if (lyr) drawLyrics (g, t, fw, fh, u, margin);
+
         // vizualizacia
-        const float vTop = opt.portrait ? fh * 0.50f : fh * 0.47f, vH = opt.portrait ? fh * 0.22f : fh * 0.28f;
+        const float vTop = opt.portrait ? fh * 0.50f : (lyr ? fh * 0.42f : fh * 0.47f), vH = opt.portrait ? fh * 0.22f : (lyr ? fh * 0.20f : fh * 0.28f);
         const float midY = vTop + vH * 0.70f;
         if (opt.style == 0)
         {
@@ -142,6 +146,48 @@ struct VideoFrameRenderer::Impl
         g.setFont (juce::FontOptions (36.0f * u));
         g.drawText (fmtTime (t), juce::Rectangle<float> (margin, pY + 22 * u, 300 * u, 46 * u), juce::Justification::centredLeft);
         g.drawText (fmtTime (total), juce::Rectangle<float> (fw - margin - 300 * u, pY + 22 * u, 300 * u, 46 * u), juce::Justification::centredRight);
+    }
+
+    void drawLyrics (juce::Graphics& g, double t, float fw, float fh, float u, float margin)
+    {
+        int i = -1;
+        for (int k = 0; k < opt.lyrT.size(); ++k) if (opt.lyrT[k] <= t + 0.05) i = k;
+        const float yCur = opt.portrait ? fh * 0.385f : fh * 0.69f, yNext = opt.portrait ? fh * 0.445f : fh * 0.765f;
+        const float hCur = 80 * u, hNext = 56 * u;
+        auto line = [&] (int k) { return juce::isPositiveAndBelow (k, opt.lyrX.size()) ? opt.lyrX[k] : juce::String(); };
+        // aktualny riadok: postupne zvyraznenie (karaoke)
+        if (i >= 0)
+        {
+            const double start = opt.lyrT[i];
+            double dur = (i + 1 < opt.lyrT.size() ? opt.lyrT[i + 1] : start + 5.0) - start;
+            dur = juce::jlimit (0.5, 8.0, dur * 0.9);
+            const float frac = (float) juce::jlimit (0.0, 1.0, (t - start) / dur);
+            juce::Font f (juce::FontOptions (64.0f * u, juce::Font::bold));
+            const auto txt = line (i);
+            float tw = juce::GlyphArrangement::getStringWidth (f, txt);
+            const float maxW = fw - 2 * margin;
+            if (tw > maxW) { f = f.withHeight (f.getHeight() * maxW / tw); tw = maxW; }
+            const juce::Rectangle<float> r (margin, yCur, maxW, hCur);
+            g.setFont (f);
+            g.setColour (cSub.withAlpha (0.42f));
+            g.drawText (txt, r, juce::Justification::centred, false);
+            const float x0 = margin + (maxW - tw) * 0.5f;
+            juce::Graphics::ScopedSaveState ss (g);
+            g.reduceClipRegion (juce::Rectangle<float> (x0, yCur, tw * frac, hCur).getSmallestIntegerContainer());
+            g.setColour (juce::Colours::white);
+            g.drawText (txt, r, juce::Justification::centred, false);
+        }
+        // nasledujuci riadok
+        const auto nx = line (i + 1);
+        if (nx.isNotEmpty())
+        {
+            juce::Font f (juce::FontOptions (44.0f * u));
+            const float maxW = fw - 2 * margin, tw = juce::GlyphArrangement::getStringWidth (f, nx);
+            if (tw > maxW) f = f.withHeight (f.getHeight() * maxW / tw);
+            g.setFont (f);
+            g.setColour (cSub.withAlpha (0.38f));
+            g.drawText (nx, juce::Rectangle<float> (margin, yNext, maxW, hNext), juce::Justification::centred, false);
+        }
     }
 
     VideoOptions opt;

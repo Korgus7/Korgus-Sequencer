@@ -2019,6 +2019,9 @@ void MainView::onExportVideo (const juce::var& v)
     o.subtitle = v["subtitle"].toString();
     o.style = (int) v.getProperty ("style", 0);
     o.portrait = (bool) v.getProperty ("portrait", true);
+    if (const auto* ly = v["lyrics"].getArray())
+        for (const auto& l : *ly)
+            if (l["x"].toString().isNotEmpty()) { o.lyrT.add ((double) l["t"]); o.lyrX.add (l["x"].toString()); }
     const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
     const bool useImage = (bool) v.getProperty ("useImage", false);
     juce::Component::SafePointer<MainView> sp (this);
