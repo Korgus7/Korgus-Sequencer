@@ -94,6 +94,7 @@ namespace nova
             F ("eq_mid", "Stredy", -15, 15, 0, "dB");
             F ("eq_midf", "Stredy Hz", 200, 8000, 1000, "Hz", 0.35f);
             F ("eq_high", "Výšky", -15, 15, 0, "dB");
+            B ("eq_on", "EQ zapnutý", true);
             // EQ vrstiev a dozvuku
             for (auto pre : { "a_", "b_", "rv_" })
             {
@@ -102,6 +103,7 @@ namespace nova
                 F (px + "eqm", "EQ stredy", -15, 15, 0, "dB");
                 F (px + "eqmf", "EQ stredy Hz", 200, 8000, 1000, "Hz", 0.35f);
                 F (px + "eqh", "EQ výšky", -15, 15, 0, "dB");
+                B (px + "eqon", "EQ zapnutý", true);
             }
             // arpeggiator, hlas
             B ("arp_on", "Arpeggiátor", false);
@@ -253,7 +255,7 @@ namespace nova
         if (u == "pan") return std::abs (v) < 0.01f ? juce::String ("C") : (v < 0 ? "L" : "R") + juce::String (juce::roundToInt (std::abs (v) * 100.0f));
         if (u == "s") return v < 1.0f ? juce::String (juce::roundToInt (v * 1000.0f)) + " ms" : juce::String (v, 2) + " s";
         if (u == "ms") return juce::String (juce::roundToInt (v)) + " ms";
-        if (u == "Hz") return v >= 1000.0f ? juce::String (v / 1000.0f, 1) + " kHz" : juce::String (v, v < 10 ? 2 : 0) + " Hz";
+        if (u == "Hz") return v >= 1000.0f ? juce::String (v / 1000.0f, 1) + " kHz" : (v < 10 ? juce::String (v, 2) : juce::String (juce::roundToInt (v))) + " Hz";
         if (u == "ct") return (v > 0.05f ? "+" : "") + juce::String (juce::roundToInt (v)) + " ct";
         if (u == "st" || u == "oct") return (v > 0.5f ? "+" : "") + juce::String (juce::roundToInt (v));
         if (u == "dB") return juce::String (v, 1) + " dB";

@@ -4,6 +4,7 @@
 #include <array>
 #include <algorithm>
 #include <cstdint>
+#include <atomic>
 
 // Male DSP stavebne kamene pre Korgus Nova
 namespace nova
@@ -115,6 +116,24 @@ namespace nova
             if (++w >= n) w = 0;
             l = l * (1 - 0.5f * mix) + wl * mix; r = r * (1 - 0.5f * mix) + wr * mix;
         }
+    };
+
+    // zber vzoriek pre zobrazenie spektra (zapisuje audio vlakno, cita rozhranie; len zvoleny bod)
+    struct Analyzer
+    {
+        static constexpr int N = 8192;
+        std::atomic<int> tap { -1 };          // 0 vrstva A, 1 vrstva B, 2 cely zvuk, 3 dozvuk, -1 nic
+        std::atomic<unsigned> w { 0 };
+        std::atomic<float> rate { 48000 };
+        float buf[N] {};
+        void push (int t, float x) noexcept
+        {
+            if (tap.load (std::memory_order_relaxed) != t) return;
+            const unsigned i = w.load (std::memory_order_relaxed);
+            buf[i & (N - 1)] = x;
+            w.store (i + 1, std::memory_order_release);
+        }
+        bool wants (int t) const noexcept { return tap.load (std::memory_order_relaxed) == t; }
     };
 
     // dozvuk: vstupna difuzia (4 allpass) + FDN s 8 linkami (Hadamard), v kazdej linke allpass (hustota ozvien),

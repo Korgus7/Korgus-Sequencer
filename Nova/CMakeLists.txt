@@ -53,6 +53,7 @@ target_compile_definitions(KorgusNova PUBLIC
     JUCE_DISPLAY_SPLASH_SCREEN=0)
 
 target_link_libraries(KorgusNova PRIVATE
+    juce::juce_dsp
     juce::juce_audio_utils
     juce::juce_audio_processors
     juce::juce_audio_formats

@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include <complex>
+#include <juce_dsp/juce_dsp.h>
 
 using namespace nova;
 using namespace nova::ui;
@@ -11,6 +12,38 @@ namespace
     const juce::Colour arcB (0xff9d93c4);
 
     struct Tickable { virtual ~Tickable() = default; virtual void tick() = 0; };
+
+    // "Prekvap ma": zvolena kategoria (-1 = cokolvek), menu na vyber a tlacidlo Obmena
+    int surpriseType (NovaProcessor& p) { const auto s = p.presets.setting ("surpriseCat"); return s.isEmpty() ? -1 : juce::jlimit (-1, 7, s.getIntValue()); }
+    juce::String surpriseTip (NovaProcessor& p)
+    {
+        const int t = surpriseType (p);
+        return T ("Vymyslí úplne nový zvuk") + (t >= 0 ? " (" + T (NovaProcessor::surpriseTypes()[t]) + ")" : juce::String()) + T (". Stlač znova pre ďalší, Späť vráti predošlý. ▾ = vybrať druh zvuku.");
+    }
+    void surpriseMenu (NovaProcessor& p, juce::Component& target, std::function<void()> after)
+    {
+        juce::PopupMenu m;
+        const int cur = surpriseType (p);
+        m.addSectionHeader (T ("Prekvap ma – druh zvuku"));
+        m.addItem (100, T ("Čokoľvek"), true, cur < 0);
+        for (int i = 0; i < NovaProcessor::surpriseTypes().size(); ++i) m.addItem (101 + i, T (NovaProcessor::surpriseTypes()[i]), true, cur == i);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target), [&p, after] (int r)
+        {
+            if (r < 100) return;
+            p.presets.setSetting ("surpriseCat", juce::String (r - 101));
+            p.surprise (r - 101);
+            if (after) after();
+        });
+    }
+    void setupSurprise (NovaProcessor& p, juce::TextButton& sur, juce::TextButton& cat, juce::TextButton& mut, std::function<void()> after)
+    {
+        sur.setButtonText (T ("Prekvap ma")); sur.setTooltip (surpriseTip (p));
+        sur.onClick = [&p, after] { p.surprise (surpriseType (p)); if (after) after(); };
+        cat.setButtonText (juce::String::charToString (0x25BE)); cat.setTooltip (T ("Vybrať druh zvuku pre Prekvap ma"));
+        cat.onClick = [&p, &cat, &sur, after] { surpriseMenu (p, cat, [&p, &sur, after] { sur.setTooltip (surpriseTip (p)); if (after) after(); }); };
+        mut.setButtonText (T ("Obmena")); mut.setTooltip (T ("Jemne pozmení aktuálny zvuk – stlač viackrát, Späť vráti predošlý"));
+        mut.onClick = [&p, after] { p.mutate(); if (after) after(); };
+    }
 
     // vyber jazyka SK / EN; po zmene sa rozhranie postavi znova
     void setupLangBox (juce::ComboBox& b, NovaEditor& ed)
@@ -68,10 +101,8 @@ namespace
             ext.setTooltip (T ("Úplný editor zvuku: vrstvy, filtre, efekty, arpeggiátor, vlastné zvuky"));
             ext.onClick = [this] { juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<NovaEditor> (&ed)] { if (sp != nullptr) sp->setMode (1); }); };
             addAndMakeVisible (ext);
-            surprise.setButtonText (T ("Prekvap ma"));
-            surprise.setTooltip (T ("Vymyslí úplne nový zvuk. Stlač znova pre ďalší. Ak sa páči, ulož ho v rozšírenej verzii."));
-            surprise.onClick = [this] { p.surprise(); tick(); };
-            addAndMakeVisible (surprise);
+            setupSurprise (p, surprise, surCat, mutateB, [this] { tick(); });
+            addAndMakeVisible (surprise); addAndMakeVisible (surCat); addAndMakeVisible (mutateB);
             setupLangBox (langBox, ed); addAndMakeVisible (langBox);
             setSize (SW, SH);
             tick();
@@ -93,14 +124,16 @@ namespace
             g.setColour (text); g.setFont (juce::FontOptions (19.0f, juce::Font::bold));
             g.drawText ("KORGUS INSPIRE", head.reduced (16, 0), juce::Justification::centredLeft);
             g.setColour (dim); g.setFont (juce::FontOptions (13.0f));
-            g.drawText (status, head.reduced (16, 0).withTrimmedRight (306).withTrimmedLeft (170), juce::Justification::centredRight);
+            g.drawText (status, head.reduced (16, 0).withTrimmedRight (420).withTrimmedLeft (170), juce::Justification::centredRight);
             g.setFont (juce::FontOptions (11.5f));
             g.drawText (T ("Klavír: Salamander Grand Piano V3 – Alexander Holm, licencia CC-BY 3.0"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
         }
         void resized() override
         {
             ext.setBounds (getWidth() - 16 - 112, 9, 112, 26);
-            surprise.setBounds (ext.getX() - 8 - 104, 9, 104, 26);
+            mutateB.setBounds (ext.getX() - 8 - 84, 9, 84, 26);
+            surCat.setBounds (mutateB.getX() - 6 - 22, 9, 22, 26);
+            surprise.setBounds (surCat.getX() - 2 - 104, 9, 104, 26);
             langBox.setBounds (surprise.getX() - 8 - 58, 11, 58, 22);
             auto r = getLocalBounds().reduced (16, 0);
             r.removeFromTop (44 + 12);
@@ -116,7 +149,7 @@ namespace
         NovaEditor& ed; NovaProcessor& p;
         std::vector<std::unique_ptr<PresetButton>> buttons;
         std::vector<std::unique_ptr<Knob>> knobs;
-        juce::TextButton ext, surprise;
+        juce::TextButton ext, surprise, surCat, mutateB;
         juce::ComboBox langBox;
         juce::String status;
     };
@@ -275,12 +308,47 @@ namespace
     };
 
     // ===================================================================== graf EQ (tahanie bodov)
-    struct EqGraph : juce::Component, juce::SettableTooltipClient
+    struct EqGraph : juce::Component, private juce::Timer
     {
-        EqGraph (NovaProcessor& pr) : p (pr) { setTooltip (T ("Ťahaj body: hore/dole = hlasnejšie/tichšie, stredný aj vľavo/vpravo. Dvojklik = späť na 0.")); }
-        void setTarget (const juce::String& prefix, juce::Colour c)
+        EqGraph (NovaProcessor& pr) : p (pr), fft (12) { spec.assign (2048, -120.0f); }
+        ~EqGraph() override { p.synth.analyzer.tap.store (-1); }
+        // spektrum: zvoleny bod v zvuku sa zbiera len ked je graf viditelny
+        void visibilityChanged() override { updateTap(); }
+        void parentHierarchyChanged() override { updateTap(); }
+        void updateTap()
         {
-            col = c;
+            const bool on = isShowing();
+            p.synth.analyzer.tap.store (on ? tapIdx : -1);
+            if (on) startTimerHz (30); else { stopTimer(); std::fill (spec.begin(), spec.end(), -120.0f); }
+        }
+        void timerCallback() override
+        {
+            auto& an = p.synth.analyzer;
+            if (! isShowing()) { updateTap(); return; }
+            constexpr int N = 4096;
+            const unsigned w = an.w.load (std::memory_order_acquire);
+            if (w == lastW) { for (auto& v : spec) v -= 1.5f; repaint(); return; }
+            lastW = w;
+            std::vector<float> d ((size_t) N * 2, 0.0f);
+            for (int i = 0; i < N; ++i)
+            {
+                const float x = an.buf[(w - (unsigned) N + (unsigned) i) & (Analyzer::N - 1)];
+                d[(size_t) i] = x * (0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (N - 1)));
+            }
+            fft.performFrequencyOnlyForwardTransform (d.data());
+            for (int i = 0; i < N / 2; ++i)
+            {
+                const float db = juce::Decibels::gainToDecibels (d[(size_t) i] / (float) (N / 4), -120.0f);
+                spec[(size_t) i] = db > spec[(size_t) i] ? db : std::max (db, spec[(size_t) i] - 1.5f);
+            }
+            sr = an.rate.load();
+            repaint();
+        }
+        void setTarget (const juce::String& prefix, juce::Colour c, int tap)
+        {
+            col = c; tapIdx = tap; lastW = 0;
+            std::fill (spec.begin(), spec.end(), -120.0f);
+            updateTap();
             const bool snd = prefix == "eq_";
             ids = snd ? juce::StringArray { "eq_low", "eq_mid", "eq_midf", "eq_high" }
                       : juce::StringArray { prefix + "eql", prefix + "eqm", prefix + "eqmf", prefix + "eqh" };
@@ -319,6 +387,26 @@ namespace
             }
             g.setColour (dim); g.drawText ("+12 dB", 4, juce::roundToInt (yOf (12)) - 14, 50, 13, juce::Justification::centredLeft);
             g.drawText ("-12 dB", 4, juce::roundToInt (yOf (-12)) + 1, 50, 13, juce::Justification::centredLeft);
+            // spektrum v pozadi (0 dB hore, -84 dB dole)
+            {
+                juce::Path sp; const float H = graphH();
+                sp.startNewSubPath (0, H);
+                const int bins = (int) spec.size();
+                for (int x = 0; x <= getWidth(); x += 2)
+                {
+                    const float f0 = hzOf ((float) x), f1 = hzOf ((float) x + 2.0f);
+                    int b0 = juce::jlimit (1, bins - 1, (int) (f0 / sr * 4096.0f)), b1 = juce::jlimit (b0, bins - 1, (int) (f1 / sr * 4096.0f));
+                    float m = -120.0f; for (int b = b0; b <= b1; ++b) m = std::max (m, spec[(size_t) b]);
+                    m += 4.5f * std::log2 (juce::jmax (20.0f, f0) / 1000.0f);   // sklon -4.5 dB/okt (ako pocuje ucho)
+                    const float y = juce::jlimit (0.0f, H, H * (-m) / 84.0f);
+                    sp.lineTo ((float) x, y);
+                }
+                sp.lineTo ((float) getWidth(), H); sp.closeSubPath();
+                const juce::Colour sc (0xff4f7d8c);
+                g.setGradientFill (juce::ColourGradient (sc.withAlpha (0.55f), 0, 0, sc.withAlpha (0.12f), 0, H, false));
+                g.fillPath (sp);
+                g.setColour (sc.brighter (0.2f).withAlpha (0.6f)); g.strokePath (sp, juce::PathStrokeType (1.0f));
+            }
             // krivka
             Biquad b[3];
             b[0].set (0, 150, 0.7f, val[0], 48000); b[1].set (1, val[2], 0.8f, val[1], 48000); b[2].set (2, 2500, 0.7f, val[3], 48000);
@@ -332,7 +420,7 @@ namespace
                 const float y = juce::jlimit (0.0f, graphH(), yOf ((float) (20.0 * std::log10 (mag))));
                 if (x == 0) path.startNewSubPath ((float) x, y); else path.lineTo ((float) x, y);
             }
-            g.setColour (col); g.strokePath (path, juce::PathStrokeType (2.5f));
+            g.setColour (enabled ? col : col.withAlpha (0.35f)); g.strokePath (path, juce::PathStrokeType (2.5f));
             for (int k = 0; k < 3; ++k)
             {
                 const auto c = pt (k);
@@ -382,6 +470,8 @@ namespace
         NovaProcessor& p; juce::StringArray ids; juce::Colour col = arc;
         std::vector<std::unique_ptr<juce::ParameterAttachment>> atts;
         float val[4] { 0, 0, 1000, 0 }; int drag = -1;
+        bool enabled = true; int tapIdx = 0; unsigned lastW = 0; float sr = 48000;
+        juce::dsp::FFT fft; std::vector<float> spec;
     };
 
     // ===================================================================== efekty + EQ
@@ -416,6 +506,14 @@ namespace
                 b.onClick = [this, t] { setTarget (t); };
                 addAndMakeVisible (b);
             }
+            for (int t = 0; t < 4; ++t)
+            {
+                const juce::String id = t == 0 ? "a_eqon" : (t == 1 ? "b_eqon" : (t == 2 ? "eq_on" : "rv_eqon"));
+                eqOn[t] = std::make_unique<Toggle> (p.params, id, T ("Zapnutý"));
+                eqOn[t]->setTooltip (T ("Vypnúť / zapnúť tento EQ (na porovnanie)"));
+                eqOn[t]->onStateChange = [this] { syncEnabled(); };
+                addAndMakeVisible (*eqOn[t]);
+            }
             flatBtn.setButtonText (T ("Plochý")); flatBtn.setTooltip (T ("Vynulovať tento EQ"));
             flatBtn.onClick = [this] { graph.flat(); };
             addAndMakeVisible (flatBtn); addAndMakeVisible (graph);
@@ -442,8 +540,13 @@ namespace
             target = t;
             for (int i = 0; i < 4; ++i) targets[i].setToggleState (i == t, juce::dontSendNotification);
             const juce::Colour c = t == 0 ? arc : (t == 1 ? arcB : (t == 2 ? text.darker (0.15f) : amber.brighter (0.25f)));
-            graph.setTarget (t == 0 ? "a_" : (t == 1 ? "b_" : (t == 2 ? "eq_" : "rv_")), c);
+            graph.setTarget (t == 0 ? "a_" : (t == 1 ? "b_" : (t == 2 ? "eq_" : "rv_")), c, t == 0 ? 0 : (t == 1 ? 1 : (t == 2 ? 2 : 3)));
             showEq (eqShown);
+        }
+        void syncEnabled()
+        {
+            const bool e = eqOn[target]->getToggleState();
+            if (e != graph.enabled) { graph.enabled = e; graph.repaint(); }
         }
         void showEq (bool e)
         {
@@ -454,6 +557,8 @@ namespace
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setVisible (e && i / 4 == target);
             for (auto& b : targets) b.setVisible (e);
             flatBtn.setVisible (e); graph.setVisible (e); help.setVisible (e);
+            for (int t = 0; t < 4; ++t) eqOn[t]->setVisible (e && t == target);
+            syncEnabled();
             repaint();
         }
         void paint (juce::Graphics& g) override
@@ -476,8 +581,9 @@ namespace
             reverb.setBounds (x2, 142, 100, 22);
             for (int i = 0; i < 3; ++i) fx[(size_t) (8 + i)]->setBounds (x2 + i * 64, 166, 60, 72);
             // EQ
-            for (int t = 0; t < 4; ++t) targets[t].setBounds (12 + t * 86, 38, 82, 24);
+            for (int t = 0; t < 4; ++t) targets[t].setBounds (12 + t * 80, 38, 76, 24);
             flatBtn.setBounds (getWidth() - 12 - 70, 38, 70, 24);
+            for (auto& tg : eqOn) tg->setBounds (flatBtn.getX() - 8 - 100, 39, 100, 22);
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setBounds (12 + (i % 4) * 62, 66, 58, 70);
             help.setBounds (270, 70, getWidth() - 282, 64);
             graph.setBounds (12, 140, getWidth() - 24, getHeight() - 150);
@@ -487,6 +593,7 @@ namespace
         std::vector<std::unique_ptr<Knob>> fx, eq;
         juce::TextButton tabFx, tabEq, targets[4], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help;
         EqGraph graph;
+        std::unique_ptr<Toggle> eqOn[4];
         std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> atts;
         bool eqShown = false; int target = 0;
     };
@@ -653,7 +760,7 @@ namespace
             addAndMakeVisible (chips);
             vp.setViewedComponent (&list, false); vp.setScrollBarsShown (true, false); vp.setScrollBarThickness (8);
             addAndMakeVisible (vp);
-            hint.setText (T ("Ťahaním myšou meníš poradie, pustením na priečinok ho tam presunieš. Pravé tlačidlo = ďalšie možnosti."), juce::dontSendNotification);
+            hint.setText (T ("Ťahaním myšou meníš poradie, pustením na priečinok ho tam presunieš. ☆ = obľúbený. Pravé tlačidlo = ďalšie možnosti."), juce::dontSendNotification);
             hint.setFont (juce::FontOptions (11.5f)); hint.setColour (juce::Label::textColourId, dim); hint.setJustificationType (juce::Justification::topLeft);
             addAndMakeVisible (hint);
             refresh();
@@ -667,7 +774,8 @@ namespace
             const auto q = search.getText().trim().toLowerCase();
             for (auto& e : p.presets.entries())
             {
-                if (filterCat().isNotEmpty() && e.category != filterCat()) continue;
+                if (filterCat() == juce::String::charToString (0x2605)) { if (! p.presets.isFav (e.key)) continue; }
+                else if (filterCat().isNotEmpty() && e.category != filterCat()) continue;
                 if (q.isNotEmpty() && ! e.name.toLowerCase().contains (q) && ! e.category.toLowerCase().contains (q)
                     && ! T (e.name).toLowerCase().contains (q) && ! T (e.category).toLowerCase().contains (q)) continue;
                 shown.push_back (e);
@@ -757,7 +865,7 @@ namespace
             {
                 if (sp == nullptr || r == 0) return;
                 auto& b = *sp;
-                const auto cat = filterCat().isNotEmpty() ? filterCat() : categories()[categories().size() - 1];
+                const auto cat = (filterCat().isNotEmpty() && filterCat() != juce::String::charToString (0x2605)) ? filterCat() : categories()[categories().size() - 1];
                 if (r == 1) b.newFolderDialog();
                 else if (r == 2) { b.p.newSound (cat); b.refresh(); }
                 else if (r == 3) b.wavDialog (cat);
@@ -801,6 +909,7 @@ namespace
             m.addItem (1, T ("Načítať"));
             m.addItem (2, T ("Premenovať…"), ! e.factory);
             m.addItem (3, T ("Duplikovať"));
+            m.addItem (6, p.presets.isFav (e.key) ? T ("Odobrať z obľúbených") : T ("Pridať medzi obľúbené"));
             m.addItem (4, T ("Exportovať…"));
             juce::PopupMenu cats;
             const auto all = p.presets.allCategories();
@@ -817,6 +926,7 @@ namespace
                 if (r == 1) b.p.loadPreset (key);
                 else if (r == 2) b.renameDialog (key, T (name));
                 else if (r == 3) { auto k = b.p.presets.duplicate (key); if (k.isNotEmpty()) b.p.loadPreset (k); }
+                else if (r == 6) b.p.presets.setFav (key, ! b.p.presets.isFav (key));
                 else if (r == 4)
                 {
                     b.chooser = std::make_unique<juce::FileChooser> (T ("Exportovať zvuk"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (juce::File::createLegalFileName (T (name)) + ".knova"), "*.knova");
@@ -874,13 +984,13 @@ namespace
 
     juce::StringArray CategoryChips::cats() const
     {
-        juce::StringArray c; c.add (T ("Všetko")); c.addArray (br.p.presets.allCategories()); c.add ("+");
+        juce::StringArray c; c.add (T ("Všetko")); c.add (juce::String::charToString (0x2605)); c.addArray (br.p.presets.allCategories()); c.add ("+");
         return c;
     }
     void CategoryChips::mouseDown (const juce::MouseEvent& e)
     {
         const int i = chipAt (e.getPosition());
-        if (e.mods.isPopupMenu() && i > 0 && ! isAddChip (i) && br.p.presets.isUserCategory (cats()[i])) br.folderMenu (cats()[i]);
+        if (e.mods.isPopupMenu() && i > 1 && ! isAddChip (i) && br.p.presets.isUserCategory (cats()[i])) br.folderMenu (cats()[i]);
     }
     void CategoryChips::paint (juce::Graphics& g)
     {
@@ -905,7 +1015,9 @@ namespace
     void CategoryChips::itemDropped (const SourceDetails& d)
     {
         const int i = chipAt (d.localPosition.toInt()); hoverDrop = -1;
-        if (i > 0 && ! isAddChip (i)) { br.p.presets.setCategory (d.description.toString().fromFirstOccurrenceOf ("preset:", false, false), cats()[i]); br.refresh(); }
+        const auto key = d.description.toString().fromFirstOccurrenceOf ("preset:", false, false);
+        if (i == 1) { br.p.presets.setFav (key, true); br.refresh(); }
+        else if (i > 1 && ! isAddChip (i)) { br.p.presets.setCategory (key, cats()[i]); br.refresh(); }
         repaint();
     }
 
@@ -917,8 +1029,11 @@ namespace
             auto r = juce::Rectangle<int> (0, i * rowH, getWidth(), rowH - 2);
             const bool sel = e.key == br.p.currentKey;
             if (sel) { g.setColour (steelHi); g.fillRoundedRectangle (r.toFloat(), 3.0f); }
+            const bool fav = br.p.presets.isFav (e.key);
+            g.setColour (fav ? amber.brighter (0.4f) : (sel ? text.withAlpha (0.5f) : line.brighter (0.5f))); g.setFont (juce::FontOptions (14.0f));
+            g.drawText (juce::String::charToString (fav ? 0x2605 : 0x2606), r.withWidth (22), juce::Justification::centred);
             g.setColour (sel ? juce::Colours::white : text); g.setFont (juce::FontOptions (14.0f));
-            g.drawText (T (e.name), r.reduced (8, 0), juce::Justification::centredLeft);
+            g.drawText (T (e.name), r.reduced (8, 0).withTrimmedLeft (16), juce::Justification::centredLeft);
             g.setColour (sel ? text : dim); g.setFont (juce::FontOptions (11.5f));
             g.drawText (T (e.category), r.reduced (8, 0), juce::Justification::centredRight);
         }
@@ -952,7 +1067,12 @@ namespace
     {
         if (dragging || e.mods.isPopupMenu()) { dragging = false; return; }
         const int r = e.y / rowH;
-        if (r == downRow && juce::isPositiveAndBelow (r, (int) br.shown.size())) { br.p.loadPreset (br.shown[(size_t) r].key); repaint(); }
+        if (r == downRow && juce::isPositiveAndBelow (r, (int) br.shown.size()))
+        {
+            const auto key = br.shown[(size_t) r].key;
+            if (e.x < 22) { br.p.presets.setFav (key, ! br.p.presets.isFav (key)); br.refresh(); return; }   // hviezdicka
+            br.p.loadPreset (key); repaint();
+        }
     }
     void PresetList::itemDropped (const SourceDetails& d)
     {
@@ -976,9 +1096,7 @@ namespace
             save.setButtonText (T ("Uložiť…")); save.onClick = [this] { saveDialog(); };
             undoB.setButtonText (T ("Späť")); redoB.setButtonText (T ("Znova"));
             undoB.onClick = [this] { p.undo.undo(); }; redoB.onClick = [this] { p.undo.redo(); };
-            surprise.setButtonText (T ("Prekvap ma"));
-            surprise.setTooltip (T ("Vymyslí úplne nový zvuk. Stlač znova pre ďalší, Späť vráti predošlý."));
-            surprise.onClick = [this] { p.surprise(); br.list.repaint(); };
+            setupSurprise (p, surprise, surCat, mutateB, [this] { br.list.repaint(); });
             for (int s : { 75, 90, 100, 110, 125, 150 }) size.addItem (juce::String (s) + " %", s);
             size.setSelectedId (juce::roundToInt (p.uiScale * 100.0f), juce::dontSendNotification);
             if (size.getSelectedId() == 0) size.setSelectedId (100, juce::dontSendNotification);
@@ -986,7 +1104,7 @@ namespace
             vol.setSliderStyle (juce::Slider::LinearHorizontal); vol.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             volAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.params, "volume", vol);
             vol.setDoubleClickReturnValue (true, 0.0);
-            for (auto* c : std::initializer_list<juce::Component*> { &simple, &advanced, &prev, &next, &save, &undoB, &redoB, &surprise, &langBox, &size, &vol }) addAndMakeVisible (c);
+            for (auto* c : std::initializer_list<juce::Component*> { &simple, &advanced, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &langBox, &size, &vol }) addAndMakeVisible (c);
             setupLangBox (langBox, ed);
             tick();
         }
@@ -1000,7 +1118,7 @@ namespace
             w->addComboBox ("cat", shown, T ("Priečinok"));
             if (auto* cb = w->getComboBoxComponent ("cat"))
             {
-                const int ci = all.indexOf (Browser::filterCat().isNotEmpty() && ! p.currentKey.startsWith ("u:") ? Browser::filterCat() : p.currentCategory);
+                const int ci = all.indexOf (Browser::filterCat().isNotEmpty() && all.contains (Browser::filterCat()) && ! p.currentKey.startsWith ("u:") ? Browser::filterCat() : p.currentCategory);
                 cb->setSelectedItemIndex (ci >= 0 ? ci : all.size() - 1);
             }
             w->addButton (T ("Uložiť"), 1, juce::KeyPress (juce::KeyPress::returnKey));
@@ -1038,17 +1156,17 @@ namespace
         {
             const int y = 12, h = 28;
             simple.setBounds (12, y, 96, h); advanced.setBounds (110, y, 96, h);
-            prev.setBounds (226, y, 32, h);
-            nameBox = { 262, y, 250, h };
-            next.setBounds (516, y, 32, h);
-            save.setBounds (560, y, 84, h); undoB.setBounds (650, y, 64, h); redoB.setBounds (718, y, 64, h);
-            surprise.setBounds (790, y, 96, h);
-            langBox.setBounds (892, y + 2, 52, h - 4);
-            vol.setBounds (getWidth() - 12 - 130, y, 130, h);
-            size.setBounds (vol.getX() - 76 - 96, y + 2, 90, h - 4);
+            prev.setBounds (220, y, 30, h);
+            nameBox = { 254, y, 220, h };
+            next.setBounds (478, y, 30, h);
+            save.setBounds (516, y, 76, h); undoB.setBounds (598, y, 58, h); redoB.setBounds (660, y, 58, h);
+            surprise.setBounds (728, y, 96, h); surCat.setBounds (826, y, 20, h); mutateB.setBounds (852, y, 74, h);
+            langBox.setBounds (932, y + 2, 58, h - 4);
+            vol.setBounds (getWidth() - 12 - 96, y, 96, h);
+            size.setBounds (vol.getX() - 76 - 78, y + 2, 78, h - 4);
         }
         NovaEditor& ed; NovaProcessor& p; Browser& br;
-        juce::TextButton simple, advanced, prev, next, save, undoB, redoB, surprise;
+        juce::TextButton simple, advanced, prev, next, save, undoB, redoB, surprise, surCat, mutateB;
         juce::ComboBox size, langBox; juce::Slider vol;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> volAtt;
         juce::Rectangle<int> nameBox; juce::String shownName, shownCat;

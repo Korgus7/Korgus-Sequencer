@@ -57,7 +57,7 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
         L.aa = g (p + "aa"); L.ad = g (p + "ad"); L.as = g (p + "as"); L.ar = g (p + "ar");
         L.lshape = (int) g (p + "lshape"); L.ltgt = (int) g (p + "ltgt"); L.lrate = g (p + "lrate"); L.ldepth = g (p + "ldepth"); L.ldelay = g (p + "ldelay");
         L.src = (int) g (p + "src"); L.root = (int) g (p + "root"); L.loop = g (p + "loop") > 0.5f;
-        L.eqLow = g (p + "eql"); L.eqMid = g (p + "eqm"); L.eqMidF = g (p + "eqmf"); L.eqHigh = g (p + "eqh");
+        L.eqLow = g (p + "eql"); L.eqMid = g (p + "eqm"); L.eqMidF = g (p + "eqmf"); L.eqHigh = g (p + "eqh"); L.eqEnabled = g (p + "eqon") > 0.5f;
     }
     auto& f = s.fx;
     f.tube = g ("tube"); f.compOn = g ("comp_on") > 0.5f; f.comp = g ("comp");
@@ -66,6 +66,7 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
     f.dlOn = g ("dl_on") > 0.5f; f.dlSync = (int) g ("dl_sync"); f.dlTime = g ("dl_time"); f.dlFb = g ("dl_fb"); f.dlTone = g ("dl_tone"); f.dlMix = g ("dl_mix"); f.dlPP = g ("dl_pp") > 0.5f;
     f.rvOn = g ("rv_on") > 0.5f; f.rvSize = g ("rv_size"); f.rvDamp = g ("rv_damp"); f.rvMix = g ("rv_mix");
     f.width = g ("fx_width"); f.punch = g ("fx_punch"); f.eqLow = g ("eq_low"); f.eqMid = g ("eq_mid"); f.eqMidF = g ("eq_midf"); f.eqHigh = g ("eq_high");
+    f.eqEnabled = g ("eq_on") > 0.5f; f.rvEqEnabled = g ("rv_eqon") > 0.5f;
     f.rvEqLow = g ("rv_eql"); f.rvEqMid = g ("rv_eqm"); f.rvEqMidF = g ("rv_eqmf"); f.rvEqHigh = g ("rv_eqh");
     f.mfOn = g ("mf_on") > 0.5f; f.mfType = (int) g ("mf_type"); f.mfCut = g ("mf_cut"); f.mfReso = g ("mf_reso"); f.mfDrive = g ("mf_drive");
     f.gainDb = g ("p_gain"); f.volumeDb = g ("volume");
@@ -166,7 +167,7 @@ void NovaProcessor::handleAsyncUpdate()
 namespace
 {
     // nahodny, ale hudobny zvuk: najprv typ (pad, pluck, ...), potom hodnoty v rozumnych medziach
-    PatchData randomPatch (juce::Random& r, bool pianoOk)
+    PatchData randomPatch (juce::Random& r, bool pianoOk, int forced)
     {
         PatchData p;
         auto& v = p.values;
@@ -177,7 +178,7 @@ namespace
         auto chance = [&r] (float c) { return r.nextFloat() < c; };
         auto copyEnv = [&v] { for (auto k : { "aa", "ad", "as", "ar" }) v[juce::String ("b_") + k] = v[juce::String ("a_") + k]; };
 
-        int type = r.nextInt (pianoOk ? 8 : 7);
+        int type = (forced >= 0 && forced <= 7 && (forced != 7 || pianoOk)) ? forced : r.nextInt (pianoOk ? 8 : 7);
         v["veltrack"] = R (0.5f, 0.85f);
         v["rv_mix"] = R (0.15f, 0.35f); v["rv_size"] = R (0.4f, 0.8f); v["rv_damp"] = R (0.3f, 0.6f);
         static const char* adj[] = { "Hmlistý", "Zamatový", "Ligotavý", "Snový", "Polnočný", "Jantárový", "Mrazivý", "Teplý", "Kozmický", "Dúhový",
@@ -366,10 +367,51 @@ float NovaProcessor::measureLevel (const PatchData& p)
     return juce::Decibels::gainToDecibels ((float) std::sqrt (best), -100.0f);
 }
 
-void NovaProcessor::surprise()
+const juce::StringArray& NovaProcessor::surpriseTypes()
+{
+    static const juce::StringArray t = juce::StringArray::fromTokens (juce::String::fromUTF8 ("Pady|Plucky|Klávesy|Basy|Leady|Zvonky|Sláčiky|Klavír"), "|", "");
+    return t;
+}
+
+void NovaProcessor::mutate()
+{
+    // jemna zmena plynulych parametrov (v normalizovanom rozsahu), hlasitost zostane rovnaka
+    auto p = currentPatch();
+    const auto before = p;
+    juce::Random r;
+    auto vary = [&] (const juce::String& id, float amt)
+    {
+        auto* prm = params.getParameter (id);
+        auto it = p.values.find (id);
+        if (prm == nullptr || it == p.values.end()) return;
+        const float n = prm->convertTo0to1 (it->second);
+        const float g = (r.nextFloat() + r.nextFloat() + r.nextFloat() - 1.5f) * 2.0f * amt;   // priblizne normalne rozdelenie
+        it->second = prm->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, n + g));
+    };
+    for (int li = 0; li < 2; ++li)
+    {
+        const juce::String px = li == 0 ? "a_" : "b_";
+        if (li == 1 && p.values["b_on"] < 0.5f) continue;
+        for (auto id : { "cut", "reso", "fenv", "fa", "fd", "fs", "fr", "color", "spread", "lrate", "ldepth" }) vary (px + id, 0.07f);
+        for (auto id : { "aa", "ad", "ar" }) vary (px + id, 0.05f);
+        vary (px + "level", 0.04f);
+    }
+    for (auto id : { "rv_mix", "rv_size", "rv_damp", "ch_mix", "ch_depth", "ch_rate", "dl_mix", "dl_fb", "tube", "drive", "fx_width" }) vary (id, 0.06f);
+    const float lb = measureLevel (before), la = measureLevel (p);
+    if (lb > -90.0f && la > -90.0f) p.values["p_gain"] = juce::jlimit (-30.0f, 6.0f, before.values.at ("p_gain") + lb - la);
+    auto base = currentName;
+    const auto suf = T (" (obmena)");
+    if (base.endsWith (suf)) base = base.dropLastCharacters (suf.length());
+    p.name = T (base) + suf;
+    applyPatch (p);
+    currentKey = "r:";
+    if (onPatchChanged) onPatchChanged();
+}
+
+void NovaProcessor::surprise (int type)
 {
     juce::Random r;
-    auto p = randomPatch (r, synth.pianoReady());
+    auto p = randomPatch (r, synth.pianoReady(), type);
     const float lv = measureLevel (p);
     p.values["p_gain"] = lv > -90.0f ? juce::jlimit (-30.0f, 6.0f, targetLevelDb (p.category) - lv) : 0.0f;
     applyPatch (p);

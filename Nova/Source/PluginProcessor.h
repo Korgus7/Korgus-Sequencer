@@ -50,7 +50,9 @@ public:
     void applyPatch (const nova::PatchData& p);
     bool loadSampleFile (int layer, const juce::File& f, juce::String& error);
     juce::String sampleName (int layer) const;
-    void surprise();                                     // "Prekvap ma": novy nahodny zvuk
+    void surprise (int type = -1);                       // "Prekvap ma": novy nahodny zvuk (typ -1 = cokolvek)
+    void mutate();                                       // "Obmena": jemne pozmeni aktualny zvuk
+    static const juce::StringArray& surpriseTypes();     // nazvy typov pre vyber (index = typ)
     void newSound (const juce::String& category);        // cisty zakladny zvuk na vlastnu tvorbu
     static float measureLevel (const nova::PatchData& p); // hlasitost zvuku (dB) pri p_gain 0
     static void settingsFrom (nova::Settings& s, const std::function<float (const juce::String&)>& g);

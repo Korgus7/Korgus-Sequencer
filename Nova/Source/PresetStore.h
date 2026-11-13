@@ -32,6 +32,10 @@ namespace nova
         void move (const juce::String& key, const juce::String& beforeKey);   // beforeKey prazdny = na koniec
         juce::String importFile (const juce::File& f);
 
+        // oblubene zvuky (hviezdicka)
+        bool isFav (const juce::String& key) const { return favs.contains (key); }
+        void setFav (const juce::String& key, bool on) { if (on) favs.addIfNotAlreadyThere (key); else favs.removeString (key); saveIndex(); }
+
         // kategorie = priecinky v zozname: tovarenske + vlastne (+ "Moje zvuky" na konci)
         juce::StringArray allCategories() const;
         bool isUserCategory (const juce::String& c) const { return userCats.contains (c); }
@@ -51,7 +55,7 @@ namespace nova
         void loadIndex();
         void saveIndex() const;
         juce::File dir, indexFile;
-        juce::StringArray order, userCats;
+        juce::StringArray order, userCats, favs;
         std::map<juce::String, juce::String> catOverride, settings;
         std::vector<Entry> list;
     };

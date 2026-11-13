@@ -22,8 +22,17 @@ int main (int argc, char** argv)
         w->setContentNonOwned (proc->createEditorIfNeeded(), true);
         w->setTopLeftPosition (0, 0);
         w->setVisible (true);
+        // volitelne: hra akord na pozadi (kvoli spektru)
+        struct Player : Thread { NovaProcessor& pr; Player (NovaProcessor& p) : Thread ("play"), pr (p) {}
+            void run() override { AudioBuffer<float> b (2, 256); int n = 0;
+                while (! threadShouldExit()) { MidiBuffer mb; if (n % 700 == 0) for (int k : { 48, 55, 60, 64 }) mb.addEvent (MidiMessage::noteOn (1, k, 0.8f), 0);
+                    if (n % 700 == 500) for (int k : { 48, 55, 60, 64 }) mb.addEvent (MidiMessage::noteOff (1, k), 0);
+                    b.clear(); pr.processBlock (b, mb); ++n; Thread::sleep (5); } } };
+        std::unique_ptr<Player> pl;
+        if (argc > 4 && String (argv[4]) == "play") { pl = std::make_unique<Player> (*proc); pl->startThread(); }
         Timer::callAfterDelay (argc > 2 ? String (argv[2]).getIntValue() * 1000 : 60000, [] { MessageManager::getInstance()->stopDispatchLoop(); });
         MessageManager::getInstance()->runDispatchLoop();
+        if (pl) pl->stopThread (1000);
         printf ("zvuk: %s, rezim %d, mierka %.2f\n", proc->currentName.toRawUTF8(), proc->uiMode, proc->uiScale);
         w->clearContentComponent(); delete proc->getActiveEditor(); delete w;
         return 0;
@@ -39,7 +48,16 @@ int main (int argc, char** argv)
             const float m = NovaProcessor::measureLevel (pd);
             printf ("%-18s %6.1f dB (s p_gain %6.1f)\n", f.name.toRawUTF8(), m + pd.values["p_gain"], pd.values["p_gain"]);
         }
-        for (int i = 0; i < 24; ++i)
+        for (int t = 0; t < 8; ++t)
+        {
+            q.surprise (t);
+            auto a = q.currentPatch(); const float la = NovaProcessor::measureLevel (a) + a.values.at ("p_gain");
+            q.mutate(); q.mutate();
+            auto b = q.currentPatch(); const float lb = NovaProcessor::measureLevel (b) + b.values.at ("p_gain");
+            float diff = 0; int nd = 0; for (auto& [k, v] : a.values) if (std::abs (b.values[k] - v) > 1e-4f) { ++nd; }
+            printf ("typ %d: %-22s %-9s %.1f dB -> obmena %-30s %.1f dB, zmenenych %d\n", t, a.name.toRawUTF8(), a.category.toRawUTF8(), la, b.name.toRawUTF8(), lb, nd);
+        }
+        for (int i = 0; i < 0; ++i)
         {
             q.surprise();
             const auto pd = q.currentPatch();
@@ -71,6 +89,15 @@ int main (int argc, char** argv)
             }
             printf ("  energia %.3f  vysky %.5f  vysky v dozvuku %.6f\n", lo, hi, tailHi);
         };
+        {
+            q.loadPreset (String::fromUTF8 ("f:Teplý pad")); q.synth.analyzer.tap.store (2);
+            for (int pos = 0; pos < (int) (1.5 * sr); pos += bs) { MidiBuffer mb; if (pos == 0) for (int k : { 48, 55, 60, 64 }) mb.addEvent (MidiMessage::noteOn (1, k, 0.8f), 0);
+                AudioBuffer<float> b (2, bs); b.clear(); q.processBlock (b, mb); }
+            auto& an = q.synth.analyzer; const unsigned w = an.w.load(); float pk = 0; for (int i = 0; i < 4096; ++i) pk = std::max (pk, std::abs (an.buf[(w - 4096u + (unsigned) i) & (nova::Analyzer::N - 1)]));
+            std::vector<float> d (8192, 0.0f); for (int i = 0; i < 4096; ++i) d[(size_t) i] = an.buf[(w - 4096u + (unsigned) i) & (nova::Analyzer::N - 1)] * (0.5f - 0.5f * std::cos (6.2831853f * i / 4095.0f));
+            dsp::FFT f (12); f.performFrequencyOnlyForwardTransform (d.data()); float mx = 0; int mi = 0; for (int i = 1; i < 2048; ++i) if (d[(size_t) i] > mx) { mx = d[(size_t) i]; mi = i; }
+            printf ("analyzer: w=%u peak %.3f, fft max %.1f dB pri %.0f Hz\n", w, pk, Decibels::gainToDecibels (mx / 1024.0f), mi * sr / 4096.0);
+        }
         printf ("bez EQ:\n"); run ({});
         printf ("A vysky +12:\n"); run ({ { "a_eqh", 12 } });
         printf ("B vysky +12 (B je vypnuta, nema sa nic zmenit):\n"); run ({ { "b_eqh", 12 } });

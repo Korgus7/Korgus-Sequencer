@@ -14,9 +14,10 @@ namespace nova
 
     void PresetStore::loadIndex()
     {
-        order.clear(); userCats.clear(); catOverride.clear(); settings.clear();
+        order.clear(); userCats.clear(); favs.clear(); catOverride.clear(); settings.clear();
         auto j = juce::JSON::parse (indexFile.loadFileAsString());
         if (auto* a = j["order"].getArray()) for (auto& k : *a) order.add (k.toString());
+        if (auto* a = j["fav"].getArray()) for (auto& k : *a) favs.addIfNotAlreadyThere (k.toString());
         if (auto* a = j["folders"].getArray()) for (auto& k : *a) if (k.toString().trim().isNotEmpty()) userCats.addIfNotAlreadyThere (k.toString().trim());
         if (auto* o = j["cat"].getDynamicObject()) for (auto& p : o->getProperties()) catOverride[p.name.toString()] = p.value.toString();
         if (auto* o = j["settings"].getDynamicObject()) for (auto& p : o->getProperties()) settings[p.name.toString()] = p.value.toString();
@@ -29,6 +30,8 @@ namespace nova
         o->setProperty ("order", a);
         juce::Array<juce::var> fa; for (auto& k : userCats) fa.add (k);
         o->setProperty ("folders", fa);
+        juce::Array<juce::var> fv; for (auto& k : favs) fv.add (k);
+        o->setProperty ("fav", fv);
         auto* c = new juce::DynamicObject();
         for (auto& [k, v] : catOverride) c->setProperty (k, v);
         o->setProperty ("cat", juce::var (c));
@@ -156,6 +159,7 @@ namespace nova
         if (idx >= 0) order.set (idx, newKey);
         auto it = catOverride.find (key);
         if (it != catOverride.end()) { catOverride[newKey] = it->second; catOverride.erase (key); }
+        if (favs.contains (key)) { favs.removeString (key); favs.add (newKey); }
         saveIndex(); refresh();
         return true;
     }
@@ -165,7 +169,7 @@ namespace nova
         const auto* e = find (key);
         if (e == nullptr || e->factory) return false;
         e->file.deleteFile();
-        order.removeString (key); catOverride.erase (key);
+        order.removeString (key); catOverride.erase (key); favs.removeString (key);
         saveIndex(); refresh();
         return true;
     }

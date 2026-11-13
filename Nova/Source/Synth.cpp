@@ -15,6 +15,7 @@ namespace nova
             for (auto& lv : v.lv) { lv.active = false; lv.dl.assign (4096, 0); }
         }
         fx.prepare (sr);
+        fx.an = &analyzer; analyzer.rate.store ((float) sr);
     }
 
     // ---------------------------------------------------------------- noty
@@ -567,13 +568,16 @@ namespace nova
         active.store (act);
 
         // EQ vrstiev A a B, potom spolu
-        const bool eqA = layerEq[0].update (s.L[0].eqLow, s.L[0].eqMid, s.L[0].eqMidF, s.L[0].eqHigh, (float) sr);
-        const bool eqB = layerEq[1].update (s.L[1].eqLow, s.L[1].eqMid, s.L[1].eqMidF, s.L[1].eqHigh, (float) sr);
+        const bool eqA = layerEq[0].update (s.L[0].eqLow, s.L[0].eqMid, s.L[0].eqMidF, s.L[0].eqHigh, (float) sr) && s.L[0].eqEnabled;
+        const bool eqB = layerEq[1].update (s.L[1].eqLow, s.L[1].eqMid, s.L[1].eqMidF, s.L[1].eqHigh, (float) sr) && s.L[1].eqEnabled;
+        const bool tapA = analyzer.wants (0), tapB = analyzer.wants (1);
         for (int i = 0; i < total; ++i)
         {
             float al = bufL[(size_t) i], ar = bufR[(size_t) i], bl = bufBL[(size_t) i], br = bufBR[(size_t) i];
             if (eqA) layerEq[0].process (al, ar);
             if (eqB) layerEq[1].process (bl, br);
+            if (tapA) analyzer.push (0, 0.5f * (al + ar));
+            if (tapB) analyzer.push (1, 0.5f * (bl + br));
             bufL[(size_t) i] = al + bl; bufR[(size_t) i] = ar + br;
         }
 

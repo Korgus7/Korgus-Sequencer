@@ -61,6 +61,7 @@ namespace nova
         bool rvOn = true; float rvSize = 0.5f, rvDamp = 0.4f, rvMix = 0.2f;
         float width = 1, punch = 0.5f, eqLow = 0, eqMid = 0, eqMidF = 1000, eqHigh = 0;
         float rvEqLow = 0, rvEqMid = 0, rvEqMidF = 1000, rvEqHigh = 0;
+        bool eqEnabled = true, rvEqEnabled = true;
         bool mfOn = false; int mfType = 0; float mfCut = 20000, mfReso = 0, mfDrive = 0;
         float gainDb = 0, volumeDb = 0;
         double bpm = 120;
@@ -78,11 +79,13 @@ namespace nova
             eq.reset(); rvEq.reset();
         }
         std::atomic<float> gainReduction { 0 };   // pre zobrazenie (dB)
+        Analyzer* an = nullptr;                    // spektrum (nastavi Synth)
 
         void process (float* L, float* R, int n, const FxSettings& s)
         {
-            const bool eqOn = eq.update (s.eqLow, s.eqMid, s.eqMidF, s.eqHigh, sr);
-            const bool rvEqOn = rvEq.update (s.rvEqLow, s.rvEqMid, s.rvEqMidF, s.rvEqHigh, sr);
+            const bool eqOn = eq.update (s.eqLow, s.eqMid, s.eqMidF, s.eqHigh, sr) && s.eqEnabled;
+            const bool rvEqOn = rvEq.update (s.rvEqLow, s.rvEqMid, s.rvEqMidF, s.rvEqHigh, sr) && s.rvEqEnabled;
+            const bool tapRv = an != nullptr && an->wants (3), tapOut = an != nullptr && an->wants (2);
             if (std::abs (s.rvSize - reverb.size) > 0.01f || std::abs (s.rvDamp - reverb.damp) > 0.01f) reverb.setSize (s.rvSize, s.rvDamp);
             // delay: cas zo synchra s tempom
             float dTime = s.dlTime * 0.001f;
@@ -150,6 +153,7 @@ namespace nova
                 {
                     float rl, rr; reverb.process (l, r, rl, rr);
                     if (rvEqOn) rvEq.process (rl, rr);
+                    if (tapRv) an->push (3, 0.5f * (rl + rr));
                     l += rl * rvSm; r += rr * rvSm;
                 }
                 const float mid = 0.5f * (l + r), side = 0.5f * (l - r) * wSm;
@@ -172,6 +176,7 @@ namespace nova
                 l *= post; r *= post;
                 auto clip = [] (float x) { const float a = std::abs (x); return a < 0.9f ? x : std::copysign (0.9f + 0.1f * std::tanh ((a - 0.9f) * 10.0f), x); };
                 L[i] = clip (l); R[i] = clip (r);
+                if (tapOut) an->push (2, 0.5f * (L[i] + R[i]));
             }
             grDb = std::max (grMax, grDb * 0.9f);
             gainReduction.store (grDb);
