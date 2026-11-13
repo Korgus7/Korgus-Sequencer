@@ -1,3 +1,4 @@
+#include "CrashGuard.h"
 #include "Engine.h"
 #include "BuiltinFx.h"
 
@@ -755,12 +756,12 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 }
             }
 
-            if (slot.midiFx != nullptr) slot.midiFx->processBlock (view, slot.midi);
+            if (slot.midiFx != nullptr) { CrashGuard::Busy cg (slot.midiFx.get()); slot.midiFx->processBlock (view, slot.midi); }
             bool any = false;
-            if (slot.plugin != nullptr) { slot.plugin->processBlock (view, slot.midi); any = true; }
+            if (slot.plugin != nullptr) { CrashGuard::Busy cg (slot.plugin.get()); slot.plugin->processBlock (view, slot.midi); any = true; }
             if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
             for (int k = 0; k < numFx; ++k)
-                if (auto& f = slot.fx[(size_t) k]; f != nullptr && ! (td.fxOff & (1u << k))) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); any = true; }
+                if (auto& f = slot.fx[(size_t) k]; f != nullptr && ! (td.fxOff & (1u << k))) { CrashGuard::Busy cg (f.get()); setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); any = true; }
             if (! any && ! td.isAudio) continue;
             if (td.isKey)
                 for (int c = 0; c < 2; ++c)
@@ -809,7 +810,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             if (gs.buf.getNumChannels() < 2) continue;
             juce::AudioBuffer<float> view (gs.buf.getArrayOfWritePointers(), gs.buf.getNumChannels(), n);
             for (int q = 0; q < numFx; ++q)
-                if (auto& f = gs.fx[(size_t) q]; f != nullptr && ! (gd.fxOff & (1u << q))) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
+                if (auto& f = gs.fx[(size_t) q]; f != nullptr && ! (gd.fxOff & (1u << q))) { CrashGuard::Busy cg (f.get()); setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
             const float gL = gd.audible ? gd.gainL : 0.0f, gR = gd.audible ? gd.gainR : 0.0f;
             const float* srcL = view.getReadPointer (0); const float* srcR = view.getReadPointer (1);
             juce::FloatVectorOperations::addWithMultiply (mixL, srcL, gL, n);
@@ -837,7 +838,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         if (! anyFx) continue;
         juce::AudioBuffer<float> view (as.buf.getArrayOfWritePointers(), as.buf.getNumChannels(), n);
         for (int q = 0; q < numFx; ++q)
-            if (auto& f = as.fx[(size_t) q]; f != nullptr && ! (off & (1u << q))) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
+            if (auto& f = as.fx[(size_t) q]; f != nullptr && ! (off & (1u << q))) { CrashGuard::Busy cg (f.get()); setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
         const float g = sd != nullptr ? sd->auxGain[k] : 1.0f;
         juce::FloatVectorOperations::addWithMultiply (mixL, auxL[k], g, n);
         juce::FloatVectorOperations::addWithMultiply (mixR, auxR[k], g, n);
@@ -853,7 +854,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         const bool bypass = forced != nullptr && bypassMaster.load();
         if (! bypass)
             for (int q = 0; q < numFx; ++q)
-                if (auto& f = ms.fx[(size_t) q]; f != nullptr && ! ((sd != nullptr ? sd->masterFxOff : 0u) & (1u << q))) { setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
+                if (auto& f = ms.fx[(size_t) q]; f != nullptr && ! ((sd != nullptr ? sd->masterFxOff : 0u) & (1u << q))) { CrashGuard::Busy cg (f.get()); setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); }
         const float mg = bypass ? 1.0f : (sd != nullptr ? sd->masterGain : 1.0f);
         if (forced == nullptr)
         {

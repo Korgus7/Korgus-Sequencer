@@ -160,6 +160,15 @@ private:
     int tunerTick = 0;                                           // ladicka (posiela vysku tonu 15x za sekundu)
     void sendTuner();
     void checkForUpdate();
+    // ochrana pred padajucimi pluginmi
+    bool isHeld (const juce::PluginDescription& d) const;
+    void holdEntry (const juce::String& trackId, const juce::var& t, int fxIdx);
+    void mergeHeld (juce::var& states) const;
+    void sendCrashInfo();
+    juce::StringArray blockedPlugins;          // "uid\tnazov"
+    juce::String crashSkipUid, crashName, crashWhere;
+    bool crashed = false;
+    juce::var held;                            // pluginy, ktore sa po pade nenacitali (stav zostava ulozeny)
     void onUpdateNow();
     juce::String updUrl, updVer;
     std::atomic<bool> updBusy { false };

@@ -10,6 +10,7 @@
 #include "SongParse.h"
 #include "Melody.h"
 #include "Separator.h"
+#include "CrashGuard.h"
 
 //==============================================================================
 SettingsComponent::SettingsComponent (juce::AudioDeviceManager& d, std::function<void()> onPlugins)
@@ -96,6 +97,15 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
 
     dataDir = props.getUserSettings()->getFile().getParentDirectory();
     dataDir.createDirectory();
+
+    CrashGuard::install (dataDir);
+    {
+        const auto ci = CrashGuard::takeLastCrash();
+        crashed = ci.crashed; crashSkipUid = ci.uid; crashName = ci.name; crashWhere = ci.where;
+    }
+    blockedPlugins.addLines (props.getUserSettings()->getValue ("blockedPlugins"));
+    blockedPlugins.removeEmptyStrings();
+    held = obj();
 
     auto* settings = props.getUserSettings();
     if (std::unique_ptr<juce::XmlElement> kp { settings->getXmlValue ("knownPlugins") })
@@ -195,6 +205,34 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
             props.getUserSettings()->setValue ("lang", l);
         })
         .withEventListener ("updateNow",   [this] (const juce::var&)   { onUpdateNow(); })
+        .withEventListener ("crashChoice", [this] (const juce::var& v)
+        {
+            const auto what = v["what"].toString();
+            const auto uid = crashSkipUid, name = crashName;
+            crashSkipUid = {};
+            if (what == "block" && uid.isNotEmpty())
+            {
+                blockedPlugins.add (uid + "\t" + name);
+                props.getUserSettings()->setValue ("blockedPlugins", blockedPlugins.joinIntoString ("\n"));
+            }
+            else if (what == "retry")
+            {
+                auto h = held; held = obj();
+                restorePluginStates (h);
+            }
+            sendPluginList();
+            saveSession();
+        })
+        .withEventListener ("unblockPlugin", [this] (const juce::var& v)
+        {
+            const auto uid = v["uid"].toString();
+            for (int i = blockedPlugins.size(); --i >= 0;)
+                if (blockedPlugins[i].upToFirstOccurrenceOf ("\t", false, false) == uid) blockedPlugins.remove (i);
+            props.getUserSettings()->setValue ("blockedPlugins", blockedPlugins.joinIntoString ("\n"));
+            auto h = held; held = obj();
+            restorePluginStates (h);   // vrati pluginy, ktore boli v piesni odlozene
+            sendPluginList();
+        })
         .withEventListener ("importAudio", [this] (const juce::var& v) { onImportAudio (v); })
         .withEventListener ("audioChunk",  [this] (const juce::var& v) { onAudioChunk (v); })
         .withEventListener ("needPeaks",   [this] (const juce::var& v) { onNeedPeaks (v); })
@@ -601,9 +639,12 @@ std::unique_ptr<juce::AudioPluginInstance> MainView::createInstance (const juce:
     double sr = 44100; int bs = 512;
     if (auto* dev = deviceManager.getCurrentAudioDevice()) { sr = dev->getCurrentSampleRate(); bs = dev->getCurrentBufferSizeSamples(); }
     juce::String err;
-    auto inst = BuiltinFx::isBuiltin (d) ? BuiltinFx::create (d) : formatManager.createPluginInstance (d, sr, bs, err);
+    const bool builtin = BuiltinFx::isBuiltin (d);
+    if (! builtin) CrashGuard::beginLoad (d.createIdentifierString(), d.name);
+    auto inst = builtin ? BuiltinFx::create (d) : formatManager.createPluginInstance (d, sr, bs, err);
     if (inst == nullptr)
     {
+        if (! builtin) CrashGuard::endLoad();
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, sk ("Plugin sa nedá načítať"),
                                                 d.name + "\n" + err);
         return nullptr;
@@ -614,6 +655,7 @@ std::unique_ptr<juce::AudioPluginInstance> MainView::createInstance (const juce:
     if (inst->checkBusesLayoutSupported (layout)) inst->setBusesLayout (layout);
     if (state != nullptr && state->getSize() > 0)
         inst->setStateInformation (state->getData(), (int) state->getSize());
+    if (! builtin) { CrashGuard::registerPlugin (inst.get(), d.createIdentifierString(), d.name); CrashGuard::endLoad(); }
     return inst;
 }
 
@@ -869,6 +911,7 @@ void MainView::onReady()
         if (! lastSong.isVoid()) onSong (lastSong);
         sendTrackPlugins();
         emit ("bootDone", obj());
+        sendCrashInfo();
         checkForUpdate();
     });
     bootIndex = 0;
@@ -945,6 +988,7 @@ juce::Array<juce::PluginDescription> MainView::allPluginTypes() const
 void MainView::sendPluginList()
 {
     auto list = allPluginTypes();
+    list.removeIf ([this] (const juce::PluginDescription& d) { return isHeld (d) && ! BuiltinFx::isBuiltin (d) && d.createIdentifierString() != crashSkipUid; });
     std::sort (list.begin(), list.end(), [] (const juce::PluginDescription& a, const juce::PluginDescription& b)
     {
         if (a.isInstrument != b.isInstrument) return a.isInstrument;
@@ -961,6 +1005,13 @@ void MainView::sendPluginList()
         arr.add (o);
     }
     emit ("plugins", juce::var (arr));
+    juce::Array<juce::var> bl;
+    for (const auto& b : blockedPlugins)
+    {
+        auto o = obj(); put (o, "uid", b.upToFirstOccurrenceOf ("\t", false, false)); put (o, "name", b.fromFirstOccurrenceOf ("\t", false, false));
+        bl.add (o);
+    }
+    emit ("blockedPlugins", juce::var (bl));
 }
 
 void MainView::sendTrackPlugins()
@@ -1081,7 +1132,10 @@ void MainView::restorePluginStates (const juce::var& vst)
             juce::PluginDescription desc;
             juce::MemoryBlock mb;
             if (prop.value.hasProperty ("desc") && load (prop.value, desc, mb))
-                loadPluginForTrack (trackId, desc, &mb);
+            {
+                if (isHeld (desc)) holdEntry (trackId, prop.value, -1);
+                else loadPluginForTrack (trackId, desc, &mb);
+            }
             if (prop.value["arp"].isObject())
             {
                 juce::MemoryBlock am;
@@ -1093,7 +1147,11 @@ void MainView::restorePluginStates (const juce::var& vst)
                 {
                     juce::PluginDescription fd;
                     juce::MemoryBlock fm;
-                    if (load (f, fd, fm)) loadFxForTrack (trackId, (int) f.getProperty ("idx", 0), fd, &fm);
+                    if (load (f, fd, fm))
+                    {
+                        if (isHeld (fd)) holdEntry (trackId, f, (int) f.getProperty ("idx", 0));
+                        else loadFxForTrack (trackId, (int) f.getProperty ("idx", 0), fd, &fm);
+                    }
                 }
         }
     }
@@ -1105,7 +1163,9 @@ void MainView::restorePluginStates (const juce::var& vst)
 
 void MainView::saveSession()
 {
-    dataDir.getChildFile ("session.json").replaceWithText (juce::JSON::toString (collectPluginStates()));
+    auto st = collectPluginStates();
+    mergeHeld (st);
+    dataDir.getChildFile ("session.json").replaceWithText (juce::JSON::toString (st));
 }
 
 void MainView::loadSession()
@@ -1146,7 +1206,7 @@ void MainView::onSaveFile (const juce::var& v)
         auto j = juce::JSON::parse (v["text"].toString());
         if (auto* d = j.getDynamicObject())
         {
-            d->setProperty ("vst", collectPluginStates());
+            { auto st = collectPluginStates(); mergeHeld (st); d->setProperty ("vst", st); }
             auto ad = obj();
             if (const auto* tracks = j["tracks"].getArray())
                 for (const auto& t : *tracks)
@@ -1376,6 +1436,7 @@ void MainView::onOpenSong (const juce::var& v)
                               auto o = obj();
                               put (o, "text", juce::JSON::toString (j, true));
                               sp->emit ("songLoaded", o);
+                              sp->held = obj();
                               juce::MessageManager::callAsync ([sp, vst] { if (sp != nullptr && vst.isObject()) sp->restorePluginStates (vst); });
                           };
     if (const auto path = v["path"].toString(); juce::File::isAbsolutePath (path)) { run (juce::File (path)); return; }
@@ -1442,6 +1503,7 @@ void MainView::loadBackup (const juce::String& name)
     auto o = obj();
     put (o, "text", juce::JSON::toString (j, true));
     emit ("songLoaded", o);
+    held = obj();
     juce::Component::SafePointer<MainView> sp (this);
     juce::MessageManager::callAsync ([sp, vst] { if (sp != nullptr && vst.isObject()) sp->restorePluginStates (vst); });
 }
@@ -3124,4 +3186,65 @@ void MainView::onUpdateNow()
         });
     });
    #endif
+}
+
+//==============================================================================
+// ochrana pred padajucimi pluginmi
+bool MainView::isHeld (const juce::PluginDescription& d) const
+{
+    const auto uid = d.createIdentifierString();
+    if (crashSkipUid.isNotEmpty() && uid == crashSkipUid) return true;
+    for (const auto& b : blockedPlugins)
+        if (b.upToFirstOccurrenceOf ("\t", false, false) == uid) return true;
+    return false;
+}
+
+void MainView::holdEntry (const juce::String& trackId, const juce::var& t, int fxIdx)
+{
+    if (! held.hasProperty (trackId)) put (held, trackId, obj());
+    auto e = held[juce::Identifier (trackId)];
+    if (fxIdx < 0) { put (e, "desc", t["desc"]); put (e, "state", t["state"]); }
+    else
+    {
+        juce::Array<juce::var> fx;
+        if (const auto* a = e["fx"].getArray()) fx = *a;
+        auto c = obj(); put (c, "desc", t["desc"]); put (c, "state", t["state"]); put (c, "idx", fxIdx);
+        fx.add (c);
+        put (e, "fx", fx);
+    }
+}
+
+void MainView::mergeHeld (juce::var& states) const
+{
+    auto* hd = held.getDynamicObject();
+    if (hd == nullptr) return;
+    for (const auto& prop : hd->getProperties())
+    {
+        const auto id = prop.name.toString();
+        if (! states.hasProperty (id)) put (states, id, obj());
+        auto t = states[prop.name];
+        if (prop.value.hasProperty ("desc") && ! t.hasProperty ("desc")) { put (t, "desc", prop.value["desc"]); put (t, "state", prop.value["state"]); }
+        if (const auto* hf = prop.value["fx"].getArray())
+        {
+            juce::Array<juce::var> fx;
+            if (const auto* a = t["fx"].getArray()) fx = *a;
+            for (const auto& f : *hf)
+            {
+                bool used = false;
+                for (const auto& x : fx) if ((int) x["idx"] == (int) f["idx"]) used = true;
+                if (! used) fx.add (f);
+            }
+            put (t, "fx", fx);
+        }
+    }
+}
+
+void MainView::sendCrashInfo()
+{
+    if (! crashed) return;
+    crashed = false;
+    auto o = obj();
+    put (o, "name", crashName); put (o, "uid", crashSkipUid); put (o, "where", crashWhere);
+    put (o, "held", held.getDynamicObject() != nullptr && held.getDynamicObject()->getProperties().size() > 0);
+    emit ("crashInfo", o);
 }

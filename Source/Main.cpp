@@ -1,6 +1,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "MainView.h"
 #include "UiCommon.h"
+#include "CrashGuard.h"
 
 class KorgusApp : public juce::JUCEApplication
 {
@@ -78,7 +79,7 @@ public:
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), properties);
     }
 
-    void shutdown() override { mainWindow = nullptr; }
+    void shutdown() override { mainWindow = nullptr; CrashGuard::cleanExit(); }
     void systemRequestedQuit() override { quit(); }
 
     class MainWindow : public juce::DocumentWindow
