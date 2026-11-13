@@ -3013,10 +3013,11 @@ void MainView::onSeparate (const juce::var& v)
 }
 
 //==============================================================================
-// automaticke aktualizacie: verejny repozitar Korgus7/Korgus-Download (GitHub Releases)
+// automaticke aktualizacie: verejny repozitar Korgus7/Korgus-Download, subor latest.json
+// {"version":"1.0.N","url":"https://.../KorgusSequencer-Setup.exe","notes":"..."}
 namespace
 {
-    const char* updApi = "https://api.github.com/repos/Korgus7/Korgus-Download/releases/latest";
+    const char* updApi = "https://raw.githubusercontent.com/Korgus7/Korgus-Download/main/latest.json";
 
     juce::Array<int> verParts (juce::String v)
     {
@@ -3047,18 +3048,15 @@ void MainView::checkForUpdate()
         juce::URL u (updApi);
         auto opts = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
                         .withConnectionTimeoutMs (8000)
-                        .withExtraHeaders ("User-Agent: KorgusSequencer\r\nAccept: application/vnd.github+json");
+                        .withExtraHeaders ("User-Agent: KorgusSequencer\r\nCache-Control: no-cache");
         auto in = u.createInputStream (opts);
         if (in == nullptr) return;
         const auto j = juce::JSON::parse (in->readEntireStreamAsString());
-        const auto tag = j["tag_name"].toString();
+        const auto tag = j["version"].toString();
         if (tag.isEmpty() || ! verNewer (tag, JUCE_APPLICATION_VERSION_STRING)) return;
-        juce::String url;
-        if (auto* a = j["assets"].getArray())
-            for (const auto& x : *a)
-                if (x["name"].toString().endsWithIgnoreCase (".exe")) { url = x["browser_download_url"].toString(); break; }
-        if (url.isEmpty()) return;
-        const auto notes = j["body"].toString();
+        const auto url = j["url"].toString();
+        if (! url.startsWith ("https://")) return;
+        const auto notes = j["notes"].toString();
         juce::MessageManager::callAsync ([sp, tag, url, notes]
         {
             if (sp == nullptr) return;
