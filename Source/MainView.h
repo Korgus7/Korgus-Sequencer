@@ -160,6 +160,8 @@ private:
     int tunerTick = 0;                                           // ladicka (posiela vysku tonu 15x za sekundu)
     void sendTuner();
     void checkForUpdate();
+    void addRecent (const juce::File& f);
+    void sendRecent();
     // ochrana pred padajucimi pluginmi
     bool isHeld (const juce::PluginDescription& d) const;
     void holdEntry (const juce::String& trackId, const juce::var& t, int fxIdx);

@@ -13,6 +13,7 @@ struct VideoOptions
     bool portrait = true;       // 1080x1920 (TikTok) / 1920x1080 (YouTube)
     juce::Array<double> lyrT;   // titulky (karaoke): zaciatok riadku v sekundach
     juce::StringArray lyrX;     // text riadku
+    bool alsoMp3 = false;       // vedla videa ulozit aj MP3 (TikTok jednym klikom)
     int width() const  { return portrait ? 1080 : 1920; }
     int height() const { return portrait ? 1920 : 1080; }
 };

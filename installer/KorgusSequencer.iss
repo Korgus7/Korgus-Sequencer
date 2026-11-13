@@ -28,6 +28,8 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
+SetupIconFile=icon.ico
+WizardSmallImageFile=small.bmp
 UninstallDisplayIcon={app}\Korgus Sequencer.exe
 UninstallDisplayName=Korgus Sequencer
 

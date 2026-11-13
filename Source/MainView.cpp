@@ -911,6 +911,7 @@ void MainView::onReady()
         if (! lastSong.isVoid()) onSong (lastSong);
         sendTrackPlugins();
         emit ("bootDone", obj());
+        sendRecent();
         sendCrashInfo();
         checkForUpdate();
     });
@@ -1246,11 +1247,13 @@ void MainView::onSaveFile (const juce::var& v)
     const auto ext = name.fromLastOccurrenceOf (".", false, false);
     chooser = std::make_unique<juce::FileChooser> (sk ("Uložiť"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (name),
                                                    "*." + ext);
+    juce::Component::SafePointer<MainView> sp (this);
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [data] (const juce::FileChooser& fc)
+                          [data, sp, kind] (const juce::FileChooser& fc)
                           {
                               auto f = fc.getResult();
                               if (f != juce::File()) f.replaceWithData (data.getData(), data.getSize());
+                              if (f != juce::File() && kind == "s92" && sp != nullptr) sp->addRecent (f);
                           });
 }
 
@@ -1395,6 +1398,7 @@ void MainView::onOpenSong (const juce::var& v)
     auto run = [sp] (juce::File f)
                           {
                               if (sp == nullptr || ! f.existsAsFile()) return;
+                              sp->addRecent (f);
                               juce::var j;
                               if (f.hasFileExtension ("kpack"))
                               {
@@ -1992,7 +1996,14 @@ namespace
             setStatusMessage (sk ("Dorovnávam hlasitosť…"));
             normaliseLoudness (mix, sr, -14.0, -1.0);
             setStatusMessage (sk ("Vytváram video (môže to chvíľu trvať)…"));
-            ok = writeMp4 (mix, sr, opt, file, error, [this] (double p) { setProgress (0.32 + p * 0.68); return ! threadShouldExit(); });
+            ok = writeMp4 (mix, sr, opt, file, error, [this] (double p) { setProgress ((opt.alsoMp3 ? 0.27 : 0.32) + p * (opt.alsoMp3 ? 0.6 : 0.68)); return ! threadShouldExit(); });
+            if (ok && opt.alsoMp3 && ! threadShouldExit())
+            {
+                setStatusMessage (sk ("Ukladám MP3…"));
+                juce::String e2;
+                if (! writeMp3 (mix, sr, 320, file.withFileExtension ("mp3"), e2, [this] (double p) { setProgress (0.87 + p * 0.13); return ! threadShouldExit(); }))
+                    error = e2;
+            }
         }
         void threadComplete (bool cancelled) override
         {
@@ -2019,6 +2030,7 @@ void MainView::onExportVideo (const juce::var& v)
     o.subtitle = v["subtitle"].toString();
     o.style = (int) v.getProperty ("style", 0);
     o.portrait = (bool) v.getProperty ("portrait", true);
+    o.alsoMp3 = (bool) v.getProperty ("mp3", false);
     if (const auto* ly = v["lyrics"].getArray())
         for (const auto& l : *ly)
             if (l["x"].toString().isNotEmpty()) { o.lyrT.add ((double) l["t"]); o.lyrX.add (l["x"].toString()); }
@@ -3250,4 +3262,33 @@ void MainView::sendCrashInfo()
     put (o, "name", crashName); put (o, "uid", crashSkipUid); put (o, "where", crashWhere);
     put (o, "held", held.getDynamicObject() != nullptr && held.getDynamicObject()->getProperties().size() > 0);
     emit ("crashInfo", o);
+}
+
+//==============================================================================
+// posledne piesne (menu Subor)
+void MainView::addRecent (const juce::File& f)
+{
+    juce::StringArray r;
+    r.addLines (props.getUserSettings()->getValue ("recentSongs"));
+    r.removeString (f.getFullPathName(), true);
+    r.insert (0, f.getFullPathName());
+    r.removeEmptyStrings();
+    while (r.size() > 8) r.remove (r.size() - 1);
+    props.getUserSettings()->setValue ("recentSongs", r.joinIntoString ("\n"));
+    sendRecent();
+}
+
+void MainView::sendRecent()
+{
+    juce::StringArray r;
+    r.addLines (props.getUserSettings()->getValue ("recentSongs"));
+    juce::Array<juce::var> arr;
+    for (const auto& p : r)
+    {
+        const juce::File f (p);
+        if (p.isEmpty() || ! f.existsAsFile()) continue;
+        auto o = obj(); put (o, "path", p); put (o, "name", f.getFileNameWithoutExtension());
+        arr.add (o);
+    }
+    emit ("recent", juce::var (arr));
 }
