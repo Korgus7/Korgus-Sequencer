@@ -72,6 +72,7 @@ namespace nova
         {
             int note = -1; float vel = 0; bool held = false, sustained = false; uint64_t age = 0;
             float curNote = 60, targetNote = 60, drift = 0, driftTarget = 0;
+            Noise rng;                     // vlastny generator hlasu (deterministicky seed v Synth::prepare)
             LayerVoice lv[2];
             bool isActive() const { return lv[0].active || lv[1].active; }
         };

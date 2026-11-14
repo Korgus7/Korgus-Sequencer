@@ -9,9 +9,12 @@ namespace nova
         sr = rate;
         for (auto* b : { &bufL, &bufR, &bufBL, &bufBR }) b->assign ((size_t) juce::jmax (1, maxBlock), 0);
         layerEq[0].reset(); layerEq[1].reset();
-        for (auto& v : voices)
+        noise.s = 0x12345678u;
+        for (size_t i = 0; i < voices.size(); ++i)
         {
+            auto& v = voices[i];
             v.note = -1;
+            v.rng.s = 0x12345u + (uint32_t) i * 7919u;   // pevny seed pre kazdy hlas: renderovanie je deterministicke
             for (auto& lv : v.lv) { lv.active = false; lv.dl.assign (4096, 0); }
         }
         fx.prepare (sr);
@@ -59,7 +62,7 @@ namespace nova
         auto& lv = v.lv[li];
         lv.active = false;
         if (! s.on) return;
-        lv.wave = s.wave; lv.t = 0; lv.cnt = 0; lv.lfoPh = 0; lv.lfoHold = noise.next(); lv.peak = 0;
+        lv.wave = s.wave; lv.t = 0; lv.cnt = 0; lv.lfoPh = 0; lv.lfoHold = v.rng.next(); lv.peak = 0;
         lv.smp = nullptr; lv.user = nullptr; lv.damping = false; lv.level = 1;
         const float noteShift = s.oct * 12.0f + s.semi + s.fine * 0.01f;
         const float f0 = noteHz ((float) v.note + noteShift);
@@ -81,9 +84,9 @@ namespace nova
             for (int k = 0; k < n; ++k)
             {
                 const float pos = n > 1 ? (float) k / (float) (n - 1) * 2.0f - 1.0f : 0.0f;
-                const float cents = s.spread * pos * (0.85f + 0.3f * std::abs (noise.next()));
+                const float cents = s.spread * pos * (0.85f + 0.3f * std::abs (v.rng.next()));
                 lv.det[k] = std::pow (2.0f, cents / 1200.0f);
-                lv.ph[k] = (n == 1 && s.wave == 0) ? 0.0f : 0.5f + 0.5f * noise.next();
+                lv.ph[k] = (n == 1 && s.wave == 0) ? 0.0f : 0.5f + 0.5f * v.rng.next();
                 const float pan = pos * 0.8f;
                 lv.pl[k] = std::cos ((pan + 1.0f) * pi * 0.25f); lv.pr[k] = std::sin ((pan + 1.0f) * pi * 0.25f);
             }
@@ -101,7 +104,7 @@ namespace nova
             lv.apC = (1.0f - d) / (1.0f + d); lv.apIn = lv.apOut = 0; lv.yPrev = 0; lv.dlen = N; lv.w = 0;
             OnePole lp; lp.setHz (600.0f * std::pow (2.0f, brightness * 5.0f + (v.vel - 0.7f) * 1.5f), (float) sr);
             std::vector<float> ex ((size_t) N);
-            for (int i = 0; i < N; ++i) ex[(size_t) i] = lp.lp (noise.next());
+            for (int i = 0; i < N; ++i) ex[(size_t) i] = lp.lp (v.rng.next());
             const int pick = juce::jmax (1, (int) (0.15f * (float) N));
             float mx = 1.0e-6f;
             for (int i = 0; i < N; ++i) { lv.dl[(size_t) i] = ex[(size_t) i] - (i >= pick ? ex[(size_t) (i - pick)] : 0.0f); mx = std::max (mx, std::abs (lv.dl[(size_t) i])); }
@@ -142,7 +145,7 @@ namespace nova
     {
         v.note = note; v.vel = vel; v.held = true; v.sustained = false; v.age = ++ageCounter;
         v.curNote = fromNote; v.targetNote = (float) note;
-        v.drift = noise.next() * 4.0f; v.driftTarget = noise.next() * 4.0f;
+        v.drift = v.rng.next() * 4.0f; v.driftTarget = v.rng.next() * 4.0f;
         for (int li = 0; li < 2; ++li) startLayer (v, li);
         if (! v.isActive()) v.note = -1;
     }
@@ -326,7 +329,7 @@ namespace nova
         {
             // LFO
             lv.lfoPh += s.lrate * invSr;
-            if (lv.lfoPh >= 1) { lv.lfoPh -= 1; lv.lfoHold = noise.next(); }
+            if (lv.lfoPh >= 1) { lv.lfoPh -= 1; lv.lfoHold = v.rng.next(); }
             float lfo;
             switch (s.lshape)
             {
@@ -359,7 +362,7 @@ namespace nova
                 const float inc0 = baseHz * pitchMul * invSr;
                 if (lv.wave == 4)
                 {
-                    const float w = lv.noiseL.lp (noise.next()) * (1.0f + 2.0f * (1.0f - s.color));
+                    const float w = lv.noiseL.lp (v.rng.next()) * (1.0f + 2.0f * (1.0f - s.color));
                     l = r = w;
                 }
                 else
@@ -539,7 +542,7 @@ namespace nova
                     if (st.fx.tube > 0.001f)
                     {
                         v.drift += (v.driftTarget - v.drift) * 0.002f * (float) n / 32.0f;
-                        if (std::abs (v.drift - v.driftTarget) < 0.05f) v.driftTarget = noise.next() * 4.0f;
+                        if (std::abs (v.drift - v.driftTarget) < 0.05f) v.driftTarget = v.rng.next() * 4.0f;
                     }
                     if (v.lv[0].active) renderLayer (v, 0, bufL.data() + pos, bufR.data() + pos, n);
                     if (v.lv[1].active) renderLayer (v, 1, bufBL.data() + pos, bufBR.data() + pos, n);
