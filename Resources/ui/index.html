@@ -3563,7 +3563,7 @@ function learnDialog(tr){
     <div class="frow"><label>Zvuk zo stopy</label><select id="lnSrc">${src.map(t=>`<option value="${t.id}">${esc(t.name)} – ${esc(natTrackPlugins[t.id].name)}</option>`).join('')}</select></div>
     <div class="frow"><label></label><label style="flex:1;width:auto"><input type="checkbox" id="lnSmp" checked> ak syntéza nestačí, doplniť sampel do vrstvy B</label></div>
     <p style="color:#aab4c0">Trvá to asi minútu. Najlepšie to funguje so syntetickými zvukmi (pady, basy, leady, plucky); nahraté nástroje a zbory Inspire len priblíži.</p>
-    <div id="lnProg" hidden><div style="height:8px;background:#1b2533;border-radius:3px;overflow:hidden"><div id="lnBar" style="height:100%;width:0;background:#2d4362"></div></div><p id="lnMsg" style="color:#aab4c0;margin-top:6px"></p></div>
+    <div id="lnProg" hidden><div style="height:12px;background:#e6e9ed;border:1px solid #7d8a9b;border-radius:3px;overflow:hidden"><div id="lnBar" style="height:100%;width:0;background:#c9a35a;transition:width .2s"></div></div><p id="lnMsg" style="color:#1b2533;font-weight:bold;margin-top:6px"></p></div>
     <div class="row"><span style="flex:1"></span><button id="lnCancel" hidden>Zrušiť</button><button id="lnGo">Naučiť sa</button></div>`);
   $('lnGo').onclick=()=>{ learnState={target:tr.id}; $('lnGo').hidden=true; $('lnCancel').hidden=false; $('lnProg').hidden=false; $('lnSrc').disabled=true; $('lnSmp').disabled=true;
     $('lnMsg').textContent='Pripravujem nástroje…'; nat('learnSound',{target:tr.id,source:$('lnSrc').value,sample:$('lnSmp').checked}); };
@@ -3573,7 +3573,7 @@ function learnDone(e){
   learnState=null;
   if(!e.ok){ if(e.error==='cancel'){ $('dlgBack').hidden=true; toast('Učenie zvuku zrušené.'); } else dialog('Nauč sa zvuk','<p>'+esc(e.error||'Nepodarilo sa.')+'</p>'); return; }
   dialog('Nauč sa zvuk',`<p>Hotovo. Zhoda so zdrojom je približne <b>${e.match} %</b> (pôvodný zvuk ${e.start} %).${e.sample?' Vo vrstve B je doplnený sampel zdroja.':''}</p>
-    <p style="color:#aab4c0">Zahraj si ho. Ak sa ti páči, ulož ho v Inspire tlačidlom Uložiť… medzi svoje zvuky. Opakovaným učením môžeš dostať trochu iný výsledok.</p>
+    <p style="color:#3a4656">Zahraj si ho. Ak sa ti páči, ulož ho v Inspire tlačidlom Uložiť… medzi svoje zvuky. Opakovaným učením môžeš dostať trochu iný výsledok.</p>
     <div class="row"><span style="flex:1"></span><button id="lnUndo">Vrátiť pôvodný zvuk</button><button id="lnKeep">Ponechať</button></div>`);
   $('lnUndo').onclick=()=>{ nat('learnUndo',{}); $('dlgBack').hidden=true; toast('Pôvodný zvuk Inspire je späť.'); };
   $('lnKeep').onclick=()=>{ $('dlgBack').hidden=true; };
