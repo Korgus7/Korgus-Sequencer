@@ -49,6 +49,7 @@ public:
     nova::PatchData currentPatch();                      // aktualne hodnoty ako zvuk
     void applyPatch (const nova::PatchData& p);
     bool loadSampleFile (int layer, const juce::File& f, juce::String& error);
+    void copyLayer (int from, int to);   // skopiruje celu vrstvu (oscilator, filter, obalky, LFO, sampel)
     juce::String sampleName (int layer) const;
     void surprise (int type = -1);                       // "Prekvap ma": novy nahodny zvuk (typ -1 = cokolvek)
     void mutate();                                       // "Obmena": jemne pozmeni aktualny zvuk

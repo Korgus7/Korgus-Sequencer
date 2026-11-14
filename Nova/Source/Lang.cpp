@@ -62,7 +62,7 @@ namespace nova
                 { "OBÁLKA FILTRA", "FILTER ENVELOPE" }, { "OBÁLKA HLASITOSTI", "AMP ENVELOPE" },
                 // tube
                 { "Analóg", "Analog" }, { "Kompresia", "Compression" }, { "Tube komp", "Tube comp" },
-                { "Teplo a jemné\n„plávanie“ ladenia", "Warmth and gentle\npitch drift" }, { "Vyrovná hlasité tóny", "Evens out loud notes" }, { "Stíšenie ", "Reduction " },
+                { "Teplo a jemné\n„plávanie“ ladenia", "Warmth and gentle\npitch drift" }, { "Vyrovná hlasité tóny", "Evens out loud notes" }, { "Stíšenie ", "Reduction " }, { "Skopírovať vrstvu A do vrstvy B", "Copy layer A to layer B" }, { "Skopírovať vrstvu B do vrstvy A", "Copy layer B to layer A" },
                 // efekty
                 { "EFEKTY", "EFFECTS" }, { "Sila", "Amount" }, { "Opakov.", "Repeats" }, { "Mix", "Mix" }, { "Čas", "Time" }, { "Tlmenie", "Damp" },
                 { "Šírka", "Width" }, { "Úder", "Punch" }, { "Stredy", "Mid" }, { "Stredy Hz", "Mid freq" }, { "Výšky", "High" }, { "Dozvuk", "Reverb" },

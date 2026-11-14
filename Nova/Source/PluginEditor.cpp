@@ -534,27 +534,33 @@ namespace
         {
             addAndMakeVisible (analog); addAndMakeVisible (comp); addAndMakeVisible (compOn);
             analog.setArc (amber); comp.setArc (amber);
+            for (auto* b : { &toB, &toA }) { addAndMakeVisible (b); b->setTooltip (T (b == &toB ? "Skopírovať vrstvu A do vrstvy B" : "Skopírovať vrstvu B do vrstvy A")); }
+            toB.setButtonText (juce::String::fromUTF8 ("A → B")); toA.setButtonText (juce::String::fromUTF8 ("A ← B"));
+            toB.onClick = [this] { p.copyLayer (0, 1); };
+            toA.onClick = [this] { p.copyLayer (1, 0); };
         }
         void paint (juce::Graphics& g) override
         {
             drawPanel (g, getLocalBounds(), "TUBE", amber.brighter (0.3f));
             g.setColour (dim); g.setFont (juce::FontOptions (11.5f));
             g.drawFittedText (T ("Teplo a jemné\n„plávanie“ ladenia"), juce::Rectangle<int> (10, 140, getWidth() - 20, 32), juce::Justification::centred, 2);
-            g.drawFittedText (T ("Vyrovná hlasité tóny"), juce::Rectangle<int> (10, 326, getWidth() - 20, 18), juce::Justification::centred, 1);
-            auto bar = juce::Rectangle<float> (14.0f, 360.0f, (float) getWidth() - 28.0f, 8.0f);
+            g.drawFittedText (T ("Vyrovná hlasité tóny"), juce::Rectangle<int> (10, 302, getWidth() - 20, 18), juce::Justification::centred, 1);
+            auto bar = juce::Rectangle<float> (14.0f, 326.0f, (float) getWidth() - 28.0f, 8.0f);
             g.setColour (steel); g.fillRoundedRectangle (bar, 3.0f);
             const float gr = juce::jlimit (0.0f, 20.0f, p.synth.gainReduction());
             g.setColour (amber); g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * gr / 20.0f), 3.0f);
             g.setColour (dim); g.setFont (juce::FontOptions (11.5f));
-            g.drawText (T ("Stíšenie ") + juce::String (gr, 1) + " dB", juce::Rectangle<int> (10, 372, getWidth() - 20, 18), juce::Justification::centred);
+            g.drawText (T ("Stíšenie ") + juce::String (gr, 1) + " dB", juce::Rectangle<int> (10, 338, getWidth() - 20, 18), juce::Justification::centred);
         }
         void resized() override
         {
             analog.setBounds (20, 36, getWidth() - 40, 100);
-            compOn.setBounds (14, 190, getWidth() - 20, 24);
-            comp.setBounds (25, 220, getWidth() - 50, 100);
+            compOn.setBounds (14, 178, getWidth() - 20, 24);
+            comp.setBounds (25, 204, getWidth() - 50, 96);
+            const int bw = (getWidth() - 34) / 2;
+            toB.setBounds (14, 368, bw, 26); toA.setBounds (20 + bw, 368, bw, 26);
         }
-        NovaProcessor& p; Knob analog, comp; Toggle compOn;
+        NovaProcessor& p; Knob analog, comp; Toggle compOn; juce::TextButton toB, toA;
     };
 
     // ===================================================================== graf EQ (tahanie bodov)

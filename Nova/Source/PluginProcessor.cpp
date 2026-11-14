@@ -699,3 +699,20 @@ void NovaProcessor::setStateInformation (const void* data, int sizeInBytes)
 juce::AudioProcessorEditor* NovaProcessor::createEditor() { return new NovaEditor (*this); }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new NovaProcessor(); }
+
+// skopirovanie vrstvy A -> B alebo B -> A (okrem zapnutia vrstvy)
+void NovaProcessor::copyLayer (int from, int to)
+{
+    if (from == to) return;
+    const juce::String src (from == 0 ? "a_" : "b_"), dst (to == 0 ? "a_" : "b_");
+    undo.beginNewTransaction (juce::String::fromUTF8 (to == 1 ? "Kopírovať A → B" : "Kopírovať B → A"));
+    for (const auto& sp : nova::paramSpecs())
+    {
+        if (! sp.id.startsWith (src) || sp.id == src + "on") continue;
+        auto* a = params.getParameter (sp.id);
+        auto* b = params.getParameter (dst + sp.id.substring (2));
+        if (a != nullptr && b != nullptr) b->setValueNotifyingHost (a->getValue());
+    }
+    setSample (to, smpFlac[from], smpName[from]);
+    undo.beginNewTransaction();
+}
