@@ -11,6 +11,38 @@
 #include "Melody.h"
 #include "Separator.h"
 #include "CrashGuard.h"
+#include "SoundMatch.h"
+
+struct MainView::LearnJob : juce::Thread
+{
+    LearnJob() : juce::Thread ("Korgus learn sound") {}
+    ~LearnJob() override { stopThread (10000); }
+    std::unique_ptr<juce::AudioPluginInstance> src, ins;
+    juce::MemoryBlock state;
+    bool allowSample = true;
+    juce::String srcName;
+    juce::Component::SafePointer<MainView> sp;
+    SoundMatch::Result res;
+    juce::uint32 last = 0;
+
+    void run() override
+    {
+        res = SoundMatch::run (*src, *ins, state, allowSample, srcName, [this] (double p, const juce::String& m)
+        {
+            const auto now = juce::Time::getMillisecondCounter();
+            if (now - last > 200 || p >= 1.0)
+            {
+                last = now;
+                auto s = sp; const int pct = juce::roundToInt (p * 100.0);
+                juce::MessageManager::callAsync ([s, pct, m] { if (s != nullptr) s->learnProgressMsg (pct, m); });
+            }
+            return ! threadShouldExit();
+        });
+        auto s = sp;
+        juce::MessageManager::callAsync ([s] { if (s != nullptr) s->learnFinished(); });
+    }
+};
+
 
 //==============================================================================
 SettingsComponent::SettingsComponent (juce::AudioDeviceManager& d, std::function<void()> onPlugins)
@@ -153,6 +185,7 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
 
 MainView::~MainView()
 {
+    if (learnJob != nullptr) { learnJob->signalThreadShouldExit(); learnJob->stopThread (10000); learnJob = nullptr; }
     stopTimer();
     saveSession();
     saveSettings();
@@ -205,6 +238,19 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
             props.getUserSettings()->setValue ("lang", l);
         })
         .withEventListener ("updateNow",   [this] (const juce::var&)   { onUpdateNow(); })
+        .withEventListener ("learnSound",  [this] (const juce::var& v) { onLearnSound (v); })
+        .withEventListener ("learnCancel", [this] (const juce::var&)   { if (learnJob != nullptr) learnJob->signalThreadShouldExit(); })
+        .withEventListener ("learnUndo",   [this] (const juce::var&)
+        {
+            auto* p = learnTarget.isNotEmpty() ? engine.getPlugin (engine.getOrCreateSlot (learnTarget)) : nullptr;
+            if (p != nullptr && learnPrev.getSize() > 0)
+            {
+                p->suspendProcessing (true);
+                p->setStateInformation (learnPrev.getData(), (int) learnPrev.getSize());
+                p->suspendProcessing (false);
+                saveSession();
+            }
+        })
         .withEventListener ("crashChoice", [this] (const juce::var& v)
         {
             const auto what = v["what"].toString();
@@ -3291,4 +3337,67 @@ void MainView::sendRecent()
         arr.add (o);
     }
     emit ("recent", juce::var (arr));
+}
+
+//==============================================================================
+// "Nauc sa zvuk": Inspire napodobni zvuk inej stopy
+void MainView::onLearnSound (const juce::var& v)
+{
+    auto fail = [this] (const juce::String& m) { auto o = obj(); put (o, "ok", false); put (o, "error", m); emit ("learnDone", o); };
+    if (learnJob != nullptr) { fail (sk ("Učenie zvuku už prebieha.")); return; }
+    const auto target = v["target"].toString(), source = v["source"].toString();
+    auto dt = trackDesc.find (target), ds = trackDesc.find (source);
+    auto* pt = engine.getPlugin (engine.getOrCreateSlot (target));
+    auto* ps = engine.getPlugin (engine.getOrCreateSlot (source));
+    if (dt == trackDesc.end() || ds == trackDesc.end() || pt == nullptr || ps == nullptr) { fail (sk ("Stopa nemá nástroj.")); return; }
+    juce::MemoryBlock mt, ms;
+    pt->getStateInformation (mt);
+    ps->getStateInformation (ms);
+    auto job = std::make_unique<LearnJob>();
+    job->src = createInstance (ds->second, &ms, true);
+    job->ins = createInstance (dt->second, &mt, true);
+    if (job->src == nullptr || job->ins == nullptr) { fail (sk ("Nástroj sa nepodarilo pripraviť.")); return; }
+    for (auto* p : { job->src.get(), job->ins.get() })
+    {
+        p->enableAllBuses();
+        p->setRateAndBufferSizeDetails (SoundMatch::kSR, SoundMatch::kBS);
+        p->prepareToPlay (SoundMatch::kSR, SoundMatch::kBS);
+    }
+    job->state = mt;
+    job->allowSample = (bool) v.getProperty ("sample", true);
+    job->srcName = ds->second.name;
+    job->sp = this;
+    learnPrev = mt; learnTarget = target;
+    learnJob = std::move (job);
+    learnJob->startThread();
+}
+
+void MainView::learnProgressMsg (int pct, const juce::String& msg)
+{
+    auto o = obj(); put (o, "pct", pct); put (o, "msg", msg);
+    emit ("learnProgress", o);
+}
+
+void MainView::learnFinished()
+{
+    if (learnJob == nullptr) return;
+    learnJob->stopThread (5000);
+    const auto r = learnJob->res;
+    learnJob->src = nullptr; learnJob->ins = nullptr;   // pluginy sa rusia na hlavnom vlakne
+    learnJob = nullptr;
+    auto o = obj();
+    put (o, "ok", r.ok);
+    if (! r.ok) { put (o, "error", r.error == "cancel" ? juce::String ("cancel") : r.error); emit ("learnDone", o); return; }
+    if (auto* p = engine.getPlugin (engine.getOrCreateSlot (learnTarget)))
+    {
+        p->suspendProcessing (true);
+        p->setStateInformation (r.state.getData(), (int) r.state.getSize());
+        p->suspendProcessing (false);
+    }
+    saveSession();
+    put (o, "match", juce::roundToInt (juce::jlimit (0.0f, 1.0f, 1.0f - r.finalLoss / 2.5f) * 100.0f));
+    put (o, "start", juce::roundToInt (juce::jlimit (0.0f, 1.0f, 1.0f - r.startLoss / 2.5f) * 100.0f));
+    put (o, "sample", r.usedSample);
+    put (o, "target", learnTarget);
+    emit ("learnDone", o);
 }

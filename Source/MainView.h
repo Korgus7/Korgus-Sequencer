@@ -38,6 +38,9 @@ public:
     explicit MainView (juce::ApplicationProperties&);
     ~MainView() override;
     void resized() override;
+    // "Nauc sa zvuk" (beh na pozadi)
+    void learnProgressMsg (int pct, const juce::String& msg);
+    void learnFinished();
 
 private:
     juce::WebBrowserComponent::Options makeOptions();
@@ -160,6 +163,11 @@ private:
     int tunerTick = 0;                                           // ladicka (posiela vysku tonu 15x za sekundu)
     void sendTuner();
     void checkForUpdate();
+    void onLearnSound (const juce::var&);
+    struct LearnJob;
+    std::unique_ptr<LearnJob> learnJob;
+    juce::MemoryBlock learnPrev;      // stav Inspire pred ucenim (na vratenie)
+    juce::String learnTarget;
     void addRecent (const juce::File& f);
     void sendRecent();
     // ochrana pred padajucimi pluginmi

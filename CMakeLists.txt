@@ -40,7 +40,8 @@ target_sources(KorgusSequencer PRIVATE
     Source/Mp3Export.cpp
     Source/UiCommon.cpp
     Source/MainView.cpp
-    Source/CrashGuard.cpp)
+    Source/CrashGuard.cpp
+    Source/SoundMatch.cpp)
 
 target_compile_definitions(KorgusSequencer PRIVATE
     JUCE_WEB_BROWSER=1
