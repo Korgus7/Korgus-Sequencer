@@ -11,6 +11,7 @@
 #include "Melody.h"
 #include "Separator.h"
 #include "CrashGuard.h"
+#include <set>
 #include "SoundMatch.h"
 
 struct MainView::LearnJob : juce::Thread
@@ -612,6 +613,18 @@ void MainView::onSong (const juce::var& v)
     auto sd = parseCurrent (lastSong);
     if (sd == nullptr) return;
     engine.setSong (std::move (sd));
+    // zmazana stopa: zatvorit okna jej pluginov
+    if (const auto* tr = lastSong["tracks"].getArray())
+    {
+        std::set<juce::String> ids;
+        for (const auto& t : *tr) ids.insert (t["id"].toString());
+        for (auto it = pluginWindows.begin(); it != pluginWindows.end();)
+        {
+            const auto base = it->first.upToFirstOccurrenceOf ("#", false, false);
+            if (! base.startsWith ("__") && ids.count (base) == 0) it = pluginWindows.erase (it);
+            else ++it;
+        }
+    }
 }
 
 void MainView::onTransport (const juce::var& v)
@@ -3395,8 +3408,8 @@ void MainView::learnFinished()
         p->suspendProcessing (false);
     }
     saveSession();
-    put (o, "match", juce::roundToInt (juce::jlimit (0.0f, 1.0f, 1.0f - r.finalLoss / 2.5f) * 100.0f));
-    put (o, "start", juce::roundToInt (juce::jlimit (0.0f, 1.0f, 1.0f - r.startLoss / 2.5f) * 100.0f));
+    put (o, "match", juce::roundToInt (juce::jlimit (0.0f, 1.0f, 1.0f - r.finalLoss / 3.0f) * 100.0f));
+    put (o, "start", juce::roundToInt (juce::jlimit (0.0f, 1.0f, 1.0f - r.startLoss / 3.0f) * 100.0f));
     put (o, "sample", r.usedSample);
     put (o, "target", learnTarget);
     emit ("learnDone", o);
