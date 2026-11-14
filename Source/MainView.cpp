@@ -969,6 +969,7 @@ void MainView::onReady()
         booting = false;
         if (! lastSong.isVoid()) onSong (lastSong);
         sendTrackPlugins();
+        { auto o = obj(); put (o, "ver", juce::String (JUCE_APPLICATION_VERSION_STRING)); emit ("appInfo", o); }
         emit ("bootDone", obj());
         sendRecent();
         sendCrashInfo();
