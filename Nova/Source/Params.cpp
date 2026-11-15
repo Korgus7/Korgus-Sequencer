@@ -34,7 +34,7 @@ namespace nova
             {
                 const juce::String p = L + "_", up = L.toUpperCase();
                 B (p + "on", L == "a" ? "Vrstva A" : "Vrstva B", L == "a");
-                C (p + "wave", "Priebeh", "Sínus|Trojuholník|Píla|Obdĺžnik|Šum|Pluck|FM|Sampel|Roj", 2);
+                C (p + "wave", "Priebeh", "Sínus|Trojuholník|Píla|Obdĺžnik|Šum|Pluck|FM|Sampel|Roj|Wavetable", 2);
                 F (p + "oct", "Oktáva", -3, 3, 0, "oct");
                 F (p + "semi", "Poltón", -12, 12, 0, "st");
                 F (p + "fine", "Jemne", -100, 100, 0, "ct");
@@ -58,13 +58,14 @@ namespace nova
                 F (p + "as", "Držanie", 0, 1, 1, "%");
                 F (p + "ar", "Doznenie", 0.001f, 20, 0.3f, "s", 0.3f);
                 C (p + "lshape", "LFO tvar", "Sínus|Troj.|Obdĺž.|Náhod.", 0);
-                C (p + "ltgt", "LFO cieľ", "Výška|Filter|Hlasit.|Panor.", 0);
+                C (p + "ltgt", "LFO cieľ", "Výška|Filter|Hlasit.|Panor.|Farba", 0);
                 F (p + "lrate", "Rýchlosť", 0.05f, 20, 5, "Hz", 0.4f);
                 F (p + "ldepth", "Hĺbka", 0, 1, 0, "%");
                 F (p + "ldelay", "Oneskorenie", 0, 3, 0, "s", 0.5f);
                 C (p + "src", "Zdroj", "Klavír|Vlastný WAV", 0);
                 F (p + "root", "Základný tón", 0, 127, 60, "note");
                 B (p + "loop", "Opakovať", false);
+                C (p + "wt", "Tabuľka", "Analóg|PWM|Harmonický|Vokál|Digitál|Organ|Sklo|Spev", 0);
             }
             // tube
             F ("tube", "Analóg", 0, 1, 0, "%");
@@ -356,6 +357,23 @@ namespace nova
             v.push_back (P ("Roj oblak", "Pady").s ("a_wave", 8).s ("a_color", 0.85f).s ("a_uni", 6).s ("a_spread", 28).s ("a_level", 0.8f).s ("a_fenv", 1)
                          .s ("a_fa", 5).s ("a_fd", 1).s ("a_fs", 1).s ("a_fr", 15).s ("a_aa", 2).s ("a_ad", 2).s ("a_as", 0.9f).s ("a_ar", 3.5f)
                          .s ("ch_on", 1).s ("ch_mix", 0.3f).s ("rv_mix", 0.5f).s ("rv_size", 0.9f).s ("rv_pre", 30).s ("p_gain", -6.4f).s ("veltrack", 0.6f).f);
+            // Wavetable (wave 9): Farba = Pozicia v tabulke, a_wt = tabulka, Obalka (filtra) a LFO ciel "Farba" hybu poziciou
+            v.push_back (P ("WT Vokál pad", "Pady").s ("a_wave", 9).s ("a_wt", 3).s ("a_color", 0.12f).s ("a_uni", 5).s ("a_spread", 13).s ("a_level", 0.8f)
+                         .s ("a_cut", 6500).s ("a_reso", 0.12f).s ("a_fenv", 0.22f).s ("a_fa", 2.2f).s ("a_fd", 3).s ("a_fs", 0.5f).s ("a_fr", 2.5f)
+                         .s ("a_aa", 0.9f).s ("a_ad", 1.5f).s ("a_as", 0.9f).s ("a_ar", 2.2f).s ("a_ltgt", 4).s ("a_lshape", 1).s ("a_lrate", 0.11f).s ("a_ldepth", 0.55f)
+                         .s ("b_on", 1).s ("b_wave", 9).s ("b_wt", 7).s ("b_color", 0.45f).s ("b_oct", 1).s ("b_uni", 3).s ("b_spread", 9).s ("b_level", 0.3f)
+                         .s ("b_aa", 1.2f).s ("b_ad", 1.5f).s ("b_as", 0.9f).s ("b_ar", 2.4f).s ("b_ltgt", 4).s ("b_lrate", 0.07f).s ("b_ldepth", 0.4f)
+                         .s ("ch_on", 1).s ("ch_type", 1).s ("ch_mix", 0.4f).s ("rv_mix", 0.45f).s ("rv_size", 0.85f).s ("rv_pre", 20).s ("p_gain", -12.7f).s ("veltrack", 0.6f).f);
+            v.push_back (P ("WT Digitál lead", "Leady").s ("a_wave", 9).s ("a_wt", 4).s ("a_color", 0.3f).s ("a_uni", 3).s ("a_spread", 7).s ("a_level", 0.85f)
+                         .s ("a_fenv", 0.3f).s ("a_fa", 0.002f).s ("a_fd", 0.7f).s ("a_fs", 0.25f).s ("a_fr", 0.3f)
+                         .s ("a_aa", 0.008f).s ("a_ad", 0.4f).s ("a_as", 0.9f).s ("a_ar", 0.25f).s ("a_lrate", 5.4f).s ("a_ldepth", 0.1f).s ("a_ldelay", 0.3f)
+                         .s ("mono", 1).s ("glide", 0.05f).s ("dl_on", 1).s ("dl_sync", 2).s ("dl_mix", 0.18f).s ("dl_fb", 0.3f).s ("rv_mix", 0.22f).s ("rv_size", 0.6f)
+                         .s ("p_gain", -9.1f).s ("veltrack", 0.6f).f);
+            v.push_back (P ("WT Analog bas", "Basy").s ("a_wave", 9).s ("a_wt", 0).s ("a_color", 0.08f).s ("a_uni", 2).s ("a_spread", 6).s ("a_level", 0.8f)
+                         .s ("a_cut", 700).s ("a_reso", 0.22f).s ("a_fenv", 0.4f).s ("a_fa", 0.002f).s ("a_fd", 0.32f).s ("a_fs", 0.15f).s ("a_fr", 0.12f)
+                         .s ("a_aa", 0.003f).s ("a_ad", 0.5f).s ("a_as", 0.85f).s ("a_ar", 0.12f)
+                         .s ("b_on", 1).s ("b_wave", 0).s ("b_oct", -1).s ("b_level", 0.55f).s ("b_aa", 0.003f).s ("b_ad", 0.5f).s ("b_as", 0.85f).s ("b_ar", 0.12f)
+                         .s ("mono", 1).s ("glide", 0.03f).s ("tube", 0.35f).s ("rv_on", 0).s ("p_gain", -10).s ("veltrack", 0.5f).f);
             return v;
         }();
         return list;
@@ -434,6 +452,9 @@ namespace nova
                     juce::AudioParameterFloatAttributes().withStringFromValueFunction ([sp] (float x, int) { return formatValue (*sp, x); })));
             }
         }
+        // skryty parameter pre hostitela: zvysi sa po kazdom "Inspiracia" zachyteni (stav obsahuje <capture>)
+        v.push_back (std::make_unique<juce::AudioParameterInt> (juce::ParameterID { "capture_seq", 2 }, "Capture", 0, 1000000, 0,
+                                                                juce::AudioParameterIntAttributes().withAutomatable (false)));
         return { v.begin(), v.end() };
     }
 }

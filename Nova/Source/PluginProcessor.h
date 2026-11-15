@@ -5,6 +5,50 @@
 #include "Params.h"
 #include "PresetStore.h"
 
+// ---- Inspiracia: sledovanie hrania (MIDI) a vytiahnutie poslednej frazy
+namespace nova
+{
+    struct CapEvent { double t = 0, bpm = 0, ppq = -1; juce::uint8 kind = 0, note = 0, vel = 0; };   // kind: 1 zapnutie, 2 vypnutie, 3 pedal (vel >= 64 = stlaceny)
+    struct CapNote { double t = 0, d = 0; int k = 60, v = 100; double bpm = 0, ppq = -1; };            // t = cas zaciatku (s), d = dlzka (s)
+    struct CapPhrase
+    {
+        std::vector<CapNote> notes;    // t relativne k prvej note (prva ma t = 0)
+        double bpm = 0, ppq = -1;      // tempo hostitela a poloha prvej noty v takte (ppq), ak hostitel bezal; inak bpm 0 / ppq -1
+        double length() const { double e = 0; for (auto& n : notes) e = juce::jmax (e, n.t + n.d); return e; }
+    };
+
+    // kruhovy zasobnik udalosti (bez alokacii v processBlock)
+    class CaptureBuffer
+    {
+    public:
+        static constexpr int capacity = 20000;
+        static constexpr double keepSeconds = 600.0;
+        CaptureBuffer() : ev ((size_t) capacity) {}
+        void push (const CapEvent& e) { const juce::SpinLock::ScopedLockType l (lock); ev[(size_t) head] = e; head = (head + 1) % capacity; if (count < capacity) ++count; }
+        void clear() { const juce::SpinLock::ScopedLockType l (lock); head = 0; count = 0; }
+        std::vector<CapEvent> snapshot() const
+        {
+            const juce::SpinLock::ScopedLockType l (lock);
+            std::vector<CapEvent> out; out.reserve ((size_t) count);
+            for (int i = 0; i < count; ++i) out.push_back (ev[(size_t) ((head - count + i + capacity * 2) % capacity)]);
+            return out;
+        }
+        // zo zoznamu udalosti (podla casu) urobi noty; `now` ukonci drzane noty
+        static std::vector<CapNote> pairNotes (const std::vector<CapEvent>& events, double now);
+        // posledna fraza: konci poslednym vypnutim tonu, zacina po poslednej pauze > gapSec (aspon 8 not), max 3 minuty
+        static CapPhrase extractPhrase (const std::vector<CapEvent>& events, double now, double gapSec = 4.0);
+    private:
+        mutable juce::SpinLock lock;
+        std::vector<CapEvent> ev; int head = 0, count = 0;
+    };
+
+    // uprava frazy: odstrani nahodne tony, zarovna zaciatky na 1/16 (50 %)
+    std::vector<CapNote> cleanupPhrase (const std::vector<CapNote>& notes, double bpm, bool quantize);
+    bool writePhraseMidi (const CapPhrase& ph, const juce::File& f);
+    // offline vykreslenie frazy so zvukom podla `settings` (48 kHz, stereo, 24 bit, + dozvuk)
+    bool renderPhraseWav (const CapPhrase& ph, const Settings& settings, const std::array<UserSamplePtr, 2>& samples, const juce::File& f, double tailSeconds = 3.0);
+}
+
 class NovaProcessor : public juce::AudioProcessor,
                       private juce::AudioProcessorValueTreeState::Listener,
                       private juce::AsyncUpdater,
@@ -22,7 +66,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "Korgus Inspire"; }
+    const juce::String getName() const override { return "Korgus Inspiria"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -72,6 +116,13 @@ public:
     void applyCc();                     // (volane casovacom na hlavnom vlakne)
     void flushPending() { handleUpdateNowIfNeeded(); }
 
+    // Inspiracia
+    nova::CapPhrase lastPhrase() const;                  // posledna zahrana fraza (prazdna = nic nezahral)
+    void publishCapture (const nova::CapPhrase& ph);     // preda frazu hostitelovi (Korgus Sequencer) cez stav + parameter capture_seq
+    nova::Settings currentSettings();                    // aktualny zvuk ako nastavenia syntetizatora (hlavne vlakno)
+    static bool hostedInKorgus();
+    nova::CaptureBuffer capBuf;
+
     juce::String currentKey, currentName, currentCategory;
     int uiMode = 0;          // 0 jednoducha, 1 rozsirena
     float uiScale = 1.0f;
@@ -100,4 +151,8 @@ private:
     std::atomic<bool> ccDirty { false };
     bool restoring = false;
     int lastPresetParam = 0;
+    // Inspiracia
+    std::atomic<juce::int64> capSamples { 0 };
+    juce::CriticalSection capLock; nova::CapPhrase capPhrase; int capId = 0, capCounter = 0;
+    void recordCapture (const juce::MidiBuffer& midi, int numSamples);
 };

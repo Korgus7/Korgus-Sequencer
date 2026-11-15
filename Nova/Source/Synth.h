@@ -3,8 +3,9 @@
 #include "Dsp.h"
 #include "Fx.h"
 #include "PianoBank.h"
+#include "Wavetable.h"
 
-// Zvukovy motor Korgus Nova: 2 vrstvy na hlas (sinus, trojuholnik, pila, obdlznik, sum, pluck, FM, sampel, Roj),
+// Zvukovy motor Korgus Nova: 2 vrstvy na hlas (sinus, trojuholnik, pila, obdlznik, sum, pluck, FM, sampel, Roj, wavetable),
 // filter s obalkou, LFO, mono/glide, arpeggiator a spolocne efekty
 namespace nova
 {
@@ -23,6 +24,7 @@ namespace nova
         int ftype = 0; bool f24 = false; float cut = 20000, reso = 0.1f, fenv = 0, fa = 0.005f, fd = 0.3f, fs = 1, fr = 0.3f, aa = 0.003f, ad = 0.3f, as = 1, ar = 0.3f;
         int lshape = 0, ltgt = 0; float lrate = 5, ldepth = 0, ldelay = 0; int src = 0; int root = 60; bool loop = false;
         float eqLow = 0, eqMid = 0, eqMidF = 1000, eqHigh = 0; bool eqEnabled = true;
+        int wt = 0;                     // wavetable (wave 9): cislo tabulky; pozicia = color
     };
 
     struct Settings
@@ -66,6 +68,8 @@ namespace nova
             float cPh = 0, mPh = 0;
             // Roj (harmonicky roj): 32 sinusovych alikvot s injekcnym zamykanim na hlavnu fazu
             float rojTh[32] {}, rojPsi[32] {}, rojG[32] {}, rojC[32] {}; float rojPhi = 0, rojFocus = -1; int rojN = 0, rojTog = 0;   // rojC: vazba (obnovuje sa kazdy 2. vzorok)
+            // wavetable: vyhladena pozicia, aktualna uroven harmonickych a tabulka (pri zmene sa v bloku prelinaju)
+            float wtPos = -1; int wtMip = -1, wtTab = -1;
             // sampel
             const PianoBank::Sample* smp = nullptr; UserSamplePtr user; double pos = 0; float gain = 1, level = 1, dampCoef = 1, atk = 1, atkInc = 1; bool damping = false, noDamper = false;
             float velGain = 1, peak = 0;

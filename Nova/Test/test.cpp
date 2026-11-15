@@ -92,6 +92,110 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "inspire")
+    {
+        // Inspiracia: vytiahnutie poslednej frazy, MIDI, WAV, stav pre hostitela
+        int fails = 0;
+        auto check = [&fails] (bool ok, const char* what) { printf ("%s  %s\n", ok ? "OK  " : "CHYBA", what); if (! ok) ++fails; };
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int i = 0; i < 300 && ! q.synth.pianoReady(); ++i) Thread::sleep (50);
+        long long clock = 0;
+        auto run = [&] (double seconds, std::vector<std::tuple<double, int, int, int>> evs)   // (cas od zaciatku useku, 0 off/1 on/2 pedal, nota, vel)
+        {
+            const int total = (int) (seconds * sr);
+            for (int pos = 0; pos < total; pos += bs)
+            {
+                MidiBuffer mb;
+                for (auto& [t, kind, n, v] : evs)
+                {
+                    const int sp = (int) (t * sr);
+                    if (sp >= pos && sp < pos + bs)
+                    {
+                        if (kind == 1) mb.addEvent (MidiMessage::noteOn (1, n, (uint8) v), sp - pos);
+                        else if (kind == 0) mb.addEvent (MidiMessage::noteOff (1, n), sp - pos);
+                        else mb.addEvent (MidiMessage::controllerEvent (1, 64, v), sp - pos);
+                    }
+                }
+                AudioBuffer<float> blk (2, bs); blk.clear(); q.processBlock (blk, mb); clock += bs;
+            }
+        };
+        check (q.lastPhrase().notes.empty(), "nic nezahrane -> prazdna fraza");
+        // fraza A: 12 not, potom 6 s ticha, potom fraza B: 10 not
+        std::vector<std::tuple<double, int, int, int>> a, b;
+        for (int i = 0; i < 12; ++i) { a.push_back ({ 0.5 + i * 0.4, 1, 60 + i, 90 }); a.push_back ({ 0.5 + i * 0.4 + 0.3, 0, 60 + i, 0 }); }
+        run (6.0, a);
+        run (6.0, {});
+        for (int i = 0; i < 10; ++i) { b.push_back ({ 0.2 + i * 0.5, 1, 72 + (i % 5), 70 + i }); b.push_back ({ 0.2 + i * 0.5 + 0.35, 0, 72 + (i % 5), 0 }); }
+        run (6.0, b);
+        auto ph = q.lastPhrase();
+        check (ph.notes.size() == 10, "po 6 s pauze sa zachyti len posledna fraza (10 not)");
+        check (! ph.notes.empty() && ph.notes[0].t == 0.0 && ph.notes[0].k == 72, "prva nota frazy: t = 0, vyska 72");
+        check (! ph.notes.empty() && std::abs (ph.notes[1].t - 0.5) < 0.001 && std::abs (ph.notes[1].d - 0.35) < 0.002, "casovanie na vzorku: odstup 0.5 s, dlzka 0.35 s");
+        check (ph.bpm == 0 && ph.ppq < 0, "bez prehravania hostitela nie je bpm/ppq");
+        // len 3 nove noty po dlhej pauze -> doplni sa na aspon 8
+        run (6.0, {});
+        std::vector<std::tuple<double, int, int, int>> c;
+        for (int i = 0; i < 3; ++i) { c.push_back ({ 0.2 + i * 0.5, 1, 80 + i, 80 }); c.push_back ({ 0.2 + i * 0.5 + 0.3, 0, 80 + i, 0 }); }
+        run (3.0, c);
+        check (q.lastPhrase().notes.size() == 13, "po pauze len 3 noty -> siaha sa spat po dalsiu pauzu, kym je aspon 8 not (3 + 10)");
+        // pedal predlzi notu
+        {
+            std::vector<nova::CapEvent> ev;
+            auto E = [&] (double t, int kind, int n, int v) { nova::CapEvent e; e.t = t; e.kind = (uint8) kind; e.note = (uint8) n; e.vel = (uint8) v; ev.push_back (e); };
+            E (0, 3, 0, 127); E (1, 1, 60, 80); E (1.5, 2, 60, 0); E (3, 3, 0, 0);
+            auto nn = nova::CaptureBuffer::pairNotes (ev, 10);
+            check (nn.size() == 1 && std::abs (nn[0].d - 2.0) < 1e-9, "pedal CC64 predlzi notu do uvolnenia pedalu");
+        }
+        // cistenie
+        {
+            std::vector<nova::CapNote> in; nova::CapNote n; n.k = 60; n.v = 90; n.d = 0.3; n.t = 0.02; in.push_back (n);
+            n.k = 62; n.v = 20; n.d = 0.01; n.t = 0.5; in.push_back (n);                // nahodna
+            n.k = 60; n.v = 90; n.d = 0.3; n.t = 0.03; in.push_back (n);                // duplikat
+            n.k = 64; n.v = 90; n.d = 0.3; n.t = 0.59; in.push_back (n);
+            auto cl = nova::cleanupPhrase (in, 120, true);
+            check (cl.size() == 2 && cl[0].t == 0.0, "cistenie: nahodna a duplicitna nota prec, zaciatok 0");
+            check (cl.size() == 2 && std::abs (cl[1].t - 0.5975) < 0.002, "kvantizacia 50 %: 0.57 -> 0.5975 (mriezka 0.625, 1/16 = 0.125 s)");
+        }
+        // stav pre hostitela
+        const int seq0 = (int) q.params.getRawParameterValue ("capture_seq")->load();
+        q.publishCapture (ph);
+        MemoryBlock mb; q.getStateInformation (mb);
+        auto xml = AudioProcessor::getXmlFromBinary (mb.getData(), (int) mb.getSize());
+        auto* cx = xml != nullptr ? xml->getChildByName ("capture") : nullptr;
+        check (cx != nullptr && cx->getIntAttribute ("id") == seq0 + 1 && cx->getNumChildElements() == 10, "stav obsahuje <capture id=N> s 10 <n>");
+        check ((int) q.params.getRawParameterValue ("capture_seq")->load() == seq0 + 1, "parameter capture_seq sa zvysil");
+        { NovaProcessor r; r.setStateInformation (mb.getData(), (int) mb.getSize()); MemoryBlock m2; r.getStateInformation (m2);
+          auto x2 = AudioProcessor::getXmlFromBinary (m2.getData(), (int) m2.getSize());
+          check (x2 != nullptr && x2->getChildByName ("capture") == nullptr, "po nacitani projektu zachytenie nezostane"); }
+        // MIDI
+        File dir ("/tmp/inspire"); dir.createDirectory();
+        auto mf = dir.getChildFile ("t.mid");
+        check (nova::writePhraseMidi (ph, mf), "MIDI zapisane");
+        { FileInputStream is (mf); MidiFile r; check (r.readFrom (is) && r.getNumTracks() == 1, "MIDI sa da znova nacitat");
+          int on = 0; if (r.getNumTracks() == 1) for (auto* e : *r.getTrack (0)) if (e->message.isNoteOn()) ++on;
+          check (on == 10, "MIDI ma 10 not"); }
+        // WAV
+        auto wf = dir.getChildFile ("t.wav");
+        const bool okw = nova::renderPhraseWav (ph, q.currentSettings(), { q.synth.getUserSample (0), q.synth.getUserSample (1) }, wf);
+        check (okw && wf.existsAsFile(), "WAV zapisany");
+        { AudioFormatManager fm; fm.registerBasicFormats(); std::unique_ptr<AudioFormatReader> r (fm.createReaderFor (wf));
+          check (r != nullptr && r->sampleRate == 48000 && r->numChannels == 2 && r->bitsPerSample == 24, "WAV 48 kHz stereo 24 bit");
+          if (r) { AudioBuffer<float> b (2, (int) r->lengthInSamples); r->read (&b, 0, (int) r->lengthInSamples, 0, true, true);
+            bool fin = true; for (int ch = 0; ch < 2; ++ch) for (int i = 0; i < b.getNumSamples(); ++i) if (! std::isfinite (b.getSample (ch, i))) fin = false;
+            const float pk = b.getMagnitude (0, b.getNumSamples());
+            printf ("     WAV %.2f s, peak %.3f\n", r->lengthInSamples / 48000.0, pk);
+            check (fin && pk > 0.01f && pk <= 1.0f && r->lengthInSamples > 48000 * 7, "WAV nie je ticho, konecne hodnoty, + dozvuk"); } }
+        // editor: tlacidlo v oboch rezimoch
+        for (int m = 0; m < 2; ++m)
+        {
+            q.uiMode = m;
+            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);
+            auto img = ed->createComponentSnapshot (ed->getLocalBounds());
+            File f (dir.getChildFile (m ? "ed_adv.png" : "ed_simple.png")); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
+        }
+        printf (fails == 0 ? "INSPIRE: vsetko v poriadku\n" : "INSPIRE: %d chyb\n", fails);
+        return fails;
+    }
     if (argc > 1 && String (argv[1]) == "calib")
     {
         NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
@@ -290,6 +394,183 @@ int main (int argc, char** argv)
         render ("Roj lead", lead, 7.0, "/home/claude/roj/inspire_lead.wav");
         std::vector<Ev> cloud; for (int m : { 57, 60, 64 }) cloud.push_back ({ 0.0, 9.0, m, 0.8f });
         render ("Roj oblak", cloud, 16.0, "/home/claude/roj/inspire_oblak.wav");
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "wttest")
+    {
+        // Wavetable (wave 9): cas stavby banky, NaN a urovne cez klaviaturu, alias pri C7/C8, CPU na hlas s unisonom 8
+        const auto tb = Time::getMillisecondCounterHiRes();
+        const auto& bank = nova::WtBank::get();
+        printf ("banka: %.0f ms, %.1f MB\n", Time::getMillisecondCounterHiRes() - tb, (double) bank.data.size() * 4.0 / 1048576.0);
+        auto make = [] (NovaProcessor& q, double rate)
+        {
+            q.setPlayConfigDetails (0, 2, rate, 256); q.prepareToPlay (rate, 256);
+            for (auto id : { "ch_on", "dl_on", "rv_on", "b_on", "tube", "veltrack" }) setParam (q, id, 0);
+            setParam (q, "a_wave", 9); setParam (q, "a_level", 1); setParam (q, "a_uni", 1); setParam (q, "a_as", 1); setParam (q, "a_aa", 0.002f);
+        };
+        auto render = [] (NovaProcessor& q, double rate, std::initializer_list<int> notes, double secs, double* cpu = nullptr)
+        {
+            const int total = (int) (secs * rate); AudioBuffer<float> out (2, total); out.clear();
+            for (int pos = 0; pos < total; pos += 256)
+            {
+                const int n = std::min (256, total - pos); MidiBuffer mb;
+                if (pos == 0) for (int k : notes) mb.addEvent (MidiMessage::noteOn (1, k, 0.8f), 0);
+                AudioBuffer<float> blk (2, n); blk.clear();
+                const auto t0 = Time::getHighResolutionTicks();
+                q.processBlock (blk, mb);
+                if (cpu != nullptr && pos > total / 4) *cpu += Time::highResolutionTicksToSeconds (Time::getHighResolutionTicks() - t0);
+                for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+            }
+            MidiBuffer mb; mb.addEvent (MidiMessage::allSoundOff (1), 0); mb.addEvent (MidiMessage::allNotesOff (1), 0);
+            for (int k : notes) mb.addEvent (MidiMessage::noteOff (1, k), 0);
+            AudioBuffer<float> blk (2, 256); for (int k = 0; k < 300; ++k) { blk.clear(); q.processBlock (blk, mb); mb.clear(); }
+            return out;
+        };
+        // 1) vsetky tabulky x pozicie x noty: NaN, spicka, RMS
+        {
+            NovaProcessor q; make (q, sr);
+            bool nan = false; float rLo = 99, rHi = -99, pkMax = 0; int cnt = 0;
+            for (int tab = 0; tab < 8; ++tab)
+            {
+                float tLo = 99, tHi = -99;
+                for (float pos : { 0.0f, 0.33f, 0.66f, 1.0f })
+                    for (int note = 24; note <= 108; note += 12)
+                    {
+                        setParam (q, "a_wt", (float) tab); setParam (q, "a_color", pos);
+                        auto o = render (q, sr, { note }, 0.6);
+                        const int n0 = (int) (0.2 * sr), nn = o.getNumSamples() - n0;
+                        for (int c = 0; c < 2; ++c) for (int i = 0; i < o.getNumSamples(); ++i) if (! std::isfinite (o.getSample (c, i))) nan = true;
+                        const float rms = Decibels::gainToDecibels (o.getRMSLevel (0, n0, nn)); pkMax = std::max (pkMax, o.getMagnitude (0, o.getNumSamples()));
+                        tLo = std::min (tLo, rms); tHi = std::max (tHi, rms); ++cnt;
+                    }
+                printf ("tabulka %d: RMS %.1f .. %.1f dB\n", tab, tLo, tHi); rLo = std::min (rLo, tLo); rHi = std::max (rHi, tHi);
+            }
+            for (int w : { 2, 3, 0 }) { setParam (q, "a_wave", (float) w); auto o = render (q, sr, { 60 }, 0.6); printf ("porovnanie wave %d C4: RMS %.1f dB\n", w, Decibels::gainToDecibels (o.getRMSLevel (0, (int) (0.2 * sr), (int) (0.4 * sr)))); }
+            printf ("renderov %d, NaN: %s, RMS %.1f .. %.1f dB, max spicka %.2f\n", cnt, nan ? "ANO!" : "nie", rLo, rHi, pkMax);
+        }
+        // 2) alias: pilovity ramec (Analog, pozicia 0), energia mimo harmonickych voci celku
+        auto alias = [&] (double rate, int note, int tab, float pos, int uni, bool sweep)
+        {
+            NovaProcessor q; make (q, rate);
+            setParam (q, "a_wt", (float) tab); setParam (q, "a_color", pos); setParam (q, "a_uni", (float) uni); setParam (q, "a_spread", 0);
+            if (sweep) { setParam (q, "a_ldepth", 1); setParam (q, "a_lrate", 0.5f); }
+            const int order = 16, N = 1 << order;
+            auto o = render (q, rate, { note }, 0.3 + (double) N / rate + 0.05);
+            std::vector<float> d ((size_t) N * 2, 0.0f);
+            const float* x = o.getReadPointer (0) + (int) (0.3 * rate);
+            for (int i = 0; i < N; ++i)
+            {
+                const double a = 2.0 * MathConstants<double>::pi * i / (N - 1);
+                d[(size_t) i] = x[i] * (float) (0.35875 - 0.48829 * std::cos (a) + 0.14128 * std::cos (2 * a) - 0.01168 * std::cos (3 * a));
+            }
+            dsp::FFT fft (order); fft.performFrequencyOnlyForwardTransform (d.data());
+            const double f0 = 440.0 * std::pow (2.0, (note - 69) / 12.0), binHz = rate / N;
+            double tot = 0, off = 0, offPk = 0, pk = 0;
+            for (int b = 4; b < N / 2; ++b)
+            {
+                const double f = b * binHz, e = (double) d[(size_t) b] * d[(size_t) b];
+                const double hn = std::round (f / f0), dist = std::abs (f - hn * f0) / binHz;
+                tot += e; pk = std::max (pk, e);
+                if (hn < 1 || dist > 8.0) { off += e; offPk = std::max (offPk, e); }
+            }
+            return std::pair<double, double> (10.0 * std::log10 (off / tot + 1e-30), 10.0 * std::log10 (offPk / pk + 1e-30));
+        };
+        for (double rate : { 22050.0, 44100.0, 48000.0, 96000.0, 192000.0 })
+            for (int note : { 36, 84, 96, 108 })
+            {
+                const auto r = alias (rate, note, 0, 0.0f, 1, false);
+                printf ("alias %6.0f Hz nota %3d (pila): mimo harmonickych %.1f dB, najvyssia zlozka %.1f dB\n", rate, note, r.first, r.second);
+            }
+        for (int tab = 1; tab < 8; ++tab) { const auto r = alias (48000.0, 96, tab, 1.0f, 1, false); const auto r2 = alias (48000.0, 108, tab, 0.5f, 1, false);
+            printf ("alias 48000 tabulka %d: C7 poz 1.0 %.1f dB, C8 poz 0.5 %.1f dB\n", tab, r.first, r2.first); }
+        // 4) CPU: 1 a 8 hlasov, unison 8; porovnanie s pilou (wave 2)
+        for (int wave : { 9, 2 })
+            for (int voices : { 1, 8 })
+            {
+                NovaProcessor q; make (q, sr); setParam (q, "a_wave", (float) wave); setParam (q, "a_uni", 8); setParam (q, "a_spread", 20); setParam (q, "a_color", 0.37f);
+                double cpu = 0; const double secs = 8.0;
+                std::initializer_list<int> one { 48 }, eight { 36, 43, 48, 52, 55, 60, 64, 67 };
+                render (q, sr, voices == 1 ? one : eight, secs, &cpu);
+                printf ("CPU wave %d, hlasov %d x unison 8: %.2f %% (x%.0f realtime)\n", wave, voices, 100.0 * cpu / (secs * 0.75), secs * 0.75 / cpu);
+            }
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "wtsur")
+    {
+        // Prekvap ma: kolko zo 60 pokusov pre pad / bas / lead vyberie WT, urovne; Obmena meni poziciu
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int ty : { 0, 3, 4 })
+        {
+            int wt = 0; float lo = 99, hi = -99, dpos = 0;
+            for (int i = 0; i < 60; ++i)
+            {
+                q.surprise (ty); auto p = q.currentPatch();
+                if (p.values.at ("a_wave") == 9.0f)
+                {
+                    ++wt; const float l = NovaProcessor::measureLevel (p) + p.values.at ("p_gain"); lo = std::min (lo, l); hi = std::max (hi, l);
+                    q.mutate(); dpos += std::abs (q.currentPatch().values.at ("a_color") - p.values.at ("a_color"));
+                }
+            }
+            printf ("typ %d: WT %d/60, uroven %.1f .. %.1f dB, priemerna zmena pozicie pri Obmene %.3f\n", ty, wt, lo, hi, wt > 0 ? dpos / (float) wt : 0.0f);
+        }
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "wtshot")
+    {
+        // snimky rozsireneho editora s displejom hlasov: WT, Roj, pila s unisonom, klavir, FM  -> /home/claude/wt/shot_*.png
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        q.uiMode = 1;
+        int k = 0;
+        for (const char* nm : { "WT Vokál pad", "Roj Mellotron", "Teplý pad", "Koncertné piano", "Elektrické piano", "WT Analog bas" })
+        {
+            q.loadPreset (String ("f:") + String::fromUTF8 (nm));
+            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true);
+            Thread::sleep (100);
+            auto img = ed->createComponentSnapshot (ed->getLocalBounds());
+            File f ("/home/claude/wt/shot_" + String (k++) + ".png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
+            printf ("%s -> %s (%d x %d)\n", nm, f.getFullPathName().toRawUTF8(), img.getWidth(), img.getHeight());
+        }
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "wtwav")
+    {
+        // ukazky WT zvukov do /home/claude/wt/*.wav (cez celu efektovu retaz)
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        struct Ev { double t, len; int note; float vel; };
+        auto render = [&] (const char* preset, const std::vector<Ev>& evs, double dur, const char* file)
+        {
+            q.loadPreset (String ("f:") + String::fromUTF8 (preset));
+            const int total = (int) (dur * sr); AudioBuffer<float> out (2, total); out.clear();
+            for (int pos = 0; pos < total; pos += bs)
+            {
+                const int n = std::min (bs, total - pos); MidiBuffer mb;
+                for (auto& e : evs)
+                {
+                    const int on = (int) (e.t * sr), off = (int) ((e.t + e.len) * sr);
+                    if (on >= pos && on < pos + n) mb.addEvent (MidiMessage::noteOn (1, e.note, e.vel), on - pos);
+                    if (off >= pos && off < pos + n) mb.addEvent (MidiMessage::noteOff (1, e.note), off - pos);
+                }
+                AudioBuffer<float> blk (2, n); blk.clear(); q.processBlock (blk, mb);
+                for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+            }
+            float pk = 0; bool nan = false;
+            for (int c = 0; c < 2; ++c) for (int i = 0; i < total; ++i) { const float x = out.getSample (c, i); if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); }
+            printf ("%-16s -> %s zvuk '%s' spicka %.2f RMS %.1f dB %s\n", preset, file, q.currentName.toRawUTF8(), pk, Decibels::gainToDecibels (out.getRMSLevel (0, 0, total)), nan ? "NAN!" : "");
+            File wf (file); wf.deleteFile();
+            WavAudioFormat w; std::unique_ptr<OutputStream> os (wf.createOutputStream().release());
+            auto wr = w.createWriterFor (os, AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (24));
+            wr->writeFromAudioSampleBuffer (out, 0, total);
+        };
+        std::vector<Ev> pad;
+        const int ch[4][4] = { { 45, 57, 60, 64 }, { 41, 57, 60, 65 }, { 48, 55, 60, 64 }, { 43, 55, 59, 62 } };
+        for (int c = 0; c < 4; ++c) for (int m : ch[c]) pad.push_back ({ c * 3.2, 3.0, m, m < 50 ? 0.6f : 0.75f });
+        render ("WT Vokál pad", pad, 16.0, "/home/claude/wt/wt_vokal_pad.wav");
+        std::vector<Ev> lead; const int lm[] = { 69, 72, 74, 76, 74, 72, 74, 69, 81, 79, 76, 72 }; const double ld[] = { 0.4, 0.4, 0.4, 1.2, 0.4, 0.4, 0.8, 1.2, 0.4, 0.4, 0.4, 1.6 };
+        double t = 0; for (int i = 0; i < 12; ++i) { lead.push_back ({ t, ld[i] * 0.95, lm[i], 0.8f }); t += ld[i]; }
+        render ("WT Digitál lead", lead, 10.0, "/home/claude/wt/wt_digital_lead.wav");
+        std::vector<Ev> bass; const int bm[] = { 33, 33, 45, 33, 31, 31, 43, 36, 29, 29, 41, 29, 28, 28, 40, 35 };
+        for (int i = 0; i < 16; ++i) bass.push_back ({ i * 0.3, 0.26, bm[i], i % 4 == 0 ? 0.9f : 0.7f });
+        render ("WT Analog bas", bass, 5.6, "/home/claude/wt/wt_analog_bas.wav");
         return 0;
     }
     if (argc > 1 && String (argv[1]) == "pitch")

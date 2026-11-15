@@ -50,7 +50,7 @@ namespace nova
                 { "Jasný klavír", "Bright Piano" }, { "Klavír v hale", "Hall Piano" }, { "Klavír a pad", "Piano & Pad" }, { "Lo-fi klavír", "Lo-fi Piano" }, { "Kalné EP", "Dusty EP" }, { "Zvonivé EP", "Bell EP" }, { "Synthwave klávesy", "Synthwave Keys" }, { "Funky klávesy", "Funky Keys" }, { "Rockový organ", "Rock Organ" }, { "Kostolný organ", "Church Organ" }, { "Ambientný oblak", "Ambient Cloud" }, { "Temný pad", "Dark Pad" }, { "Zimný pad", "Winter Pad" }, { "Synthwave pad", "Synthwave Pad" }, { "Sklenené zvony", "Glass Bells" }, { "Dych", "Breath" }, { "Pomalé sláčiky", "Slow Strings" }, { "Pizzicato", "Pizzicato" }, { "Violončelo", "Cello" }, { "Orchester", "Orchestra" }, { "Nylonová gitara", "Nylon Guitar" }, { "Kalimba", "Kalimba" }, { "Synth pluck", "Synth Pluck" }, { "Marimba", "Marimba" }, { "Pluck v ozvene", "Echo Pluck" }, { "Hudobná skrinka", "Music Box" }, { "Vibrafón", "Vibraphone" }, { "Zvony", "Tubular Bells" }, { "808 bas", "808 Bass" }, { "Acid bas", "Acid Bass" }, { "Synthwave bas", "Synthwave Bass" }, { "Kontrabas", "Upright Bass" }, { "Reese bas", "Reese Bass" }, { "Pílový lead", "Saw Lead" }, { "Píšťala", "Flute" }, { "Retro lead", "Retro Lead" }, { "Spevavý lead", "Singing Lead" }, { "Roj Mellotron", "Swarm Mellotron" }, { "Roj zvony", "Swarm Bells" }, { "Roj klávesy", "Swarm Keys" }, { "Roj lead", "Swarm Lead" }, { "Roj oblak", "Swarm Cloud" },
                 // vrstvy
                 { "VRSTVA A", "LAYER A" }, { "VRSTVA B", "LAYER B" }, { "Vrstva A", "Layer A" }, { "Vrstva B", "Layer B" },
-                { "Sín|Troj|Píla|Obdĺž|Šum|Pluck|FM|Sampel|Roj", "Sine|Tri|Saw|Square|Noise|Pluck|FM|Sample|Swarm" },
+                { "Sín|Troj|Píla|Obdĺž|Šum|Pluck|FM|Smp|Roj|WT", "Sine|Tri|Saw|Sqr|Noise|Pluck|FM|Smp|Swarm|WT" },
                 { "Oktáva", "Octave" }, { "Poltón", "Semi" }, { "Jemne", "Fine" }, { "Unison", "Unison" }, { "Rozlad.", "Spread" },
                 { "Úroveň", "Level" }, { "Panoráma", "Pan" }, { "Cutoff", "Cutoff" }, { "Rezon.", "Reso" }, { "Obálka", "Env amt" },
                 { "Nábeh", "Attack" }, { "Pokles", "Decay" }, { "Držanie", "Sustain" }, { "Doznenie", "Release" }, { "Rýchlosť", "Rate" },
@@ -108,13 +108,33 @@ namespace nova
                 { "Mono", "Mono" }, { "Glide", "Glide" }, { "Morph A–B", "Morph A–B" }, { "Tmavý–Jasný", "Dark–Bright" }, { "Master filter", "Master filter" },
                 { "Typ", "Type" }, { "Úroveň zvuku", "Sound level" },
                 // volby
-                { "Sínus|Trojuholník|Píla|Obdĺžnik|Šum|Pluck|FM|Sampel|Roj", "Sine|Triangle|Saw|Square|Noise|Pluck|FM|Sample|Swarm" },
+                { "Sínus|Trojuholník|Píla|Obdĺžnik|Šum|Pluck|FM|Sampel|Roj|Wavetable", "Sine|Triangle|Saw|Square|Noise|Pluck|FM|Sample|Swarm|Wavetable" },
+                // wavetable a displej hlasov
+                { "Wavetable", "Wavetable" }, { "WT", "WT" }, { "Tabuľka", "Table" }, { "Pozícia", "Position" }, { "PWM", "PWM" }, { "Harmonický", "Harmonic" },
+                { "Vokál", "Vowel" }, { "Digitál", "Digital" }, { "Sklo", "Glass" }, { "Spev", "Choir" }, { "ALIKVOTY", "PARTIALS" }, { "1 HLAS", "1 VOICE" },
+                { "WT Vokál pad", "WT Vowel Pad" }, { "WT Digitál lead", "WT Digital Lead" }, { "WT Analog bas", "WT Analog Bass" },
+                { "Tabuľka tvarov vlny: Analóg (píla–obdĺžnik–pulz), PWM, Harmonický (rezonančný prechod), Vokál (A-E-I-O-U), Digitál, Organ, Sklo, Spev",
+                  "Wave-shape table: Analog (saw–square–pulse), PWM, Harmonic (resonant sweep), Vowel (A-E-I-O-U), Digital, Organ, Glass, Choir" },
+                { "Cieľ LFO: Výška = vibrato, Filter, Hlasitosť = tremolo, Panoráma, Farba = hýbe gombíkom Farba (šírka pulzu, FM index, Focus, pozícia WT)",
+                  "LFO target: Pitch = vibrato, Filter, Volume = tremolo, Pan, Color = moves the Color knob (pulse width, FM index, Focus, WT position)" },
+                { "Pozícia vo wavetable – plynulý prechod medzi 64 tvarmi vlny. Hýbe ňou aj Obálka (filtra) a LFO s cieľom Farba.",
+                  "Wavetable position – smooth morph through 64 wave shapes. Also moved by Env amt (filter envelope) and an LFO with target Color." },
+                { "Displej hlasov: zvislé čiary = hlasy unisona (vodorovne rozladenie v centoch, výška = hlasitosť hlasu). Pri WT je v pozadí aktuálny tvar vlny, pri Roji alikvoty.",
+                  "Voice display: vertical lines = unison voices (horizontal = detune in cents, height = voice level). WT shows the current wave shape behind, Swarm shows its partials." },
                 { "Roj", "Swarm" }, { "Focus", "Focus" }, { "Rozptyl", "Scatter" }, { "Bohatosť", "Richness" },
                 { "Sínus", "Sine" }, { "Trojuholník", "Triangle" }, { "Píla", "Saw" }, { "Obdĺžnik", "Square" }, { "Šum", "Noise" }, { "Sampel", "Sample" },
                 { "Dolná", "Low-pass" }, { "Pásmová", "Band-pass" }, { "Horná", "High-pass" }, { "Telo", "Body" },
                 { "Troj.", "Tri" }, { "Obdĺž.", "Square" }, { "Náhod.", "Random" }, { "Výška", "Pitch" }, { "Hlasit.", "Volume" }, { "Panor.", "Pan" },
                 { "Vlastný WAV", "Own WAV" }, { "Voľne", "Free" }, { "1/8 bodka", "1/8 dotted" }, { "1/8 triola", "1/8 triplet" },
                 { "Hore", "Up" }, { "Dole", "Down" }, { "Hore/Dole", "Up/Down" }, { "Ako hrám", "As played" }, { "Náhodne", "Random" }, { "Akord", "Chord" },
+                // Inspiracia (zachytenie toho, co si prave zahral)
+                { "✦ Inšpirácia", "✦ Inspiration" },
+                { "Zachytí, čo si práve zahral (aj bez nahrávania) – v Korgus Sequenceri to vloží do stopy, inde ponúkne uloženie MIDI alebo WAV",
+                  "Captures what you just played (even without recording) – in Korgus Sequencer it goes into the track, elsewhere you can save it as MIDI or WAV" },
+                { "Zatiaľ si nič nezahral", "You haven't played anything yet" }, { "Pridané do stopy", "Added to the track" },
+                { "Uložiť ako MIDI…", "Save as MIDI…" }, { "Uložiť ako WAV (podklad pre Suno)…", "Save as WAV (backing for Suno)…" },
+                { "Ukladám…", "Saving…" }, { "Uložené: ", "Saved: " }, { "Nepodarilo sa uložiť", "Couldn't save" },
+                { "Ukladám zvuk…", "Saving sound…" },
             };
             return t;
         }
@@ -128,7 +148,8 @@ namespace nova
         static const juce::File d = []
         {
             const auto docs = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
-            const auto nd = docs.getChildFile ("Korgus Inspire"), od = docs.getChildFile ("Korgus Nova");
+            const auto nd = docs.getChildFile ("Korgus Inspiria"), oi = docs.getChildFile ("Korgus Inspire"), od = docs.getChildFile ("Korgus Nova");
+            if (! nd.exists() && oi.isDirectory()) oi.moveFileTo (nd);
             if (! nd.exists() && od.isDirectory()) od.moveFileTo (nd);
             return nd;
         }();

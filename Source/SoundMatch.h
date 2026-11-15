@@ -27,6 +27,9 @@ namespace SoundMatch
     // priecinok diagnostiky: Dokumenty\Korgus Sequencer\Ucenie
     juce::File diagFolder();
 
+    // stav hostovaneho Inspire (VST3 obal alebo holy XML) -> strom stavu (napr. <capture> pre "Inspiraciu")
+    juce::ValueTree decodeInspireState (const juce::MemoryBlock& state);
+
     // src a insp musia byt pripravene (prepareToPlay); zdroj sa sam znova pripravi na 48 kHz (na hlavnom vlakne); vola sa na pozadi
     Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp,
                 const juce::MemoryBlock& inspState, bool allowSample, const juce::String& srcName, Progress progress);

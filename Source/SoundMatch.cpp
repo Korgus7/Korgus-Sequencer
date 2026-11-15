@@ -511,7 +511,8 @@ namespace
     std::vector<Dim> dims()
     {
         return {
-            { "a_wave", 0, 0, Choice, { 0, 1, 2, 3, 4, 5, 6, 7, 8 } },
+            { "a_wave", 0, 0, Choice, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } },
+            { "a_wt", 0, 0, Choice, { 0, 1, 2, 3, 4, 5, 6, 7 } },
             { "a_oct", -2, 1, Int, {} },
             { "a_uni", 1, 8, Int, {} },
             { "a_spread", 0, 40, Lin, {} },
@@ -899,7 +900,7 @@ namespace
     const std::vector<Family>& families()
     {
         static const std::vector<Family> f = {
-            { "píla", { 2 } }, { "obdĺžnik", { 3 } }, { "FM", { 6 } }, { "pluck", { 5 } }, { "sínus a trojuholník", { 0, 1 } }, { "klavír", { 7 } }, { "roj", { 8 } } };
+            { "píla", { 2 } }, { "obdĺžnik", { 3 } }, { "FM", { 6 } }, { "pluck", { 5 } }, { "sínus a trojuholník", { 0, 1 } }, { "klavír", { 7 } }, { "roj", { 8 } }, { "wavetable", { 9 } } };
         return f;
     }
     int familyOf (int wave)
@@ -1093,12 +1094,12 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
     // 2) hladanie nastavenia Inspire
     StateCodec codec;
     auto tree0 = codec.decode (inspState);
-    if (! tree0.isValid()) { res.error = juce::String::fromUTF8 ("Stav Inspire sa nedá prečítať."); return res; }
+    if (! tree0.isValid()) { res.error = juce::String::fromUTF8 ("Stav Inspirie sa nedá prečítať."); return res; }
     Patch patch (tree0);
     patch.codec = &codec;
     dlog ("Inspire stav: vst3=" + juce::String ((int) codec.vst3) + " strom=" + tree0.getType().toString() + " ver="
           + (tree0.hasProperty ("ver") ? tree0.getProperty ("ver").toString() : juce::String ("CHYBA")) + " pocet id=" + juce::String ((int) patch.byId.size()));
-    if (! tree0.hasProperty ("ver")) { res.error = juce::String::fromUTF8 ("Inspire má inú verziu – aktualizuj program."); dlog ("END: chyba 'ver' v stave Inspire"); return res; }
+    if (! tree0.hasProperty ("ver")) { res.error = juce::String::fromUTF8 ("Inspiria má inú verziu – aktualizuj program."); dlog ("END: chyba 'ver' v stave Inspire"); return res; }
     patch.tree.setProperty ("smpB", juce::String(), nullptr);
     patch.tree.setProperty ("smpBName", juce::String(), nullptr);
     const auto D = dims();
@@ -1217,7 +1218,7 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
             dlog ("Inspire chybajuce id (" + juce::String ((int) patch.missing.size()) + "): " + (ms.isEmpty() ? juce::String ("ziadne") : ms.trim()));
             if (patch.missing.count ("p_gain") > 0 || patch.missing.count ("a_wave") > 0)
             {
-                res.error = juce::String::fromUTF8 ("Inspire má inú verziu – aktualizuj program."); dlog ("END: " + res.error); return res;
+                res.error = juce::String::fromUTF8 ("Inspiria má inú verziu – aktualizuj program."); dlog ("END: " + res.error); return res;
             }
         }
         const float l = evalPatch();
@@ -1230,7 +1231,7 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
     // tovarenske zvuky Inspire ako startovacie body - rychle hodnotenie (nota 60)
     std::vector<Cand> seeds;
     {
-        const juce::String msg = juce::String::fromUTF8 ("Porovnávam so zvukmi Inspire…");
+        const juce::String msg = juce::String::fromUTF8 ("Porovnávam so zvukmi Inspirie…");
         for (int i = 0; i < nProg; ++i)
         {
             juce::MemoryBlock ps;
@@ -1655,5 +1656,11 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
     dbgf ("DONE evals=%d (quick %d) cost=%.0f/%.0f\n", res.evals, quickEvals, cost, totalCost);
     prog (1.0, juce::String::fromUTF8 ("Hotovo"));
     return res;
+}
+
+juce::ValueTree decodeInspireState (const juce::MemoryBlock& state)
+{
+    StateCodec c;
+    return c.decode (state);
 }
 }

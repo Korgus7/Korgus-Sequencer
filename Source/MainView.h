@@ -67,12 +67,25 @@ private:
     struct ParamWatch : juce::AudioProcessorListener
     {
         ParamWatch (MainView& m, juce::String t, int w, juce::AudioProcessor* p) : mv (m), track (std::move (t)), which (w), proc (p) {}
-        void audioProcessorParameterChanged (juce::AudioProcessor*, int i, float v) override { mv.paramTouched (track, which, i, v, 0); }
+        void audioProcessorParameterChanged (juce::AudioProcessor*, int i, float v) override
+        {
+            if (i == captureIdx) mv.inspireCaptured (track);   // "Inspiracia" v Korgus Inspire (skryty parameter capture_seq)
+            mv.paramTouched (track, which, i, v, 0);
+        }
         void audioProcessorChanged (juce::AudioProcessor*, const ChangeDetails&) override {}
         void audioProcessorParameterChangeGestureBegin (juce::AudioProcessor*, int i) override { mv.paramTouched (track, which, i, -1, 1); }
         void audioProcessorParameterChangeGestureEnd (juce::AudioProcessor*, int i) override { mv.paramTouched (track, which, i, -1, 2); }
-        MainView& mv; juce::String track; int which; juce::AudioProcessor* proc;
+        MainView& mv; juce::String track; int which; juce::AudioProcessor* proc; int captureIdx = -1;
     };
+    void inspireCaptured (const juce::String& track);          // z ktoreho kolvek vlakna; spracuje sa na hlavnom
+    void onInspireCapture (const juce::String& track);
+    std::map<juce::String, int> inspLast;
+    // len to, co hrac zahral (MIDI klavesy, klavesnica pocitaca) - nie prehravanie piesne; pre "Inspiraciu"
+    struct LiveEv { double t; int k; float v; bool on; double pos; };
+    std::map<juce::String, std::vector<LiveEv>> liveHist;
+    juce::String selTrackId;
+    void recordLive (const juce::String& track, int k, float v, bool on, double pos);
+    juce::Array<juce::var> livePhrase (const juce::String& track, double& ppqOut);                      // posledne spracovane id zachytenia pre stopu
     void paramTouched (const juce::String& track, int which, int index, float v, int kind);
     void watchPlugin (const juce::String& track, int which, juce::AudioProcessor* p);
     void unwatchPlugin (const juce::String& track, int which);

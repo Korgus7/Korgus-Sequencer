@@ -152,6 +152,7 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
         auto o = obj();
         put (o, "pitch", pitch); put (o, "vel", vel); put (o, "on", on); put (o, "pos", pos);
         emit ("midiIn", o);
+        recordLive (selTrackId, pitch, vel, on, engine.isPlaying() ? pos : -1.0);
     };
 
     loadSession();
@@ -639,10 +640,79 @@ void MainView::onNote (const juce::var& v)
 {
     const int slot = engine.getOrCreateSlot (v["track"].toString());
     engine.liveNote (slot, (int) v["pitch"], (float) (double) v.getProperty ("vel", 0.8), (bool) v["on"]);
+    recordLive (v["track"].toString(), (int) v["pitch"], (float) (double) v.getProperty ("vel", 0.8), (bool) v["on"],
+                engine.isPlaying() ? engine.getPosition() : -1.0);
+}
+
+void MainView::recordLive (const juce::String& track, int k, float v, bool on, double pos)
+{
+    if (track.isEmpty()) return;
+    auto& h = liveHist[track];
+    const double t = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    h.push_back ({ t, k, v, on, pos });
+    if (h.size() > 20000 || (h.size() > 1 && t - h.front().t > 600.0))
+    {
+        size_t cut = 0;
+        while (cut < h.size() && (h.size() - cut > 20000 || t - h[cut].t > 600.0)) ++cut;
+        h.erase (h.begin(), h.begin() + (std::ptrdiff_t) cut);
+    }
+}
+
+// posledna fraza: po poslednej pauze > 4 s (aspon 8 not, najviac 3 minuty); pedal predlzuje noty
+juce::Array<juce::var> MainView::livePhrase (const juce::String& track, double& ppqOut)
+{
+    ppqOut = -1.0;
+    juce::Array<juce::var> res;
+    const auto it = liveHist.find (track);
+    if (it == liveHist.end()) return res;
+    struct N { double s, e; int k, v; double pos; };
+    std::vector<N> ns; std::map<int, size_t> open; std::vector<size_t> held; bool ped = false;
+    const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    for (const auto& ev : it->second)
+    {
+        if (ev.k == -64)
+        {
+            ped = ev.on;
+            if (! ped) { for (auto i : held) ns[i].e = ev.t; held.clear(); }
+            continue;
+        }
+        if (ev.on && ev.v > 0.0f)
+        {
+            if (auto o = open.find (ev.k); o != open.end()) { ns[o->second].e = ev.t; open.erase (o); }
+            open[ev.k] = ns.size();
+            ns.push_back ({ ev.t, -1.0, ev.k, juce::jlimit (1, 127, (int) std::round (ev.v * 127.0f)), ev.pos });
+        }
+        else if (auto o = open.find (ev.k); o != open.end())
+        {
+            if (ped) held.push_back (o->second); else ns[o->second].e = ev.t;
+            open.erase (o);
+        }
+    }
+    for (auto& n : ns) if (n.e < 0) n.e = juce::jmax (n.s + 0.1, now);
+    if (ns.empty()) return res;
+    // zaciatok frazy: posledna medzera > 4 s, pricom fraza ma aspon 8 not
+    size_t start = 0; double maxEnd = ns[0].e;
+    std::vector<size_t> gaps;
+    for (size_t j = 1; j < ns.size(); ++j) { if (ns[j].s - maxEnd > 4.0) gaps.push_back (j); maxEnd = juce::jmax (maxEnd, ns[j].e); }
+    for (auto g = gaps.rbegin(); g != gaps.rend(); ++g) if (ns.size() - *g >= 8) { start = *g; break; }
+    double lastEnd = 0; for (size_t j = start; j < ns.size(); ++j) lastEnd = juce::jmax (lastEnd, ns[j].e);
+    while (start + 1 < ns.size() && ns[start].s < lastEnd - 180.0) ++start;
+    const double t0 = ns[start].s;
+    bool allPos = true;
+    for (size_t j = start; j < ns.size(); ++j)
+    {
+        if (ns[j].pos < 0) allPos = false;
+        juce::Array<juce::var> a;
+        a.add (ns[j].s - t0); a.add (ns[j].e - ns[j].s); a.add (ns[j].k); a.add (ns[j].v);
+        res.add (a);
+    }
+    if (allPos) ppqOut = ns[start].pos / 4.0;   // kroky 1/16 -> doby
+    return res;
 }
 
 void MainView::onSelTrack (const juce::var& v)
 {
+    selTrackId = v["track"].toString();
     engine.setSelectedSlot (engine.getOrCreateSlot (v["track"].toString()));
     engine.setMidiFilter (v.getProperty ("midiIn", "").toString());
 }
@@ -700,7 +770,22 @@ std::unique_ptr<juce::AudioPluginInstance> MainView::createInstance (const juce:
     juce::String err;
     const bool builtin = BuiltinFx::isBuiltin (d);
     if (! builtin) CrashGuard::beginLoad (d.createIdentifierString(), d.name);
-    auto inst = builtin ? BuiltinFx::create (d) : formatManager.createPluginInstance (d, sr, bs, err);
+    // nase pluginy (Korgus Inspire...) vzdy z priecinka programu - stara kopia v priecinku VST3 by mala prednost
+    juce::PluginDescription dd (d);
+    if (! builtin && d.pluginFormatName == "VST3" && juce::File::isAbsolutePath (d.fileOrIdentifier))
+    {
+        const juce::File cur (d.fileOrIdentifier);
+        auto fname = cur.getFileName();
+        const bool renamed = fname.equalsIgnoreCase ("Korgus Inspire.vst3");   // Korgus Inspire -> Korgus Inspiria (rovnake ID)
+        if (renamed) fname = "Korgus Inspiria.vst3";
+        const auto mine = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory().getChildFile (fname);
+        if (fname.startsWithIgnoreCase ("Korgus") && mine.exists() && mine != cur)
+        {
+            dd.fileOrIdentifier = mine.getFullPathName();
+            if (renamed) dd.name = "Korgus Inspiria";
+        }
+    }
+    auto inst = builtin ? BuiltinFx::create (d) : formatManager.createPluginInstance (dd, sr, bs, err);
     if (inst == nullptr)
     {
         if (! builtin) CrashGuard::endLoad();
@@ -897,6 +982,17 @@ void MainView::onReady()
                 if (! inExeDir (k) && k.name == d.name && k.uniqueId == d.uniqueId && k.pluginFormatName == d.pluginFormatName) return true;
             return false;
         };
+        const bool hasInspiria = exeDir.getChildFile ("Korgus Inspiria.vst3").exists();
+        auto bundled = [&exeDir, hasInspiria] (const juce::PluginDescription& d)   // nase pluginy dodane s programom maju vzdy prednost
+        {
+            if (! juce::File::isAbsolutePath (d.fileOrIdentifier)) return false;
+            const auto fn = juce::File (d.fileOrIdentifier).getFileName();
+            if (hasInspiria && fn.equalsIgnoreCase ("Korgus Inspire.vst3")) return true;   // stare meno - nahradene Inspiriou
+            return fn.startsWithIgnoreCase ("Korgus") && exeDir.getChildFile (fn).exists();
+        };
+        for (const auto& d : knownPlugins.getTypes())
+            if ((! inExeDir (d) || (hasInspiria && juce::File (d.fileOrIdentifier).getFileName().equalsIgnoreCase ("Korgus Inspire.vst3"))) && bundled (d))
+                knownPlugins.removeType (d);   // stara kopia v priecinku VST3 / stare meno
         for (const auto& d : knownPlugins.getTypes())
             if (inExeDir (d) && (elsewhere (d) || ! juce::File (d.fileOrIdentifier).exists())) knownPlugins.removeType (d);   // aj zmazane/premenovane
 
@@ -906,6 +1002,7 @@ void MainView::onReady()
             if (fmt->getName() != "VST3") continue;
             for (const auto& f : files)
             {
+                if (hasInspiria && f.getFileName().equalsIgnoreCase ("Korgus Inspire.vst3")) continue;   // stara verzia so starym menom
                 bool sameName = false;   // rovnaky subor uz je v priecinku VST - netreba ho ani otvarat
                 for (const auto& k : knownPlugins.getTypes())
                     if (! inExeDir (k) && juce::File::isAbsolutePath (k.fileOrIdentifier)
@@ -1173,7 +1270,7 @@ void MainView::restorePluginStates (const juce::var& vst)
             if (! found)
                 for (const auto& k : knownPlugins.getTypes())
                     if (k.name == desc.name && k.pluginFormatName == desc.pluginFormatName) { desc = k; found = true; break; }
-            if (! found)   // premenovany plugin (napr. Korgus Nova -> Korgus Inspire): rovnake ID
+            if (! found)   // premenovany plugin (Korgus Nova -> Korgus Inspire -> Korgus Inspiria): rovnake ID
                 for (const auto& k : knownPlugins.getTypes())
                     if (k.uniqueId == desc.uniqueId && k.uniqueId != 0 && k.pluginFormatName == desc.pluginFormatName && k.manufacturerName == desc.manufacturerName) { desc = k; found = true; break; }
             if (! found)
@@ -1993,15 +2090,18 @@ void MainView::onExportMp3 (const juce::var& v)
     const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
     const double lufs = (double) v.getProperty ("lufs", -14.0);
     const int kbps = juce::jlimit (128, 320, (int) v.getProperty ("kbps", 320));
-    chooser = std::make_unique<juce::FileChooser> (sk ("Export MP3"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("piesen.mp3"), "*.mp3");
+    // volitelne: vlastna pieseň na export (napr. "Inspiracia" – len jedna stopa/cast), inak aktualna
+    const juce::var songOverride = v["song"].toString().isNotEmpty() ? juce::JSON::parse (v["song"].toString()) : juce::var();
+    const auto defName = v["name"].toString().isNotEmpty() ? juce::File::createLegalFileName (v["name"].toString()) : juce::String ("piesen");
+    chooser = std::make_unique<juce::FileChooser> (sk ("Export MP3"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (defName + ".mp3"), "*.mp3");
     juce::Component::SafePointer<MainView> sp (this);
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [sp, end, lufs, kbps] (const juce::FileChooser& fc)
+                          [sp, end, lufs, kbps, songOverride] (const juce::FileChooser& fc)
                           {
                               auto f = fc.getResult();
                               if (sp == nullptr || f == juce::File()) return;
                               f = f.withFileExtension ("mp3");
-                              auto sd = sp->parseCurrent (sp->lastSong);
+                              auto sd = sp->parseCurrent (songOverride.isVoid() ? sp->lastSong : songOverride);
                               if (sd == nullptr) return;
                               sp->engine.stop();
                               sp->exporting = true;
@@ -2690,6 +2790,19 @@ void MainView::watchPlugin (const juce::String& track, int which, juce::AudioPro
     unwatchPlugin (track, which);
     if (p == nullptr) return;
     auto w = std::make_unique<ParamWatch> (*this, track, which, p);
+    if (which == 0)
+    {
+        inspLast.erase (track);
+        for (auto* pr : p->getParameters())
+            if (auto* hp = dynamic_cast<juce::AudioPluginInstance::HostedParameter*> (pr))
+            {
+                // VST3 meni ID parametra na cislo (hash); skusime holy text aj obe varianty hashu
+                const auto id = hp->getParameterID();
+                if (id == "capture_seq" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("capture_seq", true))
+                    || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("capture_seq", false)))
+                { w->captureIdx = hp->getParameterIndex(); break; }
+            }
+    }
     p->addListener (w.get());
     watches[track + "#" + juce::String (which)] = std::move (w);
 }
@@ -2700,6 +2813,34 @@ void MainView::unwatchPlugin (const juce::String& track, int which)
     if (it == watches.end()) return;
     if (it->second->proc != nullptr) it->second->proc->removeListener (it->second.get());
     watches.erase (it);
+}
+
+// "Inspiracia": Korgus Inspire zvysil capture_seq -> precitame <capture> zo stavu a posleme frazu do rozhrania
+void MainView::inspireCaptured (const juce::String& track)
+{
+    juce::Component::SafePointer<MainView> sp (this);
+    juce::MessageManager::callAsync ([sp, track] { if (sp != nullptr) sp->onInspireCapture (track); });
+}
+
+void MainView::onInspireCapture (const juce::String& track)
+{
+    auto* p = engine.getPlugin (engine.getOrCreateSlot (track));
+    if (p == nullptr) return;
+    juce::MemoryBlock mb;
+    p->getStateInformation (mb);
+    const auto tree = SoundMatch::decodeInspireState (mb);
+    const auto cap = tree.getChildWithName ("capture");
+    if (! cap.isValid()) return;
+    const int id = (int) cap.getProperty ("id", 0);
+    if (id <= 0 || id <= inspLast[track]) return;
+    inspLast[track] = id;
+    // v Sequenceri berieme len to, co hrac naozaj zahral (plugin vidi aj noty z prehravania piesne)
+    double ppq = -1.0;
+    auto notes = livePhrase (track, ppq);
+    auto o = obj();
+    put (o, "track", track); put (o, "id", id); put (o, "bpm", 0.0); put (o, "ppq", ppq);
+    put (o, "notes", notes);
+    emit ("inspireCapture", o);
 }
 
 // pohyb gombika v plugine (moze prist aj z audio vlakna)

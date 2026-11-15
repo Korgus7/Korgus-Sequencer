@@ -62,7 +62,7 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
         L.fa = g (p + "fa"); L.fd = g (p + "fd"); L.fs = g (p + "fs"); L.fr = g (p + "fr");
         L.aa = g (p + "aa"); L.ad = g (p + "ad"); L.as = g (p + "as"); L.ar = g (p + "ar");
         L.lshape = (int) g (p + "lshape"); L.ltgt = (int) g (p + "ltgt"); L.lrate = g (p + "lrate"); L.ldepth = g (p + "ldepth"); L.ldelay = g (p + "ldelay");
-        L.src = (int) g (p + "src"); L.root = (int) g (p + "root"); L.loop = g (p + "loop") > 0.5f;
+        L.src = (int) g (p + "src"); L.root = (int) g (p + "root"); L.loop = g (p + "loop") > 0.5f; L.wt = (int) g (p + "wt");
         L.eqLow = g (p + "eql"); L.eqMid = g (p + "eqm"); L.eqMidF = g (p + "eqmf"); L.eqHigh = g (p + "eqh"); L.eqEnabled = g (p + "eqon") > 0.5f;
     }
     auto& f = s.fx;
@@ -88,6 +88,7 @@ void NovaProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     juce::ScopedNoDenormals nd;
     for (int c = getTotalNumInputChannels(); c < buffer.getNumChannels(); ++c) buffer.clear (c, 0, buffer.getNumSamples());
     keyboard.processNextMidiBuffer (midi, 0, buffer.getNumSamples(), true);
+    recordCapture (midi, buffer.getNumSamples());
     // MIDI learn a priradene CC (priradene CC sa do syntetizatora neposielaju)
     bool anyCc = false;
     for (const auto m : midi) if (m.getMessage().isController()) { anyCc = true; break; }
@@ -351,6 +352,19 @@ namespace
                     v["rv_mix"] = R (0.35f, 0.5f); v["rv_size"] = R (0.7f, 0.9f);
                     break;
                 }
+                if (chance (0.28f))
+                {
+                    // Wavetable pad: pozicia sa pomaly hybe obalkou filtra a/alebo LFO (ciel Farba)
+                    v["a_wave"] = 9; v["a_wt"] = pick ({ 3, 7, 7, 2, 6, 5 }); v["a_color"] = R (0.15f, 0.6f); v["a_uni"] = I (3, 6); v["a_spread"] = R (8, 18);
+                    v["a_fenv"] = R (0.1f, 0.35f); v["a_fa"] = R (1, 3); v["a_fd"] = R (1.5f, 4); v["a_fs"] = R (0.3f, 0.8f); v["a_fr"] = R (1.5f, 3);
+                    v["a_cut"] = LR (2500, 12000);
+                    v["a_aa"] = R (0.4f, 1.6f); v["a_ad"] = 1.5f; v["a_as"] = R (0.8f, 1); v["a_ar"] = R (1.2f, 3); v["a_level"] = 0.8f;
+                    if (chance (0.6f)) { v["a_ltgt"] = 4; v["a_lshape"] = pick ({ 0, 1 }); v["a_lrate"] = LR (0.07f, 0.4f); v["a_ldepth"] = R (0.15f, 0.5f); }
+                    if (chance (0.5f)) { v["b_on"] = 1; v["b_wave"] = pick ({ 0, 1 }); v["b_oct"] = pick ({ -1, 1 }); v["b_level"] = R (0.2f, 0.4f); copyEnv(); }
+                    if (chance (0.7f)) { v["ch_on"] = 1; v["ch_mix"] = R (0.25f, 0.5f); }
+                    v["rv_mix"] = R (0.3f, 0.5f); v["rv_size"] = R (0.65f, 0.9f);
+                    break;
+                }
                 v["a_wave"] = pick ({ 2, 2, 3, 1 }); v["a_uni"] = I (3, 7); v["a_spread"] = R (7, 20); v["a_color"] = R (0.2f, 0.6f);
                 v["a_cut"] = LR (600, 4000); v["a_reso"] = R (0.05f, 0.35f); v["a_fenv"] = R (0, 0.35f);
                 v["a_fa"] = R (0.3f, 2); v["a_fd"] = R (1, 3); v["a_fs"] = R (0.3f, 0.8f); v["a_fr"] = R (1, 2.5f);
@@ -403,6 +417,13 @@ namespace
             {
                 noun = chance (0.5f) ? "bas" : "basák"; cat = "Basy";
                 if (chance (0.25f)) { v["a_wave"] = 6; v["a_ratio"] = pick ({ 0, 1 }); v["a_color"] = R (0.2f, 0.5f); v["a_fenv"] = R (0.4f, 0.8f); v["a_fd"] = 0.3f; v["a_fs"] = 0.1f; }
+                else if (chance (0.3f))
+                {
+                    // Wavetable bas: obalka filtra posuva poziciu (aj cutoff) - "hryzie" pri nabehu
+                    v["a_wave"] = 9; v["a_wt"] = pick ({ 0, 0, 1, 2 }); v["a_color"] = R (0.1f, 0.5f); v["a_uni"] = pick ({ 1, 1, 2 }); v["a_spread"] = R (4, 9);
+                    v["a_cut"] = LR (350, 1800); v["a_reso"] = R (0.1f, 0.3f); v["a_fenv"] = R (0.2f, 0.45f);
+                    v["a_fa"] = 0.002f; v["a_fd"] = R (0.15f, 0.5f); v["a_fs"] = R (0, 0.3f); v["a_fr"] = 0.12f;
+                }
                 else
                 {
                     v["a_wave"] = pick ({ 2, 3, 1 }); v["a_cut"] = LR (200, 900); v["a_reso"] = R (0.1f, 0.4f); v["a_fenv"] = R (0.25f, 0.7f);
@@ -427,6 +448,19 @@ namespace
                     v["a_lrate"] = R (4.8f, 6); v["a_ldepth"] = R (0.08f, 0.15f); v["a_ldelay"] = R (0.2f, 0.4f);
                     if (chance (0.8f)) { v["mono"] = 1; v["glide"] = R (0.03f, 0.1f); }
                     if (chance (0.6f)) { v["dl_on"] = 1; v["dl_sync"] = pick ({ 2, 3 }); v["dl_mix"] = R (0.12f, 0.22f); v["dl_fb"] = R (0.2f, 0.4f); }
+                    break;
+                }
+                if (chance (0.28f))
+                {
+                    // Wavetable lead: pozicia mierne klesa po nabehu, vibrato s oneskorenim
+                    v["a_wave"] = 9; v["a_wt"] = pick ({ 0, 1, 4, 4, 3, 2 }); v["a_color"] = R (0.2f, 0.65f); v["a_uni"] = I (1, 3); v["a_spread"] = R (5, 12);
+                    v["a_fenv"] = R (0.05f, 0.3f); v["a_fa"] = 0.003f; v["a_fd"] = R (0.3f, 0.9f); v["a_fs"] = R (0.2f, 0.7f); v["a_fr"] = 0.3f;
+                    v["a_cut"] = LR (4000, 14000); v["a_reso"] = R (0.05f, 0.25f);
+                    v["a_aa"] = R (0.005f, 0.04f); v["a_ad"] = 0.4f; v["a_as"] = 0.9f; v["a_ar"] = R (0.15f, 0.4f); v["a_level"] = 0.85f;
+                    v["a_lrate"] = R (4.8f, 6); v["a_ldepth"] = R (0.05f, 0.14f); v["a_ldelay"] = R (0.2f, 0.45f);
+                    if (chance (0.8f)) { v["mono"] = 1; v["glide"] = R (0.03f, 0.1f); }
+                    if (chance (0.6f)) { v["dl_on"] = 1; v["dl_sync"] = pick ({ 2, 3 }); v["dl_mix"] = R (0.12f, 0.22f); v["dl_fb"] = R (0.2f, 0.4f); }
+                    v["rv_mix"] = R (0.15f, 0.3f);
                     break;
                 }
                 v["a_wave"] = pick ({ 2, 3 }); v["a_uni"] = I (1, 4); v["a_spread"] = R (5, 15); v["a_color"] = R (0.3f, 0.6f);
@@ -687,6 +721,23 @@ void NovaProcessor::getStateInformation (juce::MemoryBlock& destData)
         state.setProperty (i == 0 ? "smpA" : "smpB", smpFlac[i].getSize() > 0 ? smpFlac[i].toBase64Encoding() : juce::String(), nullptr);
         state.setProperty (i == 0 ? "smpAName" : "smpBName", smpName[i], nullptr);
     }
+    {
+        // posledna "Inspiracia" pre hostitela (Korgus Sequencer): <capture id bpm ppq><n t d k v/>...</capture>
+        const juce::ScopedLock sl (capLock);
+        if (capId > 0 && ! capPhrase.notes.empty())
+        {
+            juce::ValueTree c ("capture");
+            c.setProperty ("id", capId, nullptr); c.setProperty ("bpm", capPhrase.bpm, nullptr); c.setProperty ("ppq", capPhrase.ppq, nullptr);
+            for (auto& n : capPhrase.notes)
+            {
+                juce::ValueTree t ("n");
+                t.setProperty ("t", juce::String (n.t, 4), nullptr); t.setProperty ("d", juce::String (n.d, 4), nullptr);
+                t.setProperty ("k", n.k, nullptr); t.setProperty ("v", n.v, nullptr);
+                c.appendChild (t, nullptr);
+            }
+            state.appendChild (c, nullptr);
+        }
+    }
     if (auto xml = state.createXml()) copyXmlToBinary (*xml, destData);
 }
 
@@ -695,6 +746,7 @@ void NovaProcessor::setStateInformation (const void* data, int sizeInBytes)
     auto xml = getXmlFromBinary (data, sizeInBytes);
     if (xml == nullptr || ! xml->hasTagName (params.state.getType())) return;
     auto tree = juce::ValueTree::fromXml (*xml);
+    while (true) { auto c = tree.getChildWithName ("capture"); if (! c.isValid()) break; tree.removeChild (c, nullptr); }   // zachytenie je len prechodne
     restoring = true;
     const bool v1 = ! tree.hasProperty ("ver");
     params.replaceState (tree);
@@ -746,4 +798,222 @@ void NovaProcessor::copyLayer (int from, int to)
     }
     setSample (to, smpFlac[from], smpName[from]);
     undo.beginNewTransaction();
+}
+
+// ------------------------------------------------------------- Inspiracia (zachytenie hrania)
+namespace nova
+{
+    std::vector<CapNote> CaptureBuffer::pairNotes (const std::vector<CapEvent>& events, double now)
+    {
+        struct Key { int state = 0; double t = 0, bpm = 0, ppq = -1; int vel = 0; };   // state: 0 nic, 1 drzi sa, 2 drzi pedal
+        Key keys[128];
+        std::vector<CapNote> out;
+        bool pedal = false;
+        auto close = [&] (int k, double t)
+        {
+            auto& K = keys[k];
+            if (K.state == 0) return;
+            CapNote n; n.t = K.t; n.d = juce::jmax (0.0, t - K.t); n.k = k; n.v = K.vel; n.bpm = K.bpm; n.ppq = K.ppq;
+            out.push_back (n); K.state = 0;
+        };
+        for (auto& e : events)
+        {
+            const int k = e.note & 127;
+            if (e.kind == 1) { close (k, e.t); keys[k] = { 1, e.t, e.bpm, e.ppq, juce::jlimit (1, 127, (int) e.vel) }; }
+            else if (e.kind == 2) { if (keys[k].state == 1) { if (pedal) keys[k].state = 2; else close (k, e.t); } }
+            else if (e.kind == 3)
+            {
+                const bool down = e.vel >= 64;
+                if (pedal && ! down) for (int i = 0; i < 128; ++i) if (keys[i].state == 2) close (i, e.t);
+                pedal = down;
+            }
+        }
+        for (int i = 0; i < 128; ++i) close (i, now);
+        std::stable_sort (out.begin(), out.end(), [] (const CapNote& a, const CapNote& b) { return a.t < b.t; });
+        return out;
+    }
+
+    CapPhrase CaptureBuffer::extractPhrase (const std::vector<CapEvent>& events, double now, double gapSec)
+    {
+        CapPhrase ph;
+        const double cutoff = now - keepSeconds;
+        std::vector<CapEvent> ev;
+        for (auto& e : events) if (e.t >= cutoff) ev.push_back (e);
+        auto notes = pairNotes (ev, now);
+        if (notes.empty()) return ph;
+        double end = 0; for (auto& n : notes) end = juce::jmax (end, n.t + n.d);
+        // zdola: najdi poslednu pauzu dlhsiu ako gapSec (ak je uz aspon 8 not)
+        std::vector<double> maxEnd (notes.size(), -1.0e9);
+        double run = -1.0e9;
+        for (size_t i = 0; i < notes.size(); ++i) { maxEnd[i] = run; run = juce::jmax (run, notes[i].t + notes[i].d); }
+        size_t first = 0;
+        for (size_t i = notes.size() - 1; i > 0; --i)
+        {
+            const double gap = notes[i].t - maxEnd[i];
+            if (gap > gapSec && notes.size() - i >= 8) { first = i; break; }
+        }
+        // najviac 3 minuty
+        while (first + 1 < notes.size() && end - notes[first].t > 180.0) ++first;
+        const double t0 = notes[first].t;
+        ph.bpm = notes[first].bpm; ph.ppq = notes[first].ppq;
+        if (ph.ppq < 0 || ph.bpm <= 0) { ph.bpm = 0; ph.ppq = -1; }
+        for (size_t i = first; i < notes.size(); ++i) { auto n = notes[i]; n.t -= t0; ph.notes.push_back (n); }
+        return ph;
+    }
+
+    std::vector<CapNote> cleanupPhrase (const std::vector<CapNote>& in, double bpm, bool quantize)
+    {
+        std::vector<CapNote> out;
+        for (auto& n : in)
+        {
+            if (n.d < 0.030 && n.v < 40) continue;
+            bool dup = false;
+            for (auto& o : out) if (o.k == n.k && std::abs (o.t - n.t) < 0.015) { dup = true; break; }
+            if (! dup) out.push_back (n);
+        }
+        if (quantize && bpm > 0 && ! out.empty())
+        {
+            const double step = 60.0 / bpm / 4.0, minLen = step / 2.0;
+            const double t0 = out.front().t;
+            for (auto& n : out)
+            {
+                const double rel = n.t - t0, q = std::round (rel / step) * step;
+                n.t = t0 + rel + 0.5 * (q - rel);
+                n.d = juce::jmax (n.d, minLen);
+            }
+        }
+        std::stable_sort (out.begin(), out.end(), [] (const CapNote& a, const CapNote& b) { return a.t < b.t; });
+        if (! out.empty()) { const double t0 = out.front().t; for (auto& n : out) n.t -= t0; }
+        return out;
+    }
+
+    bool writePhraseMidi (const CapPhrase& ph, const juce::File& f)
+    {
+        const double bpm = ph.bpm > 0 ? ph.bpm : 120.0;
+        const auto notes = cleanupPhrase (ph.notes, bpm, true);
+        if (notes.empty()) return false;
+        const int ppq = 480;
+        const double tps = bpm / 60.0 * ppq;   // tikov za sekundu
+        juce::MidiMessageSequence seq;
+        seq.addEvent (juce::MidiMessage::tempoMetaEvent ((int) std::lround (60.0e6 / bpm)), 0);
+        seq.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0);
+        for (auto& n : notes)
+        {
+            const double on = std::round (n.t * tps), off = juce::jmax (on + 1.0, std::round ((n.t + n.d) * tps));
+            seq.addEvent (juce::MidiMessage::noteOn (1, n.k, (juce::uint8) juce::jlimit (1, 127, n.v)), on);
+            seq.addEvent (juce::MidiMessage::noteOff (1, n.k), off);
+        }
+        seq.updateMatchedPairs();
+        juce::MidiFile mf; mf.setTicksPerQuarterNote (ppq); mf.addTrack (seq);
+        f.deleteFile();
+        juce::FileOutputStream os (f);
+        return os.openedOk() && mf.writeTo (os);
+    }
+
+    bool renderPhraseWav (const CapPhrase& ph, const Settings& settings, const std::array<UserSamplePtr, 2>& samples, const juce::File& f, double tailSeconds)
+    {
+        const auto notes = cleanupPhrase (ph.notes, ph.bpm > 0 ? ph.bpm : 120.0, false);
+        if (notes.empty()) return false;
+        const double sr = 48000.0; const int bs = 512, lead = (int) (0.1 * sr);
+        Synth synth; synth.prepare (sr, bs);
+        for (int i = 0; i < 2; ++i) synth.setUserSample (i, samples[(size_t) i]);
+        for (int i = 0; i < 400 && ! synth.pianoReady() && ! synth.pianoFailed(); ++i) juce::Thread::sleep (25);   // klavir sa nacitava na pozadi
+        Settings s = settings; s.playing = false; s.ppq = 0; if (ph.bpm > 0) s.fx.bpm = ph.bpm;
+        struct Ev { int pos; bool on; int k, v; };
+        std::vector<Ev> evs;
+        double end = 0;
+        for (auto& n : notes)
+        {
+            evs.push_back ({ lead + (int) std::lround (n.t * sr), true, n.k, n.v });
+            evs.push_back ({ lead + (int) std::lround ((n.t + n.d) * sr), false, n.k, 0 });
+            end = juce::jmax (end, n.t + n.d);
+        }
+        std::stable_sort (evs.begin(), evs.end(), [] (const Ev& a, const Ev& b) { return a.pos < b.pos; });
+        const int total = lead + (int) std::lround ((end + tailSeconds) * sr);
+        juce::AudioBuffer<float> out (2, total); out.clear();
+        size_t ei = 0;
+        for (int pos = 0; pos < total; pos += bs)
+        {
+            const int n = juce::jmin (bs, total - pos);
+            juce::MidiBuffer mb;
+            while (ei < evs.size() && evs[ei].pos < pos + n)
+            {
+                const auto& e = evs[ei++];
+                mb.addEvent (e.on ? juce::MidiMessage::noteOn (1, e.k, (juce::uint8) juce::jlimit (1, 127, e.v))
+                                  : juce::MidiMessage::noteOff (1, e.k), juce::jmax (0, e.pos - pos));
+            }
+            juce::AudioBuffer<float> blk (2, n); blk.clear();
+            synth.process (blk, mb, s);
+            for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+        }
+        const int fo = (int) (0.25 * sr);
+        for (int c = 0; c < 2; ++c) out.applyGainRamp (c, total - fo, fo, 1.0f, 0.0f);
+        f.deleteFile();
+        std::unique_ptr<juce::OutputStream> os (new juce::FileOutputStream (f));
+        if (! static_cast<juce::FileOutputStream&> (*os).openedOk()) return false;
+        auto w = juce::WavAudioFormat().createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (24));
+        return w != nullptr && w->writeFromAudioSampleBuffer (out, 0, total);
+    }
+}
+
+void NovaProcessor::recordCapture (const juce::MidiBuffer& midi, int numSamples)
+{
+    const juce::int64 base = capSamples.load();
+    capSamples.store (base + numSamples);
+    if (isNonRealtime() || midi.isEmpty()) return;
+    double bpm = 0, ppq0 = -1; bool playing = false;
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+        {
+            playing = pos->getIsPlaying();
+            if (auto b = pos->getBpm()) bpm = *b;
+            if (auto q = pos->getPpqPosition()) ppq0 = *q;
+        }
+    const double sr = curRate > 0 ? curRate : 48000.0;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        nova::CapEvent e;
+        if (m.isNoteOn()) { e.kind = 1; e.note = (juce::uint8) m.getNoteNumber(); e.vel = (juce::uint8) m.getVelocity(); }
+        else if (m.isNoteOff()) { e.kind = 2; e.note = (juce::uint8) m.getNoteNumber(); }
+        else if (m.isController() && m.getControllerNumber() == 64) { e.kind = 3; e.vel = (juce::uint8) m.getControllerValue(); }
+        else continue;
+        e.t = (double) (base + meta.samplePosition) / sr;
+        if (playing && bpm > 0 && ppq0 >= 0) { e.bpm = bpm; e.ppq = ppq0 + (double) meta.samplePosition * bpm / (60.0 * sr); }
+        capBuf.push (e);
+    }
+}
+
+nova::CapPhrase NovaProcessor::lastPhrase() const
+{
+    const double sr = curRate > 0 ? curRate : 48000.0;
+    return nova::CaptureBuffer::extractPhrase (capBuf.snapshot(), (double) capSamples.load() / sr);
+}
+
+void NovaProcessor::publishCapture (const nova::CapPhrase& ph)
+{
+    auto* prm = params.getParameter ("capture_seq");
+    int id;
+    {
+        const juce::ScopedLock sl (capLock);
+        capCounter = juce::jmax (capCounter, (int) std::lround (prm->convertFrom0to1 (prm->getValue()))) + 1;
+        capId = capCounter; capPhrase = ph; id = capId;
+    }
+    prm->beginChangeGesture();
+    prm->setValueNotifyingHost (prm->convertTo0to1 ((float) id));
+    prm->endChangeGesture();
+}
+
+nova::Settings NovaProcessor::currentSettings()
+{
+    nova::Settings s;
+    settingsFrom (s, [this] (const juce::String& id) { return raw[id]->load(); });
+    s.fx.bpm = 120; s.playing = false; s.ppq = 0;
+    return s;
+}
+
+bool NovaProcessor::hostedInKorgus()
+{
+    const auto n = juce::File::getSpecialLocation (juce::File::hostApplicationPath).getFileNameWithoutExtension().removeCharacters (" _-");
+    return n.containsIgnoreCase ("KorgusSequencer");
 }

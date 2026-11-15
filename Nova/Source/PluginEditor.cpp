@@ -7,7 +7,7 @@ using namespace nova::ui;
 
 namespace
 {
-    constexpr int SW = 780, SH = 372;       // jednoducha verzia
+    constexpr int SW = 780, SH = 412;       // jednoducha verzia
     constexpr int EW = 1322, EH = 886;      // rozsirena verzia
     const juce::Colour arcB (0xff9d93c4);
 
@@ -61,6 +61,79 @@ namespace
 
 
     // ===================================================================== jednoducha verzia
+    // ===================================================================== velke tlacidlo "Inspiracia"
+    // zachyti, co si prave zahral: v Korgus Sequenceri to ide do stopy, inde sa ponukne ulozenie MIDI / WAV
+    struct InspireButton : juce::Component, juce::SettableTooltipClient, private juce::Timer
+    {
+        InspireButton (NovaProcessor& pr) : p (pr)
+        {
+            setTooltip (T ("Zachytí, čo si práve zahral (aj bez nahrávania) – v Korgus Sequenceri to vloží do stopy, inde ponúkne uloženie MIDI alebo WAV"));
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+        ~InspireButton() override { stopTimer(); }
+        void flash (const juce::String& m, int ms = 3500) { msg = m; startTimer (ms); repaint(); }
+        void timerCallback() override { stopTimer(); if (! busy) { msg = {}; repaint(); } }
+        void paint (juce::Graphics& g) override
+        {
+            const juce::Colour gold (0xffc9a35a);
+            auto r = getLocalBounds().toFloat().reduced (0.5f);
+            g.setColour (hover ? juce::Colour (0xff2a2a26) : juce::Colour (0xff1f252d)); g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (gold.withAlpha (hover ? 1.0f : 0.85f)); g.drawRoundedRectangle (r, 3.0f, 1.5f);
+            g.setColour (gold);
+            g.setFont (juce::FontOptions (msg.isEmpty() ? 17.0f : 14.0f, juce::Font::bold));
+            g.drawFittedText (msg.isEmpty() ? T ("✦ Inšpirácia") : msg, getLocalBounds().reduced (6, 2), juce::Justification::centred, 2);
+        }
+        void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
+        void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override { if (e.mouseWasClicked() && contains (e.getPosition()) && ! busy) capture(); }
+
+        void capture()
+        {
+            auto ph = p.lastPhrase();
+            if (ph.notes.empty()) { flash (T ("Zatiaľ si nič nezahral")); return; }
+            if (NovaProcessor::hostedInKorgus()) { p.publishCapture (ph); flash (T ("Pridané do stopy")); return; }
+            juce::PopupMenu m;
+            m.addItem (1, T ("Uložiť ako MIDI…"));
+            m.addItem (2, T ("Uložiť ako WAV (podklad pre Suno)…"));
+            juce::Component::SafePointer<InspireButton> sp (this);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [sp, ph] (int r) { if (sp != nullptr && r > 0) sp->save (ph, r == 2); });
+        }
+        void save (const nova::CapPhrase& ph, bool wav)
+        {
+            auto dir = dataDir(); dir.createDirectory();
+            const auto name = "Inspiracia-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + (wav ? ".wav" : ".mid");
+            chooser = std::make_unique<juce::FileChooser> (wav ? T ("Uložiť ako WAV (podklad pre Suno)…") : T ("Uložiť ako MIDI…"), dir.getChildFile (name), wav ? "*.wav" : "*.mid");
+            juce::Component::SafePointer<InspireButton> sp (this);
+            chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+                                  [sp, ph, wav] (const juce::FileChooser& fc)
+            {
+                if (sp == nullptr) return;
+                auto f = fc.getResult();
+                if (f == juce::File()) return;
+                f = f.withFileExtension (wav ? "wav" : "mid");
+                f.getParentDirectory().createDirectory();
+                auto done = [sp, f] (bool ok)
+                {
+                    if (sp == nullptr) return;
+                    sp->busy = false;
+                    sp->flash (ok ? T ("Uložené: ") + f.getFileName() : T ("Nepodarilo sa uložiť"), 5000);
+                };
+                if (! wav) { done (writePhraseMidi (ph, f)); return; }
+                sp->busy = true; sp->msg = T ("Ukladám…"); sp->repaint();
+                auto settings = sp->p.currentSettings();
+                std::array<UserSamplePtr, 2> smp { sp->p.synth.getUserSample (0), sp->p.synth.getUserSample (1) };
+                juce::Thread::launch ([ph, settings, smp, f, done]
+                {
+                    const bool ok = renderPhraseWav (ph, settings, smp, f);
+                    juce::MessageManager::callAsync ([done, ok] { done (ok); });
+                });
+            });
+        }
+        NovaProcessor& p;
+        juce::String msg; bool hover = false, busy = false;
+        std::unique_ptr<juce::FileChooser> chooser;
+    };
+
     struct SimpleView : juce::Component, Tickable
     {
         struct PresetButton : juce::Component
@@ -120,6 +193,7 @@ namespace
             setupSurprise (p, surprise, surCat, mutateB, [this] { tick(); });
             addAndMakeVisible (surprise); addAndMakeVisible (surCat); addAndMakeVisible (mutateB);
             setupLangBox (langBox, ed); addAndMakeVisible (langBox);
+            addAndMakeVisible (insp);
             setSize (SW, SH);
             tick();
         }
@@ -182,8 +256,10 @@ namespace
             auto kr = r.removeFromTop (140);
             const int kw = kr.getWidth() / 6;
             for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (12, 0));
+            insp.setBounds (16, getHeight() - 22 - 8 - 40, 240, 40);
         }
         NovaEditor& ed; NovaProcessor& p;
+        InspireButton insp { p };
         std::vector<std::unique_ptr<PresetButton>> buttons, catButtons;
         std::vector<std::unique_ptr<Knob>> knobs;
         juce::String curCat, lastKey;
@@ -406,17 +482,107 @@ namespace
         juce::TextEditor search; juce::ListBox list, placeList; juce::Label pathL;
     };
 
+    // ===================================================================== displej hlasov (unison / wavetable / roj)
+    struct VoiceDisplay : juce::Component, juce::SettableTooltipClient, juce::Timer
+    {
+        VoiceDisplay (NovaProcessor& pr, const juce::String& pre) : p (pr)
+        {
+            for (auto id : { "wave", "uni", "spread", "level", "color", "wt" }) src.push_back (p.params.getRawParameterValue (pre + id));
+            setTooltip (T ("Displej hlasov: zvislé čiary = hlasy unisona (vodorovne rozladenie v centoch, výška = hlasitosť hlasu). Pri WT je v pozadí aktuálny tvar vlny, pri Roji alikvoty."));
+            startTimerHz (25);
+        }
+        void timerCallback() override
+        {
+            if (! isShowing()) return;
+            bool ch = false;
+            for (size_t i = 0; i < src.size(); ++i) { const float v = src[i]->load(); if (v != last[i]) { last[i] = v; ch = true; } }
+            if (ch) repaint();
+        }
+        void paint (juce::Graphics& g) override
+        {
+            const juce::Colour gold (0xffc9a35a), grid (0xff2d4362);
+            const auto r = getLocalBounds().toFloat();
+            g.setColour (juce::Colour (0xff141a21)); g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (line); g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+            const int w = juce::roundToInt (src[0]->load()), n = juce::jlimit (1, 8, juce::roundToInt (src[1]->load()));
+            const float spread = src[2]->load(), level = src[3]->load(), color = src[4]->load();
+            const int tab = juce::jlimit (0, nova::WtBank::numTables - 1, juce::roundToInt (src[5]->load()));
+            auto in = r.reduced (7.0f, 4.0f);
+            auto head = in.removeFromTop (12.0f); in.removeFromTop (2.0f);
+            const float x0 = in.getX(), y0 = in.getY(), pw = in.getWidth(), ph = in.getHeight(), yb = in.getBottom();
+            const bool uni = w <= 3 || w == 9;
+            // mriezka
+            g.setColour (grid.withAlpha (0.8f));
+            for (int i = 0; i <= 4; ++i) g.fillRect (x0 + pw * (float) i * 0.25f - (i == 4 ? 1.0f : 0.0f), y0, 1.0f, ph);
+            g.fillRect (x0, yb - 1.0f, pw, 1.0f); g.fillRect (x0, y0 + ph * 0.5f, pw, 1.0f);
+            juce::String left, right;
+            if (w == 9)   // aktualny ramec wavetable (pozicia z gombika) v pozadi
+            {
+                const auto& bank = nova::WtBank::get();
+                const float fp = juce::jlimit (0.0f, 1.0f, color) * (float) (nova::WtBank::numFrames - 1);
+                const int fi = juce::jmin ((int) fp, nova::WtBank::numFrames - 2); const float ff = fp - (float) fi;
+                const float* a = bank.frame (tab, 1, fi); const float* b = bank.frame (tab, 1, fi + 1);
+                const int len = bank.len[1], pts = juce::jmax (8, (int) pw);
+                juce::Path path;
+                for (int i = 0; i <= pts; ++i)
+                {
+                    const int k = juce::jmin (len - 1, i * len / pts);
+                    const float y = y0 + ph * 0.5f - (a[k] + ff * (b[k] - a[k])) * ph * 0.3f;
+                    if (i == 0) path.startNewSubPath (x0, y); else path.lineTo (x0 + pw * (float) i / (float) pts, y);
+                }
+                g.setColour (steelHi.withAlpha (0.9f)); g.strokePath (path, juce::PathStrokeType (1.2f));
+                if (const auto* sp = findSpec ("a_wt")) right = T (sp->choices[tab]) + " " + juce::String (juce::roundToInt (color * 100.0f)) + " %";
+            }
+            auto bar = [&] (float x, float amp, float thick)
+            {
+                const float h = juce::jlimit (2.0f, ph, ph * 0.96f * std::sqrt (juce::jmax (0.0f, amp)));
+                g.fillRect (x - thick * 0.5f, yb - h, thick, h);
+            };
+            g.setColour (gold);
+            if (w == 8)   // Roj: alikvoty (vodorovne cislo harmonickej, rozptyl podla Rozladenia)
+            {
+                const int N = 4 * n; const float B = 0.0012f * spread;
+                for (int k = 0; k < N; ++k)
+                {
+                    const float kk = (float) (k + 1), sk = k == 0 ? 0.0f : 0.5f * (kk - 1.0f) / 8.0f + 0.5f * nova::rojScatter (k + 1);
+                    bar (x0 + pw * (kk * (1.0f + B * sk) - 0.5f) / 33.5f, level * std::pow (kk, -1.25f), 2.0f);
+                }
+                left = T ("ALIKVOTY") + " " + juce::String (N);
+            }
+            else if (uni)
+            {
+                for (int k = 0; k < n; ++k)
+                {
+                    const float pos = n > 1 ? (float) k / (float) (n - 1) * 2.0f - 1.0f : 0.0f;
+                    bar (x0 + pw * (0.5f + 0.5f * spread * pos / 50.0f), level / std::sqrt ((float) n), 2.0f);
+                }
+                left = "UNISON " + juce::String (n) + (n > 1 ? juce::String::fromUTF8 (" · ±") + juce::String (juce::roundToInt (spread)) + " ct" : juce::String());
+                if (right.isEmpty()) right = juce::String::fromUTF8 ("±50 ct");
+            }
+            else { bar (x0 + pw * 0.5f, level, 2.0f); left = T ("1 HLAS"); }
+            g.setFont (juce::FontOptions (10.5f)); g.setColour (dim);
+            g.drawText (left, head, juce::Justification::centredLeft); g.drawText (right, head, juce::Justification::centredRight);
+        }
+        NovaProcessor& p; std::vector<std::atomic<float>*> src; float last[6] { -1, -1, -1, -1, -1, -1 };
+    };
+
     // ===================================================================== vrstva A / B
     struct LayerPanel : juce::Component
     {
         LayerPanel (NovaProcessor& pr, int layer) : p (pr), li (layer), pre (layer == 0 ? "a_" : "b_"),
             on (pr.params, pre + "on", layer == 0 ? T ("VRSTVA A") : T ("VRSTVA B"), layer == 0 ? arc : arcB),
-            wave (pr.params, pre + "wave", juce::StringArray::fromTokens (T ("Sín|Troj|Píla|Obdĺž|Šum|Pluck|FM|Sampel|Roj"), "|", ""), layer == 0 ? steelHi : accentB),
+            wave (pr.params, pre + "wave", juce::StringArray::fromTokens (T ("Sín|Troj|Píla|Obdĺž|Šum|Pluck|FM|Smp|Roj|WT"), "|", ""), layer == 0 ? steelHi : accentB),
             ftype (pr.params, pre + "ftype"),
             f24 (pr.params, pre + "f24", "24 dB", layer == 0 ? arc : arcB),
             lshape (pr.params, pre + "lshape"), ltgt (pr.params, pre + "ltgt"), ratio (pr.params, pre + "ratio"), src (pr.params, pre + "src"),
-            loop (pr.params, pre + "loop", T ("Opakovať"), layer == 0 ? arc : arcB)
+            loop (pr.params, pre + "loop", T ("Opakovať"), layer == 0 ? arc : arcB),
+            wt (pr.params, pre + "wt"), disp (pr, pre)
         {
+            addAndMakeVisible (wt); addAndMakeVisible (wtLabel); addAndMakeVisible (disp);
+            wtLabel.setText (T ("Tabuľka"), juce::dontSendNotification); wtLabel.setFont (juce::FontOptions (12.5f));
+            wtLabel.setColour (juce::Label::textColourId, dim.brighter (0.2f)); wtLabel.setJustificationType (juce::Justification::centred);
+            wt.setTooltip (T ("Tabuľka tvarov vlny: Analóg (píla–obdĺžnik–pulz), PWM, Harmonický (rezonančný prechod), Vokál (A-E-I-O-U), Digitál, Organ, Sklo, Spev"));
+            ltgt.setTooltip (T ("Cieľ LFO: Výška = vibrato, Filter, Hlasitosť = tremolo, Panoráma, Farba = hýbe gombíkom Farba (šírka pulzu, FM index, Focus, pozícia WT)"));
             addAndMakeVisible (on); addAndMakeVisible (wave); addAndMakeVisible (ftype); addAndMakeVisible (f24);
             addAndMakeVisible (lshape); addAndMakeVisible (ltgt); addAndMakeVisible (ratio); addAndMakeVisible (src); addAndMakeVisible (loop);
             const char* r1[] = { "oct", "semi", "fine", "uni", "spread", "level", "pan" };
@@ -461,7 +627,7 @@ namespace
                 {
                     if (sp == nullptr) return;
                     juce::String err;
-                    if (! sp->p.loadSampleFile (layer, f, err)) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspire", err);
+                    if (! sp->p.loadSampleFile (layer, f, err)) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspiria", err);
                     sp->update();
                 });
             }
@@ -474,13 +640,15 @@ namespace
             {
                 lastWave = w; lastUser = isUser;
                 const char* ct = "Farba";
-                switch (w) { case 3: ct = "Šírka pulzu"; break; case 4: ct = "Farba šumu"; break; case 5: ct = "Jas struny"; break; case 6: ct = "FM index"; break; case 7: ct = "Tvrdosť"; break; case 8: ct = "Focus"; break; default: break; }
+                switch (w) { case 3: ct = "Šírka pulzu"; break; case 4: ct = "Farba šumu"; break; case 5: ct = "Jas struny"; break; case 6: ct = "FM index"; break; case 7: ct = "Tvrdosť"; break; case 8: ct = "Focus"; break; case 9: ct = "Pozícia"; break; default: break; }
                 color->setTitle (T (ct));
+                color->s.setTooltip (w == 9 ? T ("Pozícia vo wavetable – plynulý prechod medzi 64 tvarmi vlny. Hýbe ňou aj Obálka (filtra) a LFO s cieľom Farba.") : juce::String());
+                wt.setVisible (w == 9); wtLabel.setVisible (w == 9); disp.setVisible (! isUser);
                 row1[3]->setTitle (T (w == 8 ? "Bohatosť" : "Unison")); row1[4]->setTitle (T (w == 8 ? "Rozptyl" : "Rozlad."));
                 color->setVisible (w >= 3 && ! isUser);
                 ratio.setVisible (w == 6); ratioLabel.setVisible (w == 6);
                 src.setVisible (isSample); load.setVisible (isSample); root->setVisible (isUser); loop.setVisible (isUser); smpName.setVisible (isUser);
-                row1[3]->setEnabled (w <= 3 || w == 8); row1[4]->setEnabled (w <= 3 || w == 8);
+                row1[3]->setEnabled (w <= 3 || w >= 8); row1[4]->setEnabled (w <= 3 || w >= 8);
                 resized();
             }
             const auto nm = p.sampleName (li);
@@ -513,6 +681,8 @@ namespace
             int x = 12;
             color->setBounds (x, 332, 70, 72); if (color->isVisible()) x += 78;
             ratioLabel.setBounds (x, 334, 84, 15); ratio.setBounds (x, 354, 84, 24); if (ratio.isVisible()) x += 94;
+            wtLabel.setBounds (x, 334, 104, 15); wt.setBounds (x, 354, 104, 24); if (wt.isVisible()) x += 114;
+            disp.setBounds (src.isVisible() ? x + 134 : x, 334, getWidth() - 12 - (src.isVisible() ? x + 134 : x), 68);
             src.setBounds (x, 336, 124, 24);
             load.setBounds (x, 366, 124, 26);
             if (src.isVisible()) x += 134;
@@ -521,7 +691,7 @@ namespace
             smpName.setBounds (x, 336, juce::jmax (40, root->getX() - x - 6), 22);
         }
         NovaProcessor& p; int li; juce::String pre;
-        Toggle on; Seg wave; Combo ftype; Toggle f24; Combo lshape, ltgt, ratio, src; Toggle loop;
+        Toggle on; Seg wave; Combo ftype; Toggle f24; Combo lshape, ltgt, ratio, src; Toggle loop; Combo wt; VoiceDisplay disp; juce::Label wtLabel;
         std::vector<std::unique_ptr<Knob>> row1, row2, row3; std::unique_ptr<Knob> color, root;
         juce::TextButton load; juce::Label smpName, ratioLabel;
         std::unique_ptr<juce::FileChooser> chooser;
@@ -1095,7 +1265,7 @@ namespace
             {
                 if (sp == nullptr) return;
                 if (sp->p.presets.addCategory (n)) sp->resized();
-                else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspire", T ("Priečinok „") + n + T ("“ už existuje."));
+                else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspiria", T ("Priečinok „") + n + T ("“ už existuje."));
             });
         }
         void folderMenu (const juce::String& cat)
@@ -1165,7 +1335,7 @@ namespace
                     if (sp == nullptr) return;
                     sp->p.newSound (cat);
                     juce::String err;
-                    if (! sp->p.loadSampleFile (0, f, err)) { juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspire", err); return; }
+                    if (! sp->p.loadSampleFile (0, f, err)) { juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspiria", err); return; }
                     sp->p.currentName = f.getFileNameWithoutExtension();
                     if (sp->p.onPatchChanged) sp->p.onPatchChanged();
                     sp->refresh();
@@ -1450,10 +1620,10 @@ namespace
     // ===================================================================== rozsirena verzia
     struct ExtendedView : juce::Component, Tickable
     {
-        ExtendedView (NovaEditor& e) : ed (e), p (e.proc), browser (p), top (e, browser), la (p, 0), lb (p, 1), tube (p), fx (p), arp (p), morph (p), master (p),
+        ExtendedView (NovaEditor& e) : ed (e), p (e.proc), browser (p), insp (p), top (e, browser), la (p, 0), lb (p, 1), tube (p), fx (p), arp (p), morph (p), master (p),
             keys (p.keyboard, juce::MidiKeyboardComponent::horizontalKeyboard)
         {
-            for (auto* c : std::initializer_list<juce::Component*> { &top, &browser, &la, &lb, &tube, &fx, &arp, &morph, &master, &keys }) addAndMakeVisible (c);
+            for (auto* c : std::initializer_list<juce::Component*> { &top, &browser, &insp, &la, &lb, &tube, &fx, &arp, &morph, &master, &keys }) addAndMakeVisible (c);
             keys.setColour (juce::MidiKeyboardComponent::whiteNoteColourId, juce::Colour (0xffd9dee4));
             keys.setColour (juce::MidiKeyboardComponent::blackNoteColourId, juce::Colour (0xff1c232c));
             keys.setColour (juce::MidiKeyboardComponent::keySeparatorLineColourId, juce::Colour (0xff8b98a8));
@@ -1475,7 +1645,8 @@ namespace
         {
             top.setBounds (0, 0, getWidth(), 52);
             const int x0 = 12, y0 = 52 + 10;
-            browser.setBounds (x0, y0, 240, getHeight() - y0 - 12);
+            browser.setBounds (x0, y0, 240, getHeight() - y0 - 12 - 48);
+            insp.setBounds (x0, getHeight() - 12 - 40, 240, 40);
             const int mx = x0 + 240 + 12;
             la.setBounds (mx, y0, 440, 410);
             tube.setBounds (mx + 448, y0, 150, 410);
@@ -1489,7 +1660,7 @@ namespace
             keys.setBounds (mx + 308, y2, getWidth() - (mx + 308) - 12, getHeight() - y2 - 12);
         }
         NovaEditor& ed; NovaProcessor& p;
-        Browser browser; TopBar top; LayerPanel la, lb; TubePanel tube; FxPanel fx; ArpPanel arp; MorphPad morph; MasterPanel master;
+        Browser browser; InspireButton insp; TopBar top; LayerPanel la, lb; TubePanel tube; FxPanel fx; ArpPanel arp; MorphPad morph; MasterPanel master;
         juce::MidiKeyboardComponent keys;
         juce::String lastKey;
     };
@@ -1641,7 +1812,7 @@ void NovaEditor::filesDropped (const juce::StringArray& files, int x, int y)
             layer = ev->layerAt (juce::Point<int> (juce::roundToInt ((float) x / s), juce::roundToInt ((float) y / s)));
         }
         juce::String err;
-        if (! proc.loadSampleFile (layer, f, err)) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspire", err);
+        if (! proc.loadSampleFile (layer, f, err)) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Korgus Inspiria", err);
         break;
     }
 }

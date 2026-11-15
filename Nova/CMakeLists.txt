@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-# Korgus Inspire (predtym Korgus Nova) - syntezator (klavir, pady, slaciky, husle, pluck...)
+# Korgus Inspiria (predtym Korgus Inspire, Korgus Nova) - syntezator (klavir, pady, slaciky, husle, pluck...)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(KORGUS_BUILD "0" CACHE STRING "Build number")
 project(KorgusNova VERSION 0.1.0)
@@ -17,7 +17,7 @@ else()
 endif()
 
 juce_add_plugin(KorgusNova
-    PRODUCT_NAME "Korgus Inspire"
+    PRODUCT_NAME "Korgus Inspiria"
     COMPANY_NAME "Korgus"
     PLUGIN_MANUFACTURER_CODE Krgs
     PLUGIN_CODE KNov

@@ -17,6 +17,7 @@ namespace nova
             v.rng.s = 0x12345u + (uint32_t) i * 7919u;   // pevny seed pre kazdy hlas: renderovanie je deterministicke
             for (auto& lv : v.lv) { lv.active = false; lv.dl.assign (4096, 0); }
         }
+        WtBank::get();   // wavetable banka: postavi sa raz, mimo audio vlakna
         fx.prepare (sr);
         fx.an = &analyzer; analyzer.rate.store ((float) sr);
     }
@@ -78,15 +79,16 @@ namespace nova
         lv.tiltL.setHz (2200, (float) sr); lv.tiltR.setHz (2200, (float) sr); lv.tiltL.z = lv.tiltR.z = 0;
         lv.noiseL.setHz (200.0f * std::pow (2.0f, s.color * 7.0f), (float) sr);
 
-        if (s.wave <= 4)
+        if (s.wave <= 4 || s.wave == 9)
         {
+            lv.wtPos = -1; lv.wtMip = -1; lv.wtTab = -1;
             const int n = juce::jlimit (1, 8, s.uni);
             for (int k = 0; k < n; ++k)
             {
                 const float pos = n > 1 ? (float) k / (float) (n - 1) * 2.0f - 1.0f : 0.0f;
                 const float cents = s.spread * pos * (0.85f + 0.3f * std::abs (v.rng.next()));
                 lv.det[k] = std::pow (2.0f, cents / 1200.0f);
-                lv.ph[k] = (n == 1 && s.wave == 0) ? 0.0f : 0.5f + 0.5f * v.rng.next();
+                lv.ph[k] = (n == 1 && (s.wave == 0 || s.wave == 9)) ? 0.0f : 0.5f + 0.5f * v.rng.next();
                 const float pan = pos * 0.8f;
                 lv.pl[k] = std::cos ((pan + 1.0f) * pi * 0.25f); lv.pr[k] = std::sin ((pan + 1.0f) * pi * 0.25f);
             }
@@ -379,6 +381,26 @@ namespace nova
             lv.rojN = Nt;
             rojFocusA = 1.0f - std::exp (-1.0f / (0.0113f * sr32));
         }
+        // Wavetable: tabulka a uroven harmonickych na blok (podla najvyssej frekvencie v bloku, s hysterezou);
+        // pri zmene urovne alebo tabulky sa stary a novy zdroj v bloku prelinaju
+        const WtBank* wtb = nullptr;
+        const float *wtNew = nullptr, *wtOld = nullptr;
+        int wtMip = 0, wtTab = 0, wtLenNew = 0, wtLenOld = 0, wtStrNew = 0, wtStrOld = 0;
+        bool wtX = false;
+        const float wtPosA = 1.0f - std::exp (-1.0f / (0.004f * (float) sr)), wtInvN = 1.0f / (float) n;
+        if (lv.wave == 9 && (wtb = WtBank::peek()) != nullptr)
+        {
+            wtTab = juce::jlimit (0, WtBank::numTables - 1, s.wt);
+            const float fmax = baseHz * 1.08f * (nu > 1 ? std::pow (2.0f, s.spread * 1.15f / 1200.0f) : 1.0f);   // rezerva: vibrato + rozladenie
+            const float hLim = (float) sr / std::max (fmax, 1.0f);
+            int up = 0; while (up < WtBank::numMips - 1 && (float) WtBank::harmonics (up) > 0.49f * hLim) ++up;
+            int dn = up; while (dn < WtBank::numMips - 1 && (float) WtBank::harmonics (dn) > 0.44f * hLim) ++dn;
+            wtMip = lv.wtMip < 0 ? up : juce::jlimit (up, dn, lv.wtMip);
+            if (lv.wtMip < 0) { lv.wtMip = wtMip; lv.wtTab = wtTab; }
+            wtX = wtMip != lv.wtMip || wtTab != lv.wtTab;
+            wtNew = wtb->frame (wtTab, wtMip, 0); wtLenNew = wtb->len[wtMip]; wtStrNew = wtLenNew + 4;
+            wtOld = wtb->frame (lv.wtTab, lv.wtMip, 0); wtLenOld = wtb->len[lv.wtMip]; wtStrOld = wtLenOld + 4;
+        }
         for (int i = 0; i < n; ++i)
         {
             // LFO
@@ -399,6 +421,7 @@ namespace nova
             const float pitchMul = 1.0f + cents * 0.000577789f;
             const float volMul = s.ltgt == 2 ? std::max (0.0f, 1.0f + 0.5f * lfoV) : 1.0f;
             const float panMod = s.ltgt == 3 ? lfoV : 0.0f;
+            const float color = s.ltgt == 4 ? clampf (s.color + 0.5f * lfoV, 0.0f, 1.0f) : s.color;   // LFO ciel "Farba"
             const float env = lv.amp.next();
             const float fe = lv.fenv.next();
 
@@ -421,7 +444,7 @@ namespace nova
                 }
                 else
                 {
-                    const float pw = 0.05f + 0.9f * s.color;
+                    const float pw = 0.05f + 0.9f * color;
                     for (int k = 0; k < nu; ++k)
                     {
                         const float inc = inc0 * lv.det[k];
@@ -458,7 +481,7 @@ namespace nova
             else if (lv.wave == 6)
             {
                 const float f = baseHz * pitchMul * invSr;
-                const float idx = s.color * 4.0f * (0.4f + 0.9f * v.vel) * std::pow (2.0f, 1.2f * bright) * ((1.0f - std::abs (s.fenv)) + std::abs (s.fenv) * fe);
+                const float idx = color * 4.0f * (0.4f + 0.9f * v.vel) * std::pow (2.0f, 1.2f * bright) * ((1.0f - std::abs (s.fenv)) + std::abs (s.fenv) * fe);
                 lv.mPh += f * s.ratio; lv.mPh -= std::floor (lv.mPh);
                 lv.cPh += f; if (lv.cPh >= 1) lv.cPh -= 1;
                 l = r = std::sin (twoPi * lv.cPh + idx * std::sin (twoPi * lv.mPh)) * 0.7071f;
@@ -469,7 +492,7 @@ namespace nova
                 lv.rojPhi += fc; lv.rojPhi -= std::floor (lv.rojPhi);
                 // Focus = Farba, filtrova obalka ho meni (nota "kristalizuje"); vyhladene jednopolovym filtrom
                 const float envTerm = (1.0f - std::abs (s.fenv)) + std::abs (s.fenv) * fe;
-                const float ft = clampf (s.color * envTerm, 0.0f, 1.0f);
+                const float ft = clampf (color * envTerm, 0.0f, 1.0f);
                 if (lv.rojFocus < 0) lv.rojFocus = ft; else lv.rojFocus += rojFocusA * (ft - lv.rojFocus);
                 const float Kc = std::min (0.5f * lv.rojFocus * lv.rojFocus * fc, 0.1f);   // K/sr = min(kappa f, 0.1 sr)/sr
                 const float phi = lv.rojPhi;
@@ -491,6 +514,31 @@ namespace nova
                     sl += y * rojPL[k]; sr_ += y * rojPR[k];
                 }
                 l = sl; r = sr_;
+            }
+            else if (lv.wave == 9)
+            {
+                if (wtb != nullptr)
+                {
+                    // Pozicia = Farba + obalka filtra (Obalka) + LFO; vyhladena, medzi ramcami linearne
+                    const float pt = clampf (color + s.fenv * fe, 0.0f, 1.0f);
+                    if (lv.wtPos < 0) lv.wtPos = pt; else lv.wtPos += wtPosA * (pt - lv.wtPos);
+                    const float fp = lv.wtPos * (float) (WtBank::numFrames - 1);
+                    const int fi = std::min ((int) fp, WtBank::numFrames - 2);
+                    const float ff = fp - (float) fi;
+                    const float* a = wtNew + fi * wtStrNew; const float* b = a + wtStrNew;
+                    const float* oa = wtOld + fi * wtStrOld; const float* ob = oa + wtStrOld;
+                    const float xw = (float) i * wtInvN;
+                    const float inc0 = baseHz * pitchMul * invSr;
+                    for (int k = 0; k < nu; ++k)
+                    {
+                        float& ph = lv.ph[k];
+                        ph += inc0 * lv.det[k]; if (ph >= 1) ph -= 1;
+                        float x = WtBank::read (a, b, wtLenNew, ph, ff);
+                        if (wtX) { const float xo = WtBank::read (oa, ob, wtLenOld, ph, ff); x = xo + xw * (x - xo); }
+                        l += x * lv.pl[k]; r += x * lv.pr[k];
+                    }
+                    l *= uniNorm; r *= uniNorm;
+                }
             }
             else if (isPiano)
             {
@@ -570,6 +618,7 @@ namespace nova
             if (! isPiano && ! lv.amp.active()) { lv.active = false; break; }
         }
         if (lv.wave == 8) for (int k = 0; k < std::max (rojAct, 0); ++k) lv.rojG[k] = rojTgt[k];
+        if (wtb != nullptr) { lv.wtMip = wtMip; lv.wtTab = wtTab; }
     }
 
     void Synth::process (juce::AudioBuffer<float>& out, const juce::MidiBuffer& midi, const Settings& s)
