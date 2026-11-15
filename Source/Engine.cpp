@@ -781,7 +781,22 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             trackMidi.clear();
             for (int k = 0; k < numFx; ++k)
                 if (auto& f = slot.fx[(size_t) k]; f != nullptr && f->acceptsMidi()) { trackMidi.addEvents (slot.midi, 0, n, 0); break; }
-            if (slot.plugin != nullptr) { CrashGuard::Busy cg (slot.plugin.get()); slot.plugin->processBlock (view, slot.midi); any = true; }
+            if (slot.plugin != nullptr)
+            {
+                // nastroj so vstupom pre hlas (Inspiria - vocoder): kluc (spev) do sidechain kanalov
+                if (slot.plugin->getBusCount (true) > 1)
+                    if (auto* b1 = slot.plugin->getBus (true, 1); b1 != nullptr && b1->isEnabled())
+                        for (int c = 0; c < b1->getNumberOfChannels(); ++c)
+                        {
+                            const int idx = slot.plugin->getChannelIndexInProcessBlockBuffer (true, 1, c);
+                            if (juce::isPositiveAndBelow (idx, view.getNumChannels()))
+                            {
+                                if (keyReady) juce::FloatVectorOperations::copy (view.getWritePointer (idx), keyBuf.getReadPointer (juce::jmin (c, 1)), n);
+                                else juce::FloatVectorOperations::clear (view.getWritePointer (idx), n);
+                            }
+                        }
+                CrashGuard::Busy cg (slot.plugin.get()); slot.plugin->processBlock (view, slot.midi); any = true;
+            }
             if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
             for (int k = 0; k < numFx; ++k)
                 if (auto& f = slot.fx[(size_t) k]; f != nullptr && ! (td.fxOff & (1u << k)))

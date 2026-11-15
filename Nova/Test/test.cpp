@@ -350,6 +350,37 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "voctest")
+    {
+        NovaProcessor q;
+        auto lay = q.getBusesLayout();
+        if (lay.inputBuses.size() > 1) lay.inputBuses.getReference (1) = AudioChannelSet::stereo();
+        printf ("sidechain layout ok: %d\n", (int) q.setBusesLayout (lay));
+        q.prepareToPlay (sr, bs);
+        auto set = [&] (const char* id, float v) { if (auto* pr = q.params.getParameter (id)) pr->setValueNotifyingHost (pr->convertTo0to1 (v)); };
+        q.loadPreset ("f:Roj Mellotron");
+        set ("vc_on", 1.0f);
+        const int total = (int) (3.0 * sr); double e[2] = { 0, 0 }; bool nan = false;
+        double ph = 0;
+        for (int pos = 0; pos < total; pos += bs)
+        {
+            const int n = std::min (bs, total - pos); MidiBuffer mb;
+            if (pos == 0) { mb.addEvent (MidiMessage::noteOn (1, 60, 0.8f), 0); mb.addEvent (MidiMessage::noteOn (1, 64, 0.8f), 0); mb.addEvent (MidiMessage::noteOn (1, 67, 0.8f), 0); }
+            AudioBuffer<float> blk (q.getTotalNumInputChannels() > q.getTotalNumOutputChannels() ? q.getTotalNumInputChannels() : q.getTotalNumOutputChannels(), n); blk.clear();
+            // "hlas": pulzy 140 Hz cez formant, slabiky 4x za sekundu, druha polovica ticho
+            for (int i = 0; i < n; ++i)
+            {
+                const double t = (pos + i) / sr; ph += 140.0 / sr; if (ph >= 1) ph -= 1;
+                const float syl = t < 1.5 ? (float) (0.5 + 0.5 * std::sin (6.2831853 * 4.0 * t)) : 0.0f;
+                const float v = (float) ((ph < 0.05 ? 1.0 : -0.05) * std::sin (6.2831853 * 800.0 * t) * 0.3 * syl);
+                for (int c = 0; c < blk.getNumChannels(); ++c) blk.setSample (c, i, v);
+            }
+            q.processBlock (blk, mb);
+            for (int i = 0; i < n; ++i) { const float x = blk.getSample (0, i); if (! std::isfinite (x)) nan = true; e[(pos + i) < total / 2 ? 0 : 1] += x * x; }
+        }
+        printf ("vocoder: RMS s hlasom %.1f dB, bez hlasu %.1f dB %s\n", 10 * std::log10 (e[0] / (total / 2) + 1e-12), 10 * std::log10 (e[1] / (total / 2) + 1e-12), nan ? "NAN!" : "");
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "gatetest")
     {
         // gater + modulacna matica: drzany ton 3 s, meria RMS v 1/16 krokoch (120 BPM -> 6000 vzoriek pri 48k)

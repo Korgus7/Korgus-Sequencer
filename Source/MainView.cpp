@@ -606,6 +606,12 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 const int slot = engine.getOrCreateSlot (v["track"].toString());
                                 auto* p = engine.getPlugin (slot);
                                 if (p == nullptr) return;
+                                if (v["what"].toString() == "vocOn")   // zapnut vocoder v Inspirii
+                                {
+                                    for (auto* prm : p->getParameters())
+                                        if (prm->getName (64).trim() == "Vocoder") { prm->setValueNotifyingHost (1.0f); break; }
+                                    return;
+                                }
                                 const auto key = v["what"].toString() == "mut" ? juce::String ("Obmena") : juce::String ("Prekvap ma");
                                 for (auto* prm : p->getParameters())
                                     if (prm->getName (64).contains (key))
@@ -1018,6 +1024,13 @@ std::unique_ptr<juce::AudioPluginInstance> MainView::createInstance (const juce:
         }
     }
     auto inst = builtin ? BuiltinFx::create (d) : formatManager.createPluginInstance (dd, sr, bs, err);
+    // Korgus Inspiria: zapnut vstup pre hlas (sidechain) - vocoder
+    if (inst != nullptr && ! builtin && inst->getName().startsWithIgnoreCase ("Korgus Inspiria") && inst->getBusCount (true) > 1)
+    {
+        auto lay = inst->getBusesLayout();
+        lay.inputBuses.getReference (1) = juce::AudioChannelSet::stereo();
+        if (inst->checkBusesLayoutSupported (lay)) inst->setBusesLayout (lay);
+    }
     if (inst == nullptr)
     {
         if (! builtin) CrashGuard::endLoad();

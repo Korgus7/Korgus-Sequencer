@@ -8,7 +8,8 @@ namespace nova
     void Synth::prepare (double rate, int maxBlock)
     {
         sr = rate;
-        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR, &gateBuf }) b->assign ((size_t) juce::jmax (1, maxBlock), 0);
+        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR, &gateBuf, &voxBuf }) b->assign ((size_t) juce::jmax (1, maxBlock), 0);
+        vocoder.prepare (rate, juce::jmax (1, maxBlock)); voxPrep.prepare (rate); vocWasOn = false;
         layerEq[0].reset(); layerEq[1].reset();
         noise.s = 0x12345678u;
         for (size_t i = 0; i < voices.size(); ++i)
@@ -695,7 +696,7 @@ namespace nova
         if (s.playing) beat = s.ppq;
 
         const int total = out.getNumSamples();
-        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR, &gateBuf })
+        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR, &gateBuf, &voxBuf })
         {
             if ((int) b->size() < total) b->resize ((size_t) total);
             std::fill (b->begin(), b->begin() + total, 0.0f);
@@ -778,6 +779,29 @@ namespace nova
             bufL[(size_t) i] = al + bl; bufR[(size_t) i] = ar + br;
         }
 
+        // vocoder: zvuk Inspirie je nosic, upraveny spev zo sidechainu je modulator (pred efektmi)
+        if (s.vcOn)
+        {
+            if (! vocWasOn) { vocoder.reset(); voxPrep.reset(); vocWasOn = true; }
+            const bool haveVox = vocInL != nullptr && vocInN >= total;
+            if (haveVox)
+            {
+                for (int i = 0; i < total; ++i) voxBuf[(size_t) i] = 0.5f * (vocInL[i] + (vocInR != nullptr ? vocInR[i] : vocInL[i]));
+                voxPrep.process (voxBuf.data(), voxBuf.data(), total);
+                vocLevel.store (voxPrep.level());
+            }
+            else vocLevel.store (0.0f);
+            const float r01 = std::log (juce::jlimit (6.0f, 360.0f, s.vcRelease) / 6.0f) / std::log (60.0f);
+            vocoder.setParams (korgus::KorgusVocoder::carrierTrack, korgus::KorgusVocoder::bandsTo01 ((int) std::round (s.vcBands)),
+                               korgus::KorgusVocoder::semitonesToFormant (s.vcFormant), s.vcClarity, r01, 1.0f);
+            if (haveVox)
+            {
+                vocoder.process (bufL.data(), bufR.data(), voxBuf.data(), voxBuf.data(), bufL.data(), bufR.data(), total);
+                const float dry = s.vcDry * 0.5f;
+                for (int i = 0; i < total; ++i) { bufL[(size_t) i] += dry * voxBuf[(size_t) i]; bufR[(size_t) i] += dry * voxBuf[(size_t) i]; }
+            }
+        }
+        else { vocWasOn = false; vocLevel.store (0.0f); }
         fx.process (bufL.data(), bufR.data(), total, f);
         if (s.gtOn)   // gater az za efektmi: seka aj dozvuk a delay (typicky "trance gate")
             for (int i = 0; i < total; ++i) { bufL[(size_t) i] *= gateBuf[(size_t) i]; bufR[(size_t) i] *= gateBuf[(size_t) i]; }

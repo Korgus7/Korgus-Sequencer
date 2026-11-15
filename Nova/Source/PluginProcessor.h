@@ -85,6 +85,7 @@ public:
     juce::UndoManager undo;
     juce::AudioProcessorValueTreeState params;
     nova::Synth synth;
+    std::vector<float> scL, scR;   // hlas zo sidechainu (vocoder)
     nova::PresetStore presets;
     juce::MidiKeyboardState keyboard;
 

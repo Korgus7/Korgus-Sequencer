@@ -1961,25 +1961,36 @@ private:
 class VocoderFx final : public FxBase
 {
 public:
-    VocoderFx() : FxBase ("Korgus Vocoder", "vocoder")
+    // robot = "Korgus Robot hlas": len rezimy Robot / Robot trojhlas, na spevovu stopu (bez hrania)
+    explicit VocoderFx (bool robotOnly = false) : FxBase (robotOnly ? "Korgus Robot hlas" : "Korgus Vocoder", robotOnly ? "robotvox" : "vocoder"), robot (robotOnly)
     {
         using V = korgus::KorgusVocoder;
         const bool en = appLang() == 1;
-        mode = add ("carrier", en ? "Carrier" : "Nosič", 0, 3, 0, "", 1.0f, 0);
+        if (robot)
+        {
+            mode = add ("carrier", en ? "Voice" : "Hlas", 0, 1, 1, "", 1.0f, 0);
+            mode->choices = StringArray { "Robot", String::fromUTF8 (en ? "Robot harmony (3 voices)" : "Robot trojhlas") };
+        }
+        else
+        {
+            mode = add ("carrier", en ? "Carrier" : "Nosič", 0, 3, 0, "", 1.0f, 0);
+            mode->choices = StringArray { String::fromUTF8 (en ? "Track" : "Stopa"), String::fromUTF8 (en ? "Internal synth" : "Intern\xc3\xbd syntez\xc3\xa1tor"), "Robot", String::fromUTF8 (en ? "Robot harmony" : "Robot trojhlas") };
+        }
         mode->range.interval = 1.0f;
         mode->wide = true;
-        mode->choices = StringArray { String::fromUTF8 (en ? "Track" : "Stopa"), String::fromUTF8 (en ? "Internal synth" : "Intern\xc3\xbd syntez\xc3\xa1tor"), "Robot", String::fromUTF8 (en ? "Robot harmony" : "Robot trojhlas") };
-        bands   = add ("bands", en ? "Bands" : "Pásma", (float) V::kMinBands, (float) V::kMaxBands, 32, "", 1.0f, 0);
+        bands   = add ("bands", en ? "Bands" : "Pásma", (float) V::kMinBands, (float) V::kMaxBands, robot ? 20 : 32, "", 1.0f, 0);
         bands->range.interval = 1.0f;
         formant = add ("formant", "Formant", -12, 12, 0, "st", 1.0f, 1);
         formant->textFn = [] (float x) { return String::fromUTF8 ((x >= 0.05f ? "+" : "")) + String (x, 1) + " st"; };
         clarity = add ("clarity", en ? "Clarity" : "Zrozumiteľnosť", 0, 100, 60, "%", 1.0f, 0);
         release = add ("release", en ? "Release" : "Dozvuk", 0, 1, 0.35f, "", 1.0f, 2);
         release->textFn = [] (float x) { char b[24]; V::formatParam (4, x, b, 24); return String (b); };
-        mix     = add ("mix", "Mix", 0, 100, 100, "%", 1.0f, 0);
+        mix     = add ("mix", "Mix", 0, 100, robot ? 55 : 100, "%", 1.0f, 0);
         tail = 0.2;
     }
 
+    int modeIdx() const { return robot ? 2 + jlimit (0, 1, roundToInt (mode->get())) : jlimit (0, 3, roundToInt (mode->get())); }
+    const bool robot;
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<VocoderDisplay> (*this); }
     int displayHeight() const override { return 136; }
     bool acceptsMidi() const override { return true; }
@@ -2042,7 +2053,7 @@ private:
         const int n = b.getNumSamples(), ch = b.getNumChannels();
         float* L = b.getWritePointer (0);
         float* R = ch > 1 ? b.getWritePointer (1) : nullptr;
-        const int md = jlimit (0, 3, roundToInt (mode->get()));
+        const int md = modeIdx();
 
         voc.setParams (md, V::bandsTo01 (roundToInt (bands->get())), V::semitonesToFormant (formant->get()),
                        clarity->get() * 0.01f, release->get(), mix->get() * 0.01f);
@@ -2129,7 +2140,7 @@ void VocoderDisplay::paint (Graphics& g)
     g.setColour (mvcol::panel);
     g.fillRoundedRectangle (r, 3.0f);
 
-    const int md = jlimit (0, 3, roundToInt (fx.mode->get()));
+    const int md = fx.modeIdx();
     String h1, h2;
     bool warn = false;
     if (md == 0)
@@ -2253,6 +2264,7 @@ const std::vector<Entry>& entries()
         { "arp",     "Korgus Arp",       [] { return std::unique_ptr<AudioPluginInstance> (new ArpFx()); } },
         { "master",  "Korgus Master",    [] { return std::unique_ptr<AudioPluginInstance> (new MasterFx()); } },
         { "vocoder", "Korgus Vocoder",   [] { return std::unique_ptr<AudioPluginInstance> (new VocoderFx()); } },
+        { "robotvox", "Korgus Robot hlas", [] { return std::unique_ptr<AudioPluginInstance> (new VocoderFx (true)); } },
         { "gater",   "Korgus Gater",     [] { return std::unique_ptr<AudioPluginInstance> (new GaterFx()); } },
     };
     return e;
@@ -2265,7 +2277,7 @@ juce::Array<juce::PluginDescription> descriptions()
 {
     juce::Array<juce::PluginDescription> a;
     // "master": vstavana verzia sa uz neponuka (nahradil ju VST3 Korgus Master), stare piesne ju stale otvoria
-    for (const auto& e : entries()) if (juce::String (e.key) != "arp" && juce::String (e.key) != "master") a.add (FxBase::describe (e.name, e.key, e.inst));
+    for (const auto& e : entries()) if (juce::String (e.key) != "arp" && juce::String (e.key) != "master" && juce::String (e.key) != "vocoder") a.add (FxBase::describe (e.name, e.key, e.inst));
     return a;
 }
 

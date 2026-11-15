@@ -4,6 +4,8 @@
 #include "Fx.h"
 #include "PianoBank.h"
 #include "Wavetable.h"
+#include "VoxPrep.h"
+#include "../../Source/KorgusVocoder.h"
 
 // Zvukovy motor Korgus Nova: 2 vrstvy na hlas (sinus, trojuholnik, pila, obdlznik, sum, pluck, FM, sampel, Roj, wavetable),
 // filter s obalkou, LFO, mono/glide, arpeggiator a spolocne efekty
@@ -40,6 +42,8 @@ namespace nova
         bool gtOn = false; int gtRate = 3; float gtDepth = 0.85f, gtSmooth = 0.25f, gtSwing = 0; bool gtPat[16] {};
         // modulacna matica
         struct ModSlot { int src = 0, dst = 2; float amt = 0; } mm[4];
+        // vocoder
+        bool vcOn = false; float vcBands = 20, vcFormant = 0, vcClarity = 0.65f, vcRelease = 80, vcDry = 0.15f;
     };
 
     class Synth
@@ -115,6 +119,12 @@ namespace nova
         std::vector<int> monoStack;
         std::vector<float> bufL, bufR, bufBL, bufBR, gateBuf;
         double gtFree = 0; float gtR = 0, curRhythm = 0;   // rytmicky gater: volny beh, vyhladeny vzor
+    public:
+        // vocoder: spev zo sidechainu (nastavuje procesor pred process(); nullptr = ziadny hlas)
+        const float* vocInL = nullptr; const float* vocInR = nullptr; int vocInN = 0;
+        std::atomic<float> vocLevel { 0.0f };   // uroven hlasu pre ukazovatel v okne
+    private:
+        korgus::KorgusVocoder vocoder; korgus::VoxPrep voxPrep; std::vector<float> voxBuf; bool vocWasOn = false;
         Eq3 layerEq[2];
         FxChain fx;
         Noise noise;

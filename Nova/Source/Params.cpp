@@ -139,6 +139,13 @@ namespace nova
                 static const bool defPat[16] = { 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1 };
                 for (int k = 0; k < 16; ++k) B ("gt_s" + juce::String (k), ("Gater krok " + std::to_string (k + 1)).c_str(), defPat[k]);
             }
+            // vocoder: Inspiria je nosic, spev z inej stopy (sidechain) je modulator
+            B ("vc_on", "Vocoder", false);
+            F ("vc_bands", "Vocoder pásma", 12, 40, 20, "");
+            F ("vc_formant", "Vocoder formant", -12, 12, 0, "st");
+            F ("vc_clarity", "Vocoder zrozumiteľnosť", 0, 1, 0.65f, "%");
+            F ("vc_release", "Vocoder dozvuk", 10, 300, 80, "ms", 0.5f);
+            F ("vc_dry", "Vocoder hlas", 0, 1, 0.15f, "%");
             // modulacna matica: 4 sloty zdroj -> ciel x mnozstvo
             for (int k = 1; k <= 4; ++k)
             {
@@ -376,6 +383,24 @@ namespace nova
                          .s ("a_fa", 5).s ("a_fd", 1).s ("a_fs", 1).s ("a_fr", 15).s ("a_aa", 2).s ("a_ad", 2).s ("a_as", 0.9f).s ("a_ar", 3.5f)
                          .s ("ch_on", 1).s ("ch_mix", 0.3f).s ("rv_mix", 0.5f).s ("rv_size", 0.9f).s ("rv_pre", 30).s ("p_gain", -6.4f).s ("veltrack", 0.6f).f);
             // Wavetable (wave 9): Farba = Pozicia v tabulke, a_wt = tabulka, Obalka (filtra) a LFO ciel "Farba" hybu poziciou
+            // vocoder: jasne, siroke nosice s rychlym nastupom (spev z inej stopy cez "Hlas pre vocoder")
+            v.push_back (P ("Vocoder Robo zbor", "Pady").s ("a_wave", 2).s ("a_uni", 6).s ("a_spread", 16).s ("a_level", 0.8f)
+                         .s ("a_aa", 0.01f).s ("a_ad", 0.5f).s ("a_as", 1.0f).s ("a_ar", 0.35f)
+                         .s ("b_on", 1).s ("b_wave", 4).s ("b_level", 0.12f).s ("b_aa", 0.005f).s ("b_as", 1.0f).s ("b_ar", 0.3f)
+                         .s ("vc_on", 1).s ("vc_bands", 20).s ("vc_clarity", 0.7f).s ("vc_release", 80).s ("vc_dry", 0.15f)
+                         .s ("ch_on", 1).s ("ch_type", 1).s ("ch_mix", 0.35f).s ("rv_mix", 0.3f).s ("rv_size", 0.7f).s ("p_gain", -6.0f).f);
+            v.push_back (P ("Vocoder Daft", "Leady").s ("a_wave", 3).s ("a_uni", 2).s ("a_spread", 8).s ("a_level", 0.85f)
+                         .s ("a_aa", 0.003f).s ("a_ad", 0.3f).s ("a_as", 1.0f).s ("a_ar", 0.15f).s ("glide", 0.04f)
+                         .s ("vc_on", 1).s ("vc_bands", 14).s ("vc_clarity", 0.55f).s ("vc_release", 45).s ("vc_dry", 0.05f)
+                         .s ("dl_on", 1).s ("dl_sync", 2).s ("dl_mix", 0.15f).s ("dl_fb", 0.25f).s ("rv_mix", 0.18f).s ("p_gain", -6.0f).f);
+            v.push_back (P ("Vocoder Vesmír", "Pady").s ("a_wave", 9).s ("a_wt", 3).s ("a_color", 0.3f).s ("a_uni", 6).s ("a_spread", 14).s ("a_level", 0.8f)
+                         .s ("a_aa", 0.02f).s ("a_ad", 1.0f).s ("a_as", 1.0f).s ("a_ar", 1.2f)
+                         .s ("vc_on", 1).s ("vc_bands", 26).s ("vc_formant", -2).s ("vc_clarity", 0.75f).s ("vc_release", 140).s ("vc_dry", 0.12f)
+                         .s ("ch_on", 1).s ("ch_mix", 0.4f).s ("rv_mix", 0.5f).s ("rv_size", 0.9f).s ("rv_pre", 30).s ("p_gain", -6.0f).f);
+            v.push_back (P ("Vocoder Sklo", "Pady").s ("a_wave", 9).s ("a_wt", 6).s ("a_color", 0.5f).s ("a_uni", 4).s ("a_spread", 10).s ("a_level", 0.8f)
+                         .s ("a_aa", 0.01f).s ("a_as", 1.0f).s ("a_ar", 0.6f)
+                         .s ("vc_on", 1).s ("vc_bands", 32).s ("vc_formant", 3).s ("vc_clarity", 0.8f).s ("vc_release", 70).s ("vc_dry", 0.2f)
+                         .s ("ch_on", 1).s ("ch_mix", 0.3f).s ("rv_mix", 0.35f).s ("rv_size", 0.75f).s ("p_gain", -6.0f).f);
             v.push_back (P ("WT Vokál pad", "Pady").s ("a_wave", 9).s ("a_wt", 3).s ("a_color", 0.12f).s ("a_uni", 5).s ("a_spread", 13).s ("a_level", 0.8f)
                          .s ("a_cut", 6500).s ("a_reso", 0.12f).s ("a_fenv", 0.22f).s ("a_fa", 2.2f).s ("a_fd", 3).s ("a_fs", 0.5f).s ("a_fr", 2.5f)
                          .s ("a_aa", 0.9f).s ("a_ad", 1.5f).s ("a_as", 0.9f).s ("a_ar", 2.2f).s ("a_ltgt", 4).s ("a_lshape", 1).s ("a_lrate", 0.11f).s ("a_ldepth", 0.55f)

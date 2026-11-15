@@ -61,7 +61,7 @@ class KorgusVocoder
 {
 public:
     static constexpr int kMaxBands = 40;
-    static constexpr int kMinBands = 16;
+    static constexpr int kMinBands = 12;
     static constexpr int kVoices = 8;
 
     enum CarrierMode { carrierTrack = 0, carrierSynth = 1, carrierRobot = 2, carrierHarmony = 3 };   // 3 = robot trojhlas
@@ -744,7 +744,7 @@ private:
         {
             cB2pow[b] += kwTick * (cAcc[b] * inv - cB2pow[b]); cAcc[b] = 0.0f;
             float pr = pcW / (cB2pow[b] + 1.0e-10f);
-            pr = pr < 1.0f ? 1.0f : (pr > 4.0e4f ? 4.0e4f : pr);
+            pr = pr < 1.0f ? 1.0f : (pr > 250.0f ? 250.0f : pr);   // najviac +24 dB (menej sumu)
             const float ra = std::sqrt (pr);
             const float w = (1.0f - wt) * std::sqrt (ra) + wt * ra;
             const float hf = bTilt[b] - 1.3f;                   // 0 below 2.5 kHz .. 1 above 5 kHz
@@ -769,7 +769,7 @@ private:
         if (pTgt > 1.0e-9f && pWet > 1.0e-14f)
         {
             float gd = std::sqrt (pTgt / pWet);
-            gd = gd < 0.25f ? 0.25f : (gd > 16.0f ? 16.0f : gd);
+            gd = gd < 0.5f ? 0.5f : (gd > 4.0f ? 4.0f : gd);        // miernejsie automaticke zosilnenie
             agc += agcTick * (gd - agc);
         }
         gNoAgc = gg * carNorm / mr;

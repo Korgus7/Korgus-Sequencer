@@ -5,7 +5,9 @@
 using namespace nova;
 
 NovaProcessor::NovaProcessor()
-    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+    : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), false)
+                                       .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)   // hlas pre vocoder
+                                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       params (*this, &undo, "NOVA", createLayout())
 {
     for (auto& s : paramSpecs()) raw[s.id] = params.getRawParameterValue (s.id);
@@ -27,13 +29,21 @@ NovaProcessor::~NovaProcessor() { ccApplier.stopTimer(); stopTimer(); params.rem
 bool NovaProcessor::isBusesLayoutSupported (const BusesLayout& l) const
 {
     const auto o = l.getMainOutputChannelSet();
-    return o == juce::AudioChannelSet::stereo() || o == juce::AudioChannelSet::mono();
+    if (! (o == juce::AudioChannelSet::stereo() || o == juce::AudioChannelSet::mono())) return false;
+    if (! l.getMainInputChannelSet().isDisabled()) return false;   // hlavny vstup nepouzivame
+    if (l.inputBuses.size() > 1)
+    {
+        const auto sc = l.getChannelSet (true, 1);
+        if (! (sc.isDisabled() || sc == juce::AudioChannelSet::stereo() || sc == juce::AudioChannelSet::mono())) return false;
+    }
+    return true;
 }
 
 void NovaProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     synth.prepare (sampleRate, samplesPerBlock);
     curRate = sampleRate;
+    scL.assign ((size_t) juce::jmax (8192, samplesPerBlock), 0.0f); scR.assign (scL.size(), 0.0f);
 }
 
 void NovaProcessor::fillSettings (Settings& s)
@@ -80,6 +90,8 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
     s.arpOn = g ("arp_on") > 0.5f; s.arpHold = g ("arp_hold") > 0.5f; s.arpPat = (int) g ("arp_pat"); s.arpSpeed = (int) g ("arp_speed");
     s.arpOct = (int) g ("arp_oct"); s.arpLen = g ("arp_len");
     s.mono = g ("mono") > 0.5f; s.glide = g ("glide"); s.veltrack = g ("veltrack"); s.morphX = g ("morph_x"); s.morphY = g ("morph_y");
+    s.vcOn = g ("vc_on") > 0.5f; s.vcBands = g ("vc_bands"); s.vcFormant = g ("vc_formant"); s.vcClarity = g ("vc_clarity");
+    s.vcRelease = g ("vc_release"); s.vcDry = g ("vc_dry");
     s.gtOn = g ("gt_on") > 0.5f; s.gtRate = (int) g ("gt_rate"); s.gtDepth = g ("gt_depth"); s.gtSmooth = g ("gt_smooth"); s.gtSwing = g ("gt_swing");
     for (int k = 0; k < 16; ++k) s.gtPat[k] = g ("gt_s" + juce::String (k)) > 0.5f;
     for (int k = 0; k < 4; ++k)
@@ -93,7 +105,20 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
 void NovaProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals nd;
-    for (int c = getTotalNumInputChannels(); c < buffer.getNumChannels(); ++c) buffer.clear (c, 0, buffer.getNumSamples());
+    // hlas pre vocoder zo sidechainu (skopirovat skor, nez syntezator prepise buffer)
+    {
+        const int n = buffer.getNumSamples();
+        synth.vocInL = synth.vocInR = nullptr; synth.vocInN = 0;
+        if (getBusCount (true) > 1)
+            if (auto* b = getBus (true, 1); b != nullptr && b->isEnabled() && b->getNumberOfChannels() > 0 && (int) scL.size() >= n)
+            {
+                auto sc = getBusBuffer (buffer, true, 1);
+                juce::FloatVectorOperations::copy (scL.data(), sc.getReadPointer (0), n);
+                juce::FloatVectorOperations::copy (scR.data(), sc.getReadPointer (sc.getNumChannels() > 1 ? 1 : 0), n);
+                synth.vocInL = scL.data(); synth.vocInR = scR.data(); synth.vocInN = n;
+            }
+    }
+    buffer.clear();
     keyboard.processNextMidiBuffer (midi, 0, buffer.getNumSamples(), true);
     recordCapture (midi, buffer.getNumSamples());
     // MIDI learn a priradene CC (priradene CC sa do syntetizatora neposielaju)

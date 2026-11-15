@@ -962,6 +962,31 @@ namespace
             tabMod.setTooltip (T ("Modulačná matica: LFO, obálka, sila úderu… môže hýbať ľubovoľným cieľom"));
             tabFx.onClick = [this] { showTab (0); }; tabEq.onClick = [this] { showTab (1); };
             tabGate.onClick = [this] { showTab (2); }; tabMod.onClick = [this] { showTab (3); };
+            // vocoder
+            addAndMakeVisible (tabVoc); tabVoc.setButtonText ("VOCODER"); tabVoc.onClick = [this] { showTab (4); };
+            tabVoc.setTooltip (T ("Vocoder: Inspiria spieva slovami zo spevovej stopy"));
+            vcOn = std::make_unique<Toggle> (p.params, "vc_on", T ("VOCODER"), amber.brighter (0.3f));
+            addAndMakeVisible (*vcOn);
+            {
+                const char* ids[5] = { "vc_bands", "vc_formant", "vc_clarity", "vc_release", "vc_dry" };
+                const char* nm[5] = { "Pásma", "Formant", "Zrozumiteľnosť", "Dozvuk", "Hlas" };
+                const char* tip[5] = { "Menej pásiem = klasický robot, viac = zrozumiteľnejšie",
+                                       "Posun farby hlasu (nižšie = mohutnejší, vyššie = detský / robotický)",
+                                       "Spoluhlásky S, T, K z pôvodného hlasu – aby bolo rozumieť slovám",
+                                       "Ako plynulo doznieva každé slovo",
+                                       "Trochu pôvodného hlasu pod vocoderom (človek + robot)" };
+                for (int k = 0; k < 5; ++k)
+                {
+                    vcK[k] = std::make_unique<Knob> (p.params, ids[k], T (nm[k]));
+                    vcK[k]->setArc (amber); vcK[k]->s.setTooltip (T (tip[k]));
+                    addAndMakeVisible (*vcK[k]);
+                }
+            }
+            vcHelp.setFont (juce::FontOptions (12.0f)); vcHelp.setColour (juce::Label::textColourId, dim);
+            vcHelp.setJustificationType (juce::Justification::topLeft);
+            vcHelp.setText (T ("1. Zapni VOCODER.  2. V Sequenceri: pravý klik na túto stopu → Hlas pre vocoder → vyber spevovú stopu.\n3. Hraj akordy – Inspiria zaspieva slovami zo spevu."), juce::dontSendNotification);
+            addAndMakeVisible (vcHelp);
+            addAndMakeVisible (vcMeter);
             // gater
             gtOn = std::make_unique<Toggle> (p.params, "gt_on", T ("GATER"), amber.brighter (0.3f));
             gtRate = std::make_unique<Combo> (p.params, "gt_rate");
@@ -1040,7 +1065,9 @@ namespace
         void showTab (int t)
         {
             tab = t;
-            const bool e = t == 1, fxv = t == 0, gv = t == 2, mv = t == 3;
+            const bool e = t == 1, fxv = t == 0, gv = t == 2, mv = t == 3, vv = t == 4;
+            tabVoc.setToggleState (vv, juce::dontSendNotification);
+            vcOn->setVisible (vv); vcHelp.setVisible (vv); vcMeter.setVisible (vv); for (auto& k : vcK) k->setVisible (vv);
             eqShown = e;
             tabFx.setToggleState (fxv, juce::dontSendNotification); tabEq.setToggleState (e, juce::dontSendNotification);
             tabGate.setToggleState (gv, juce::dontSendNotification); tabMod.setToggleState (mv, juce::dontSendNotification);
@@ -1068,9 +1095,16 @@ namespace
         }
         void resized() override
         {
-            tabFx.setBounds (10, 8, 66, 22); tabEq.setBounds (78, 8, 36, 22); tabGate.setBounds (116, 8, 54, 22); tabMod.setBounds (172, 8, 44, 22);
-            widthL.setBounds (226, 8, 40, 22); width.setBounds (266, 8, 90, 22);
-            punchL.setBounds (364, 8, 38, 22); punch.setBounds (402, 8, getWidth() - 412, 22);
+            tabFx.setBounds (10, 8, 62, 22); tabEq.setBounds (74, 8, 34, 22); tabGate.setBounds (110, 8, 52, 22); tabMod.setBounds (164, 8, 40, 22); tabVoc.setBounds (206, 8, 70, 22);
+            widthL.setBounds (284, 8, 38, 22); width.setBounds (322, 8, 70, 22);
+            punchL.setBounds (398, 8, 38, 22); punch.setBounds (436, 8, getWidth() - 446, 22);
+            // vocoder
+            vcOn->setBounds (12, 40, 110, 22); vcMeter.setBounds (130, 44, getWidth() - 142, 14);
+            vcHelp.setBounds (12, 68, getWidth() - 24, 48);
+            {
+                const int kw = (getWidth() - 24) / 5;
+                for (int k = 0; k < 5; ++k) vcK[k]->setBounds (12 + k * kw, 122, kw, 80);
+            }
             // gater
             gtOn->setBounds (12, 40, 92, 22); gtRate->setBounds (108, 40, 70, 22); gtPreset.setBounds (182, 40, 110, 22);
             gtDepth->setBounds (getWidth() - 192, 36, 58, 72); gtSmooth->setBounds (getWidth() - 132, 36, 58, 72); gtSwing->setBounds (getWidth() - 72, 36, 58, 72);
@@ -1110,6 +1144,23 @@ namespace
         std::vector<std::unique_ptr<Knob>> fx, eq;
         juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help, gtHelp;
         std::unique_ptr<Toggle> gtOn; std::unique_ptr<Combo> gtRate, mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing, mAmt[4]; juce::ComboBox gtPreset;
+        juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[5]; juce::Label vcHelp;
+        struct VocMeter : juce::Component, juce::Timer
+        {
+            explicit VocMeter (NovaProcessor& pr) : p (pr) { startTimerHz (20); }
+            void timerCallback() override { const float l = p.synth.vocLevel.load(); if (std::abs (l - shown) > 0.002f) { shown = l; repaint(); } }
+            void paint (juce::Graphics& g) override
+            {
+                auto r = getLocalBounds().toFloat();
+                g.setColour (juce::Colour (0xff2d4362)); g.fillRoundedRectangle (r, 3.0f);
+                const float db = shown > 1.0e-5f ? 20.0f * std::log10 (shown) : -100.0f;
+                const float f = juce::jlimit (0.0f, 1.0f, (db + 50.0f) / 50.0f);
+                g.setColour (juce::Colour (0xffc9a35a)); g.fillRoundedRectangle (r.withWidth (r.getWidth() * f), 3.0f);
+                g.setColour (juce::Colours::white.withAlpha (0.85f)); g.setFont (juce::FontOptions (11.0f));
+                g.drawText (f > 0.02f ? T ("Hlas prichádza") : T ("Žiadny hlas – vyber spevovú stopu v Sequenceri"), getLocalBounds().reduced (6, 0), juce::Justification::centredLeft);
+            }
+            NovaProcessor& p; float shown = 0;
+        } vcMeter { p };
         juce::TextButton steps[16]; std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> stepAtt[16];
         EqGraph graph;
         std::unique_ptr<Toggle> eqOn[NEQ];
