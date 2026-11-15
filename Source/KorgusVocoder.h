@@ -64,7 +64,7 @@ public:
     static constexpr int kMinBands = 16;
     static constexpr int kVoices = 8;
 
-    enum CarrierMode { carrierTrack = 0, carrierSynth = 1, carrierRobot = 2 };
+    enum CarrierMode { carrierTrack = 0, carrierSynth = 1, carrierRobot = 2, carrierHarmony = 3 };   // 3 = robot trojhlas
     // scale types for setKey(): -1 = none (free pitch), same numbering as Autotune for 0..2
     enum ScaleType { scaleNone = -1, scaleMajor = 0, scaleMinor = 1, scaleChromatic = 2,
                      scaleHarmonicMinor = 3, scaleMajorPenta = 4, scaleMinorPenta = 5 };
@@ -83,13 +83,13 @@ public:
     }
     static const char* carrierNameSk (int m) noexcept
     {
-        static const char* const n[3] = { "Stopa (k\xc4\xbe\xc3\xba\xc4\x8d)", "Intern\xc3\xbd syntez\xc3\xa1tor", "Robot (sleduje hlas)" };
-        return (m >= 0 && m < 3) ? n[m] : "";
+        static const char* const n[4] = { "Stopa (k\xc4\xbe\xc3\xba\xc4\x8d)", "Intern\xc3\xbd syntez\xc3\xa1tor", "Robot (sleduje hlas)", "Robot trojhlas" };
+        return (m >= 0 && m < 4) ? n[m] : "";
     }
     static const char* carrierNameEn (int m) noexcept
     {
-        static const char* const n[3] = { "Track (sidechain)", "Internal synth", "Robot (follows voice)" };
-        return (m >= 0 && m < 3) ? n[m] : "";
+        static const char* const n[4] = { "Track (sidechain)", "Internal synth", "Robot (follows voice)", "Robot harmony (3 voices)" };
+        return (m >= 0 && m < 4) ? n[m] : "";
     }
     static float defaultParam (int i) noexcept
     {
@@ -217,6 +217,13 @@ public:
         robotNote = -1; robotCand = -1; robotCandN = 0; robotVoiced = false; detectedHz = 0.0f;
         robot.cur = robot.target = robotStartPitch(); robot.env = 0.0f; robot.gate = true; robot.active = true; robot.vel = 1.0f;
         setVoiceInc (robot);
+        for (int j = 0; j < 2; ++j)
+        {
+            auto& h = harm[j];
+            h.cur = h.target = robot.cur + (j == 0 ? 4.0f : 7.0f); h.env = 0.0f; h.gate = true; h.active = true; h.vel = 1.0f;
+            h.ph[0] = 0.31f + 0.2f * (float) j; h.ph[1] = 0.73f - 0.1f * (float) j; h.ph[2] = 0.05f + 0.3f * (float) j;
+            setVoiceInc (h);
+        }
         ctlCount = 0;
     }
 
@@ -229,7 +236,7 @@ public:
     //   mix     : dry / wet, equal power             (default 1)
     void setParams (int carrierMode, float bands, float formant, float clarity, float release, float mix) noexcept
     {
-        tMode = carrierMode < 0 ? 0 : (carrierMode > 2 ? 2 : carrierMode);
+        tMode = carrierMode < 0 ? 0 : (carrierMode > 3 ? 3 : carrierMode);
         tBands = bandsFrom01 (san (bands, 2.0f / 3.0f));
         tFormant = formantToSemitones (san (formant, 0.5f));
         tClarity = san (clarity, 0.6f);
@@ -329,7 +336,7 @@ public:
             else
             {
                 mod = 0.5f * (dl + dr);
-                car = cfgMode == carrierSynth ? synthSample() : robotSample();
+                car = cfgMode == carrierSynth ? synthSample() : (cfgMode == carrierHarmony ? harmonySample() : robotSample());
             }
 
             float wl, wr;
@@ -374,7 +381,7 @@ private:
         }
         eH += eDetA * (hpm * hpm - eH); eL += eDetA * (lp2 * lp2 - eL);
         { const float a = std::abs (xm); mb += (a > mb ? mbAtt : mbRel) * (a - mb); }
-        if (cfgMode == carrierRobot) pitchFeed (xm);
+        if (cfgMode == carrierRobot || cfgMode == carrierHarmony) pitchFeed (xm);
         cTot += car * car;
 
         // ---- the two filter banks -------------------------------------------------
@@ -521,6 +528,28 @@ private:
         robot.env += vAtt * (1.0f - robot.env);
         return kSynthAmp * (voiceSample (robot) + 0.12f * rnd());
     }
+    // robot trojhlas: hlas + terca + kvinta (v tonine piesne, inak durovy akord)
+    inline float harmonySample() noexcept
+    {
+        robot.env += vAtt * (1.0f - robot.env);
+        for (auto& h : harm) h.env = robot.env;
+        return kSynthAmp * (0.62f * (voiceSample (robot) + 0.8f * voiceSample (harm[0]) + 0.8f * voiceSample (harm[1])) + 0.12f * rnd());
+    }
+    int diatonicAbove (int note, int steps) const noexcept
+    {
+        static const std::uint16_t masks[6] = { 0xAB5, 0x5AD, 0xFFF, 0x9AD, 0x295, 0x4A9 };
+        const std::uint16_t mk = masks[keyScale < 0 ? 2 : keyScale];
+        if (keyScale < 0 || keyScale == 2) return note + (steps == 2 ? 4 : 7);   // bez toniny: durova terca a kvinta
+        int n = note, left = steps;
+        while (left > 0 && n < note + 12) { ++n; const int deg = (((n - keyTonic) % 12) + 12) % 12; if ((mk >> deg) & 1) --left; }
+        return n;
+    }
+    void setHarmonyTargets (float root) noexcept
+    {
+        if (keyScale < 0) { harm[0].target = root + 4.0f; harm[1].target = root + 7.0f; return; }
+        const int r = (int) std::floor (root + 0.5f);
+        harm[0].target = (float) diatonicAbove (r, 2); harm[1].target = (float) diatonicAbove (r, 4);
+    }
     void setVoiceInc (Voice& v) noexcept
     {
         static const float det[3] = { 0.99481f, 1.00521f, 1.0f };          // -9 / +9 / 0 cents
@@ -615,7 +644,7 @@ private:
         pm = std::min (84.0f, std::max (28.0f, pm));
         detectedHz = 440.0f * std::exp2 ((pm - 69.0f) / 12.0f);
 
-        if (keyScale < 0) { robotNote = -1; robot.target = pm; return; }
+        if (keyScale < 0) { robotNote = -1; robot.target = pm; setHarmonyTargets (pm); return; }
         const int q = nearestScaleNote (pm);
         if (robotNote < 0) robotNote = q;
         else if (q != robotNote && std::abs (pm - (float) q) + 0.5f < std::abs (pm - (float) robotNote))
@@ -625,6 +654,7 @@ private:
         }
         else robotCandN = 0;
         robot.target = (float) robotNote;
+        setHarmonyTargets ((float) robotNote);
     }
     int nearestScaleNote (float p) const noexcept
     {
@@ -766,8 +796,12 @@ private:
             const float gc = glideMs > 0.0f ? (float) (1.0 - std::exp (-dt / (0.001 * glideMs * 0.35))) : 0.5f;
             for (auto& v : voice) if (v.active) glideVoice (v, gc);
         }
-        else if (cfgMode == carrierRobot)
-            glideVoice (robot, (float) (1.0 - std::exp (-dt / (keyScale >= 0 ? 0.012 : 0.03))));
+        else if (cfgMode == carrierRobot || cfgMode == carrierHarmony)
+        {
+            const float gc = (float) (1.0 - std::exp (-dt / (keyScale >= 0 ? 0.012 : 0.03)));
+            glideVoice (robot, gc);
+            if (cfgMode == carrierHarmony) for (auto& h : harm) glideVoice (h, gc);
+        }
 
         // ensemble LFOs
         if (sEns > 1.0e-4f)
@@ -970,7 +1004,7 @@ private:
 
     // internal synth / robot
     Voice voice[kVoices];
-    Voice robot;
+    Voice robot, harm[2];
     float vAtt = 0, vRel = 0, lastNote = -1;
     std::uint32_t voiceAge = 0;
     Svf pitLp[2];

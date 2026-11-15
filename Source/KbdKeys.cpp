@@ -39,6 +39,11 @@ namespace KbdKeys
         return (GetAsyncKeyState (VK_CONTROL) & 0x8000) || (GetAsyncKeyState (VK_MENU) & 0x8000)
             || (GetAsyncKeyState (VK_LWIN) & 0x8000) || (GetAsyncKeyState (VK_RWIN) & 0x8000);
     }
+    bool isVkDown (int vk) { return (GetAsyncKeyState (vk) & 0x8000) != 0; }
+    int mods()
+    {
+        return ((GetAsyncKeyState (VK_CONTROL) & 0x8000) ? 1 : 0) | ((GetAsyncKeyState (VK_SHIFT) & 0x8000) ? 2 : 0) | ((GetAsyncKeyState (VK_MENU) & 0x8000) ? 4 : 0);
+    }
 }
 #else
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -52,5 +57,7 @@ namespace KbdKeys
         const auto m = juce::ModifierKeys::getCurrentModifiersRealtime();
         return m.isCtrlDown() || m.isAltDown() || m.isCommandDown();
     }
+    bool isVkDown (int) { return false; }
+    int mods() { return 0; }
 }
 #endif

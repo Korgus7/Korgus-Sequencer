@@ -80,7 +80,7 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
     s.arpOn = g ("arp_on") > 0.5f; s.arpHold = g ("arp_hold") > 0.5f; s.arpPat = (int) g ("arp_pat"); s.arpSpeed = (int) g ("arp_speed");
     s.arpOct = (int) g ("arp_oct"); s.arpLen = g ("arp_len");
     s.mono = g ("mono") > 0.5f; s.glide = g ("glide"); s.veltrack = g ("veltrack"); s.morphX = g ("morph_x"); s.morphY = g ("morph_y");
-    s.gtOn = g ("gt_on") > 0.5f; s.gtRate = (int) g ("gt_rate"); s.gtDepth = g ("gt_depth"); s.gtSmooth = g ("gt_smooth");
+    s.gtOn = g ("gt_on") > 0.5f; s.gtRate = (int) g ("gt_rate"); s.gtDepth = g ("gt_depth"); s.gtSmooth = g ("gt_smooth"); s.gtSwing = g ("gt_swing");
     for (int k = 0; k < 16; ++k) s.gtPat[k] = g ("gt_s" + juce::String (k)) > 0.5f;
     for (int k = 0; k < 4; ++k)
     {

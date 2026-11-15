@@ -275,6 +275,15 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
         const auto scope = liveFifo.write (1);
         if (scope.blockSize1 > 0) liveBuf[(size_t) scope.startIndex1] = { slot, copy };
         else if (scope.blockSize2 > 0) liveBuf[(size_t) scope.startIndex2] = { slot, copy };
+        std::array<int, 8> ex {}; int ne = 0;
+        { const juce::SpinLock::ScopedLockType l (filterLock); ex = extraSlots; ne = numExtra; }
+        for (int k = 0; k < ne; ++k)
+        {
+            if (ex[(size_t) k] == slot || ex[(size_t) k] < 0) continue;
+            const auto sc2 = liveFifo.write (1);
+            if (sc2.blockSize1 > 0) liveBuf[(size_t) sc2.startIndex1] = { ex[(size_t) k], copy };
+            else if (sc2.blockSize2 > 0) liveBuf[(size_t) sc2.startIndex2] = { ex[(size_t) k], copy };
+        }
     }
     if (m.isNoteOnOrOff() || (m.isController() && m.getControllerNumber() == 64))
     {

@@ -134,6 +134,7 @@ namespace nova
             C ("gt_rate", "Gater rýchlosť", "1/4|1/8|1/8T|1/16|1/32", 3);
             F ("gt_depth", "Gater hĺbka", 0, 1, 0.85f, "%");
             F ("gt_smooth", "Gater hladkosť", 0, 1, 0.25f, "%");
+            F ("gt_swing", "Gater swing", 0, 0.5f, 0, "%");
             {
                 static const bool defPat[16] = { 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1 };
                 for (int k = 0; k < 16; ++k) B ("gt_s" + juce::String (k), ("Gater krok " + std::to_string (k + 1)).c_str(), defPat[k]);

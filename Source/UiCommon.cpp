@@ -21,6 +21,7 @@ juce::String skTranslate (const char* utf8)
         { "Zahraj akordy (MIDI) alebo zvoľ Robot", "Play chords (MIDI) or choose Robot" },
         { "Noty: MIDI na tejto stope, klávesy (vybraná stopa) alebo akordová stopa piesne. Efekt patrí na stopu so spevom.", "Notes: MIDI on this track, keyboard (selected track) or the song's chord track. Put this effect on the vocal track." },
         { "Robot: nosič sleduje výšku hlasu", "Robot: the carrier follows the pitch of the voice" },
+        { "Robot trojhlas: hlas + terca + kvinta", "Robot harmony: voice + third + fifth" },
         { "Tónina piesne: ", "Song key: " },
         { "Nosič: zvuk tejto stopy, modulátor: kľúčová stopa (spev)", "Carrier: this track's sound, modulator: the key track (vocals)" },
         { "Hlas zo stopy označenej ako kľúčová; jej fader ho neovplyvní (kľúč ide pred hlasitosťou).", "The voice comes from the track marked as key; its fader does not affect it (the key is taken before the volume)." },

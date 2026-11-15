@@ -37,7 +37,7 @@ namespace nova
         float bright = 0.5f, attack = 0.5f, release = 0.5f, space = 0.5f, width = 0.5f;
         bool playing = false; double ppq = 0;
         // rytmicky gater
-        bool gtOn = false; int gtRate = 3; float gtDepth = 0.85f, gtSmooth = 0.25f; bool gtPat[16] {};
+        bool gtOn = false; int gtRate = 3; float gtDepth = 0.85f, gtSmooth = 0.25f, gtSwing = 0; bool gtPat[16] {};
         // modulacna matica
         struct ModSlot { int src = 0, dst = 2; float amt = 0; } mm[4];
     };

@@ -1,3 +1,4 @@
+#include "../../Source/GatePatterns.h"
 #include "PluginEditor.h"
 #include <complex>
 #include <juce_dsp/juce_dsp.h>
@@ -966,8 +967,22 @@ namespace
             gtRate = std::make_unique<Combo> (p.params, "gt_rate");
             gtDepth = std::make_unique<Knob> (p.params, "gt_depth", T ("Hĺbka"));
             gtSmooth = std::make_unique<Knob> (p.params, "gt_smooth", T ("Hladkosť"));
-            gtDepth->setArc (amber); gtSmooth->setArc (amber);
-            for (auto* c : std::initializer_list<juce::Component*> { gtOn.get(), gtRate.get(), gtDepth.get(), gtSmooth.get() }) addAndMakeVisible (c);
+            gtSwing = std::make_unique<Knob> (p.params, "gt_swing", "Swing");
+            gtDepth->setArc (amber); gtSmooth->setArc (amber); gtSwing->setArc (amber);
+            for (auto* c : std::initializer_list<juce::Component*> { gtOn.get(), gtRate.get(), gtDepth.get(), gtSmooth.get(), gtSwing.get(), (juce::Component*) &gtPreset }) addAndMakeVisible (c);
+            gtPreset.setTextWhenNothingSelected (T ("Rytmus…"));
+            for (int k = 0; k < korgus::GatePatterns::count; ++k) gtPreset.addItem (lang() == 1 ? juce::String (korgus::GatePatterns::nameEn (k)) : juce::String::fromUTF8 (korgus::GatePatterns::nameSk (k)), k + 1);
+            gtPreset.setTooltip (T ("Hotové rytmy – nastavia kroky vzoru"));
+            gtPreset.setWantsKeyboardFocus (false);
+            gtPreset.onChange = [this]
+            {
+                const int k = gtPreset.getSelectedId() - 1;
+                if (k < 0) return;
+                const char* b = korgus::GatePatterns::bits (k);
+                for (int i = 0; i < 16; ++i)
+                    if (auto* prm = p.params.getParameter ("gt_s" + juce::String (i))) prm->setValueNotifyingHost (b[i] == '1' ? 1.0f : 0.0f);
+                if (auto* on = p.params.getParameter ("gt_on")) on->setValueNotifyingHost (1.0f);
+            };
             gtRate->setTooltip (T ("Dĺžka jedného kroku vzoru"));
             for (int k = 0; k < 16; ++k)
             {
@@ -1031,7 +1046,7 @@ namespace
             tabGate.setToggleState (gv, juce::dontSendNotification); tabMod.setToggleState (mv, juce::dontSendNotification);
             for (auto* c : std::initializer_list<juce::Component*> { &drive, &chorus, &delay, &reverb, &pp, &sync, &chType }) c->setVisible (fxv);
             for (auto& k : fx) k->setVisible (fxv);
-            for (auto* c : std::initializer_list<juce::Component*> { gtOn.get(), gtRate.get(), gtDepth.get(), gtSmooth.get(), (juce::Component*) &gtHelp }) c->setVisible (gv);
+            for (auto* c : std::initializer_list<juce::Component*> { gtOn.get(), gtRate.get(), gtDepth.get(), gtSmooth.get(), gtSwing.get(), (juce::Component*) &gtHelp, (juce::Component*) &gtPreset }) c->setVisible (gv);
             for (auto& b : steps) b.setVisible (gv);
             for (int k = 0; k < 4; ++k) { mSrc[k]->setVisible (mv); mDst[k]->setVisible (mv); mAmt[k]->setVisible (mv); }
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setVisible (e && i / 4 == target);
@@ -1057,9 +1072,9 @@ namespace
             widthL.setBounds (226, 8, 40, 22); width.setBounds (266, 8, 90, 22);
             punchL.setBounds (364, 8, 38, 22); punch.setBounds (402, 8, getWidth() - 412, 22);
             // gater
-            gtOn->setBounds (12, 40, 100, 22); gtRate->setBounds (118, 40, 80, 22);
-            gtDepth->setBounds (getWidth() - 136, 36, 60, 72); gtSmooth->setBounds (getWidth() - 72, 36, 60, 72);
-            gtHelp.setBounds (12, 70, getWidth() - 160, 40);
+            gtOn->setBounds (12, 40, 92, 22); gtRate->setBounds (108, 40, 70, 22); gtPreset.setBounds (182, 40, 110, 22);
+            gtDepth->setBounds (getWidth() - 192, 36, 58, 72); gtSmooth->setBounds (getWidth() - 132, 36, 58, 72); gtSwing->setBounds (getWidth() - 72, 36, 58, 72);
+            gtHelp.setBounds (12, 70, getWidth() - 210, 40);
             {
                 const int sw = (getWidth() - 24 - 15 * 4 - 3 * 6) / 16;
                 for (int k = 0; k < 16; ++k) steps[k].setBounds (12 + k * (sw + 4) + (k / 4) * 6, 128, sw, 70);
@@ -1094,7 +1109,7 @@ namespace
         Toggle drive, chorus, delay, reverb, pp; Combo sync, chType;
         std::vector<std::unique_ptr<Knob>> fx, eq;
         juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help, gtHelp;
-        std::unique_ptr<Toggle> gtOn; std::unique_ptr<Combo> gtRate, mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, mAmt[4];
+        std::unique_ptr<Toggle> gtOn; std::unique_ptr<Combo> gtRate, mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing, mAmt[4]; juce::ComboBox gtPreset;
         juce::TextButton steps[16]; std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> stepAtt[16];
         EqGraph graph;
         std::unique_ptr<Toggle> eqOn[NEQ];

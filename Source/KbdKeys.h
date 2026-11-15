@@ -11,4 +11,7 @@ namespace KbdKeys
     bool nativeTextFocus();
     // Ctrl / Alt / Win stlacene
     bool commandModsDown();
+    // virtualna klavesa (Windows VK kod) stlacena; mods: bit0 Ctrl, bit1 Shift, bit2 Alt
+    bool isVkDown (int vk);
+    int mods();
 }

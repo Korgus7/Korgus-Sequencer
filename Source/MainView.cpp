@@ -147,7 +147,8 @@ struct MainView::KbdPoll : juce::Timer
     juce::String track;                       // cielova stopa z JS (vybrana / armovana)
     std::set<juce::String> midiIds, drumIds;  // stopy, ktore prijmaju noty / su bicie
     std::vector<int> drumPitch;
-    struct Held { juce::String track; int slot; int pitch; };
+    std::vector<juce::String> arm;            // dalsie zapnute (armovane) stopy - hraju naraz ako v Cubase
+    struct Held { juce::String track; int slot; int pitch; std::vector<std::pair<juce::String, int>> extra; };
     std::map<int, Held> held;                 // index klavesy -> nota
     bool down[17] = {}, zD = false, xD = false, cD = false, vD = false, spD = false;
 
@@ -177,6 +178,7 @@ struct MainView::KbdPoll : juce::Timer
     {
         for (auto& [i, h] : held)
         {
+            for (auto& [et, es] : h.extra) { mv.engine.liveNote (es, h.pitch, 0.0f, false); mv.recordLive (et, h.pitch, 0.0f, false, -1.0); }
             mv.engine.liveNote (h.slot, h.pitch, 0.0f, false);
             mv.recordLive (h.track, h.pitch, 0.0f, false, mv.engine.isPlaying() ? mv.engine.getPosition() : -1.0);
             auto o = obj(); put (o, "track", h.track); put (o, "key", i); put (o, "on", false);
@@ -185,6 +187,42 @@ struct MainView::KbdPoll : juce::Timer
         held.clear();
         for (auto& d : down) d = false;
         zD = xD = cD = vD = spD = false;
+    }
+
+    // skratky programu z okna pluginu (sipky, Delete, Home, Ctrl+Z...) -> stranka ako keby boli stlacene v hlavnom okne
+    bool scDown[256] {};
+    void forwardShortcuts (bool juceFocus)
+    {
+        struct Sc { int vk; const char* code; const char* key; bool needCtrl; };
+        static const Sc list[] = {
+            { 0x25, "ArrowLeft", "ArrowLeft", false }, { 0x27, "ArrowRight", "ArrowRight", false },
+            { 0x26, "ArrowUp", "ArrowUp", false }, { 0x28, "ArrowDown", "ArrowDown", false },
+            { 0x24, "Home", "Home", false }, { 0x23, "End", "End", false }, { 0x2E, "Delete", "Delete", false },
+            { 0x08, "Backspace", "Backspace", false }, { 0x0D, "Enter", "Enter", false }, { 0x21, "PageUp", "PageUp", false }, { 0x22, "PageDown", "PageDown", false },
+            { 0x60, "Numpad0", "0", false }, { 0x61, "Numpad1", "1", false }, { 0x62, "Numpad2", "2", false }, { 0x63, "Numpad3", "3", false },
+            { 0x64, "Numpad4", "4", false }, { 0x65, "Numpad5", "5", false }, { 0x66, "Numpad6", "6", false }, { 0x67, "Numpad7", "7", false },
+            { 0x68, "Numpad8", "8", false }, { 0x69, "Numpad9", "9", false }, { 0x6A, "NumpadMultiply", "*", false }, { 0x6B, "NumpadAdd", "+", false },
+            { 0x6D, "NumpadSubtract", "-", false }, { 0x6E, "NumpadDecimal", ".", false }, { 0x6F, "NumpadDivide", "/", false },
+            { 'Z', "KeyZ", "z", true }, { 'Y', "KeyY", "y", true }, { 'S', "KeyS", "s", true }, { 'C', "KeyC", "c", true }, { 'V', "KeyV", "v", true },
+            { 'X', "KeyX", "x", true }, { 'A', "KeyA", "a", true }, { 'D', "KeyD", "d", true }, { 'E', "KeyE", "e", true }, { 'L', "KeyL", "l", true } };
+        const int m = KbdKeys::mods();
+        for (const auto& k : list)
+        {
+            const bool d = KbdKeys::isVkDown (k.vk);
+            bool& was = scDown[k.vk & 0xff];
+            if (d && ! was)
+            {
+                const bool arrow = k.vk >= 0x25 && k.vk <= 0x28;
+                const bool ok = k.needCtrl ? (m & 1) != 0 : (! arrow || ! juceFocus);   // v Inspirii sipky prepinaju zvuky
+                if (ok)
+                {
+                    auto o = obj(); put (o, "code", juce::String (k.code)); put (o, "key", juce::String (k.key));
+                    put (o, "ctrl", (m & 1) != 0); put (o, "shift", (m & 2) != 0); put (o, "alt", (m & 4) != 0);
+                    mv.emit ("hostKey", o);
+                }
+            }
+            was = d;
+        }
     }
 
     void sendState()
@@ -199,6 +237,7 @@ struct MainView::KbdPoll : juce::Timer
         const bool fg = foregroundPlugin (winTrack);
         auto* fc = juce::Component::getCurrentlyFocusedComponent();
         const bool textFocus = (fc != nullptr && dynamic_cast<juce::TextEditor*> (fc) != nullptr) || KbdKeys::nativeTextFocus();
+        if (fg && ! textFocus && juce::Process::isForegroundProcess()) forwardShortcuts (fc != nullptr);
         if (! fg || textFocus || KbdKeys::commandModsDown() || ! juce::Process::isForegroundProcess())
         {
             releaseAll();
@@ -242,7 +281,16 @@ struct MainView::KbdPoll : juce::Timer
                 const float vf = (float) vel / 127.0f;
                 mv.engine.liveNote (slot, pitch, vf, true);
                 mv.recordLive (tr, pitch, vf, true, mv.engine.isPlaying() ? mv.engine.getPosition() : -1.0);
-                held[(int) n] = { tr, slot, pitch };
+                held[(int) n] = { tr, slot, pitch, {} };
+                if (! drum)
+                    for (const auto& a : arm)
+                        if (a != tr && midiIds.count (a) != 0 && drumIds.count (a) == 0)
+                        {
+                            const int es = mv.engine.getOrCreateSlot (a);
+                            mv.engine.liveNote (es, pitch, vf, true);
+                            mv.recordLive (a, pitch, vf, true, mv.engine.isPlaying() ? mv.engine.getPosition() : -1.0);
+                            held[(int) n].extra.push_back ({ a, es });
+                        }
                 auto o = obj(); put (o, "track", tr); put (o, "key", (int) n); put (o, "on", true);
                 put (o, "val", k.semi); put (o, "pitch", pitch); put (o, "vel", vf);
                 mv.emit ("kbdNote", o);
@@ -251,6 +299,7 @@ struct MainView::KbdPoll : juce::Timer
             {
                 if (auto it = held.find ((int) n); it != held.end())
                 {
+                    for (auto& [et, es] : it->second.extra) { mv.engine.liveNote (es, it->second.pitch, 0.0f, false); mv.recordLive (et, it->second.pitch, 0.0f, false, -1.0); }
                     mv.engine.liveNote (it->second.slot, it->second.pitch, 0.0f, false);
                     mv.recordLive (it->second.track, it->second.pitch, 0.0f, false, mv.engine.isPlaying() ? mv.engine.getPosition() : -1.0);
                     auto o = obj(); put (o, "track", it->second.track); put (o, "key", (int) n); put (o, "on", false);
@@ -277,6 +326,8 @@ void MainView::onKbdState (const juce::var& v)
     if (const auto* a = v.getProperty ("midi", {}).getArray()) for (const auto& x : *a) k.midiIds.insert (x.toString());
     if (const auto* a = v.getProperty ("drum", {}).getArray()) for (const auto& x : *a) k.drumIds.insert (x.toString());
     if (const auto* a = v.getProperty ("drumPitch", {}).getArray()) for (const auto& x : *a) k.drumPitch.push_back ((int) x);
+    k.arm.clear();
+    if (const auto* a = v.getProperty ("arm", {}).getArray()) for (const auto& x : *a) k.arm.push_back (x.toString());
 }
 
 MainView::MainView (juce::ApplicationProperties& p) : props (p)
@@ -875,6 +926,11 @@ void MainView::onSelTrack (const juce::var& v)
 {
     selTrackId = v["track"].toString();
     engine.setSelectedSlot (engine.getOrCreateSlot (v["track"].toString()));
+    {
+        std::vector<int> ex;
+        if (const auto* a = v.getProperty ("arm", {}).getArray()) for (const auto& x : *a) ex.push_back (engine.getOrCreateSlot (x.toString()));
+        engine.setExtraSlots (ex);
+    }
     engine.setMidiFilter (v.getProperty ("midiIn", "").toString());
 }
 

@@ -3,7 +3,7 @@ name: Korgus Inspiria build
 on:
   push:
     branches: [ main ]
-    paths: [ 'Nova/**', 'Source/KorgusMaster.h', '.github/workflows/build-nova.yml' ]
+    paths: [ 'Nova/**', 'Source/KorgusMaster.h', 'Source/GatePatterns.h', '.github/workflows/build-nova.yml' ]
   workflow_dispatch:
 
 permissions:

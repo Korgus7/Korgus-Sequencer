@@ -1,3 +1,4 @@
+#include "../../Source/GatePatterns.h"
 #include "Synth.h"
 
 namespace nova
@@ -714,11 +715,7 @@ namespace nova
                     const float a = 1.0f - std::exp (-1.0f / ((0.0005f + 0.025f * st.gtSmooth) * (float) sr));
                     for (int i = 0; i < n; ++i)
                     {
-                        const double bp = (b0 + (double) i * adv) / sl;
-                        const double stp = std::floor (bp);
-                        const int k = (int) (((long long) stp % 16 + 16) % 16);
-                        const bool on = st.gtPat[k] && (bp - stp < 0.88 || ! st.gtPat[(k + 1) % 16]);   // medzera medzi susednymi krokmi
-                        gtR += a * ((on ? 1.0f : 0.0f) - gtR);
+                        gtR += a * (korgus::gateTarget (b0 + (double) i * adv, sl, st.gtPat, st.gtSwing) - gtR);
                         gateBuf[(size_t) (pos + i)] = st.gtOn ? 1.0f - st.gtDepth * (1.0f - gtR) : 1.0f;
                     }
                     curRhythm = gtR;

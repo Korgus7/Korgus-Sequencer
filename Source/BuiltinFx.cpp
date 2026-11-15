@@ -1,3 +1,4 @@
+#include "GatePatterns.h"
 #include "../Nova/Source/SuperVerb.h"
 #include "KorgusMaster.h"
 #include "KorgusVocoder.h"
@@ -1964,10 +1965,10 @@ public:
     {
         using V = korgus::KorgusVocoder;
         const bool en = appLang() == 1;
-        mode = add ("carrier", en ? "Carrier" : "Nosič", 0, 2, 0, "", 1.0f, 0);
+        mode = add ("carrier", en ? "Carrier" : "Nosič", 0, 3, 0, "", 1.0f, 0);
         mode->range.interval = 1.0f;
         mode->wide = true;
-        mode->choices = StringArray { String::fromUTF8 (en ? "Track" : "Stopa"), String::fromUTF8 (en ? "Internal synth" : "Intern\xc3\xbd syntez\xc3\xa1tor"), "Robot" };
+        mode->choices = StringArray { String::fromUTF8 (en ? "Track" : "Stopa"), String::fromUTF8 (en ? "Internal synth" : "Intern\xc3\xbd syntez\xc3\xa1tor"), "Robot", String::fromUTF8 (en ? "Robot harmony" : "Robot trojhlas") };
         bands   = add ("bands", en ? "Bands" : "Pásma", (float) V::kMinBands, (float) V::kMaxBands, 32, "", 1.0f, 0);
         bands->range.interval = 1.0f;
         formant = add ("formant", "Formant", -12, 12, 0, "st", 1.0f, 1);
@@ -2041,7 +2042,7 @@ private:
         const int n = b.getNumSamples(), ch = b.getNumChannels();
         float* L = b.getWritePointer (0);
         float* R = ch > 1 ? b.getWritePointer (1) : nullptr;
-        const int md = jlimit (0, 2, roundToInt (mode->get()));
+        const int md = jlimit (0, 3, roundToInt (mode->get()));
 
         voc.setParams (md, V::bandsTo01 (roundToInt (bands->get())), V::semitonesToFormant (formant->get()),
                        clarity->get() * 0.01f, release->get(), mix->get() * 0.01f);
@@ -2128,7 +2129,7 @@ void VocoderDisplay::paint (Graphics& g)
     g.setColour (mvcol::panel);
     g.fillRoundedRectangle (r, 3.0f);
 
-    const int md = jlimit (0, 2, roundToInt (fx.mode->get()));
+    const int md = jlimit (0, 3, roundToInt (fx.mode->get()));
     String h1, h2;
     bool warn = false;
     if (md == 0)
@@ -2144,7 +2145,7 @@ void VocoderDisplay::paint (Graphics& g)
     }
     else
     {
-        h1 = hRobot;
+        h1 = md == 3 ? sk ("Robot trojhlas: hlas + terca + kvinta") : hRobot;
         h2 = hRobot2;
         const int note = fx.voc.getRobotNote();
         static const char* const nm[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
@@ -2174,6 +2175,67 @@ void VocoderDisplay::paint (Graphics& g)
     }
 }
 
+
+//==============================================================================
+// Korgus Gater - rytmicke sekanie zvuku podla tempa (aj na audio stopu, napr. spev alebo pad)
+class GaterFx final : public FxBase
+{
+public:
+    GaterFx() : FxBase ("Korgus Gater", "gater")
+    {
+        const bool en = appLang() == 1;
+        pat = add ("pattern", en ? "Pattern" : "Rytmus", 0, (float) (korgus::GatePatterns::count - 1), 0, "", 1.0f, 0);
+        pat->range.interval = 1.0f; pat->wide = true;
+        for (int k = 0; k < korgus::GatePatterns::count; ++k)
+            pat->choices.add (en ? String (korgus::GatePatterns::nameEn (k)) : String::fromUTF8 (korgus::GatePatterns::nameSk (k)));
+        rateP = add ("rate", en ? "Step" : "Krok", 0, 4, 3, "", 1.0f, 0);
+        rateP->range.interval = 1.0f;
+        rateP->choices = StringArray { "1/4", "1/8", "1/8T", "1/16", "1/32" };
+        depth  = add ("depth", en ? "Depth" : "Hĺbka", 0, 100, 85, "%", 1.0f, 0);
+        smooth = add ("smooth", en ? "Smooth" : "Hladkosť", 0, 100, 25, "%", 1.0f, 0);
+        swing  = add ("swing", "Swing", 0, 50, 0, "%", 1.0f, 0);
+        on     = add ("active", en ? "On" : "Zapnuté", 0, 1, 1, "", 1.0f, 0);
+        on->toggle = true;
+    }
+
+private:
+    void prepare() override { freePpq = 0; g = 1; r = 0; }
+
+    void process (AudioBuffer<float>& b) override
+    {
+        const int n = b.getNumSamples(), ch = b.getNumChannels();
+        double bpm = 120, ppq = freePpq;
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition())
+            {
+                if (auto v = pos->getBpm()) bpm = jlimit (20.0, 400.0, *v);
+                if (pos->getIsPlaying()) if (auto q = pos->getPpqPosition()) ppq = *q;
+            }
+        static const double stepB[5] = { 1.0, 0.5, 1.0 / 3.0, 0.25, 0.125 };
+        const double sl = stepB[jlimit (0, 4, roundToInt (rateP->get()))];
+        const char* bits = korgus::GatePatterns::bits (jlimit (0, korgus::GatePatterns::count - 1, roundToInt (pat->get())));
+        bool pt[16]; for (int k = 0; k < 16; ++k) pt[k] = bits[k] == '1';
+        const float dep = on->get() > 0.5f ? depth->get() * 0.01f : 0.0f;
+        const float sw = swing->get() * 0.01f;
+        const float a = 1.0f - (float) std::exp (-1.0 / ((0.0005 + 0.025 * smooth->get() * 0.01) * rate));
+        const float ga = 1.0f - (float) std::exp (-1.0 / (0.0015 * rate));
+        const double dq = bpm / 60.0 / rate;
+        for (int i = 0; i < n; ++i)
+        {
+            r += a * (korgus::gateTarget (ppq + i * dq, sl, pt, sw) - r);
+            const float tgt = 1.0f - dep * (1.0f - r);
+            g += ga * (tgt - g);
+            for (int c = 0; c < ch; ++c) b.getWritePointer (c)[i] *= g;
+        }
+        freePpq = ppq + n * dq;
+        if (freePpq > 1.0e6) freePpq = 0;
+    }
+
+    FxParam *pat, *rateP, *depth, *smooth, *swing, *on;
+    double freePpq = 0;
+    float g = 1, r = 0;
+};
+
 struct Entry { const char* key; const char* name; std::function<std::unique_ptr<AudioPluginInstance>()> make; bool inst = false; };
 
 const std::vector<Entry>& entries()
@@ -2191,6 +2253,7 @@ const std::vector<Entry>& entries()
         { "arp",     "Korgus Arp",       [] { return std::unique_ptr<AudioPluginInstance> (new ArpFx()); } },
         { "master",  "Korgus Master",    [] { return std::unique_ptr<AudioPluginInstance> (new MasterFx()); } },
         { "vocoder", "Korgus Vocoder",   [] { return std::unique_ptr<AudioPluginInstance> (new VocoderFx()); } },
+        { "gater",   "Korgus Gater",     [] { return std::unique_ptr<AudioPluginInstance> (new GaterFx()); } },
     };
     return e;
 }

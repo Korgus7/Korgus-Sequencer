@@ -171,6 +171,13 @@ public:
     void setPosition (double step);
     void liveNote (int slot, int pitch, float vel, bool on);
     void setSelectedSlot (int slot)                 { selectedSlot = slot; }
+    // dalsie zapnute stopy, na ktorych MIDI klavesy hraju naraz (ako v Cubase); max 8
+    void setExtraSlots (const std::vector<int>& v)
+    {
+        const juce::SpinLock::ScopedLockType l (filterLock);
+        numExtra = 0;
+        for (int x : v) if (numExtra < 8) extraSlots[(size_t) numExtra++] = x;
+    }
     void setTrackPlugin (int slot, std::unique_ptr<juce::AudioPluginInstance>);
     juce::AudioPluginInstance* getPlugin (int slot);
     static constexpr int numFx = 4;
@@ -350,6 +357,7 @@ private:
     int curNumOut = 0;
     std::atomic<bool> offline { false };
     int masterSlot = -1;
+    std::array<int, 8> extraSlots {}; int numExtra = 0;
     int auxSlot[2] { -1, -1 };
     juce::AudioBuffer<float> keyBuf { 2, 512 };   // sidechain kluc
     AudioBufPtr refBuf;
