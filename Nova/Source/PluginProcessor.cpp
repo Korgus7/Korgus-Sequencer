@@ -30,11 +30,11 @@ bool NovaProcessor::isBusesLayoutSupported (const BusesLayout& l) const
 {
     const auto o = l.getMainOutputChannelSet();
     if (! (o == juce::AudioChannelSet::stereo() || o == juce::AudioChannelSet::mono())) return false;
-    if (! l.getMainInputChannelSet().isDisabled()) return false;   // hlavny vstup nepouzivame
-    if (l.inputBuses.size() > 1)
+    // vstupy (hlavny sa nepouziva, sidechain = hlas pre vocoder): vypnute, mono alebo stereo
+    for (int b = 0; b < l.inputBuses.size(); ++b)
     {
-        const auto sc = l.getChannelSet (true, 1);
-        if (! (sc.isDisabled() || sc == juce::AudioChannelSet::stereo() || sc == juce::AudioChannelSet::mono())) return false;
+        const auto in = l.getChannelSet (true, b);
+        if (! (in.isDisabled() || in == juce::AudioChannelSet::stereo() || in == juce::AudioChannelSet::mono())) return false;
     }
     return true;
 }
