@@ -64,6 +64,23 @@ target_link_libraries(KorgusNova PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags)
 
+# Korgus Master - mastering ako samostatny VST3 (jadro Source/KorgusMaster.h)
+juce_add_plugin(KorgusMasterFx
+    PRODUCT_NAME "Korgus Master"
+    COMPANY_NAME "Korgus"
+    PLUGIN_MANUFACTURER_CODE Krgs
+    PLUGIN_CODE KMst
+    IS_SYNTH FALSE
+    NEEDS_MIDI_INPUT FALSE
+    NEEDS_MIDI_OUTPUT FALSE
+    VST3_CATEGORIES Fx Mastering
+    FORMATS VST3
+    COPY_PLUGIN_AFTER_BUILD FALSE)
+target_sources(KorgusMasterFx PRIVATE MasterSrc/MasterPlugin.cpp)
+target_compile_definitions(KorgusMasterFx PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
+target_link_libraries(KorgusMasterFx PRIVATE juce::juce_audio_utils juce::juce_audio_processors
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
 if(NOVA_TEST)
     juce_add_console_app(NovaTest PRODUCT_NAME "NovaTest")
     target_sources(NovaTest PRIVATE Test/test.cpp Source/Synth.cpp Source/PianoBank.cpp Source/Params.cpp Source/PresetStore.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/Lang.cpp)
