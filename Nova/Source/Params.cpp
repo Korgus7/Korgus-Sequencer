@@ -146,6 +146,7 @@ namespace nova
             F ("vc_clarity", "Vocoder zrozumiteľnosť", 0, 1, 0.65f, "%");
             F ("vc_release", "Vocoder dozvuk", 10, 300, 80, "ms", 0.5f);
             F ("vc_dry", "Vocoder hlas", 0, 1, 0.15f, "%");
+            F ("vc_src", "Vocoder stopa", 0, 32, 0, "");   // vyber spevovej stopy v Korgus Sequenceri (0 = ziadna)
             // modulacna matica: 4 sloty zdroj -> ciel x mnozstvo
             for (int k = 1; k <= 4; ++k)
             {

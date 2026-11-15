@@ -70,14 +70,17 @@ private:
         void audioProcessorParameterChanged (juce::AudioProcessor*, int i, float v) override
         {
             if (i == captureIdx) mv.inspireCaptured (track);   // "Inspiracia" v Korgus Inspire (skryty parameter capture_seq)
+            if (i == vocSrcIdx) mv.vocSrcChanged (track, v);   // vocoder v Inspirii: vybrana spevova stopa
             mv.paramTouched (track, which, i, v, 0);
         }
         void audioProcessorChanged (juce::AudioProcessor*, const ChangeDetails&) override {}
         void audioProcessorParameterChangeGestureBegin (juce::AudioProcessor*, int i) override { mv.paramTouched (track, which, i, -1, 1); }
         void audioProcessorParameterChangeGestureEnd (juce::AudioProcessor*, int i) override { mv.paramTouched (track, which, i, -1, 2); }
-        MainView& mv; juce::String track; int which; juce::AudioProcessor* proc; int captureIdx = -1;
+        MainView& mv; juce::String track; int which; juce::AudioProcessor* proc; int captureIdx = -1, vocSrcIdx = -1;
     };
     void inspireCaptured (const juce::String& track);          // z ktoreho kolvek vlakna; spracuje sa na hlavnom
+    void vocSrcChanged (const juce::String& track, float v01);
+    juce::String vocTracksTxt;
     void onInspireCapture (const juce::String& track);
     std::map<juce::String, int> inspLast;
     // len to, co hrac zahral (MIDI klavesy, klavesnica pocitaca) - nie prehravanie piesne; pre "Inspiraciu"

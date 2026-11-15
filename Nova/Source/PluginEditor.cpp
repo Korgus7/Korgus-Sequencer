@@ -984,9 +984,22 @@ namespace
             }
             vcHelp.setFont (juce::FontOptions (12.0f)); vcHelp.setColour (juce::Label::textColourId, dim);
             vcHelp.setJustificationType (juce::Justification::topLeft);
-            vcHelp.setText (T ("1. Zapni VOCODER.  2. V Sequenceri: pravý klik na túto stopu → Hlas pre vocoder → vyber spevovú stopu.\n3. Hraj akordy – Inspiria zaspieva slovami zo spevu."), juce::dontSendNotification);
+            vcHelp.setText (T ("Vyber stopu so spevom a hraj akordy – Inspiria zaspieva slovami zo spevu.\nVyskúšaj zvuky „Vocoder…“ v zozname zvukov."), juce::dontSendNotification);
             addAndMakeVisible (vcHelp);
             addAndMakeVisible (vcMeter);
+            vcSrc.setTextWhenNothingSelected (T ("Hlas zo stopy…"));
+            vcSrc.setTextWhenNoChoicesAvailable (T ("V piesni nie je audio stopa so spevom"));
+            vcSrc.setTooltip (T ("Vyber stopu so spevom – Inspiria bude spievať jej slovami"));
+            vcSrc.setWantsKeyboardFocus (false);
+            vcSrc.onChange = [this]
+            {
+                const int id = vcSrc.getSelectedId();
+                if (id <= 0 || vcSrcSync) return;
+                if (auto* prm = p.params.getParameter ("vc_src")) prm->setValueNotifyingHost (prm->convertTo0to1 ((float) id));
+                if (auto* on = p.params.getParameter ("vc_on")) on->setValueNotifyingHost (1.0f);
+            };
+            addAndMakeVisible (vcSrc);
+            vcMeter.onTick = [this] { refreshVocTracks(); };
             // gater
             gtOn = std::make_unique<Toggle> (p.params, "gt_on", T ("GATER"), amber.brighter (0.3f));
             gtRate = std::make_unique<Combo> (p.params, "gt_rate");
@@ -1067,7 +1080,7 @@ namespace
             tab = t;
             const bool e = t == 1, fxv = t == 0, gv = t == 2, mv = t == 3, vv = t == 4;
             tabVoc.setToggleState (vv, juce::dontSendNotification);
-            vcOn->setVisible (vv); vcHelp.setVisible (vv); vcMeter.setVisible (vv); for (auto& k : vcK) k->setVisible (vv);
+            vcOn->setVisible (vv); vcHelp.setVisible (vv); vcMeter.setVisible (vv); vcSrc.setVisible (vv); for (auto& k : vcK) k->setVisible (vv);
             eqShown = e;
             tabFx.setToggleState (fxv, juce::dontSendNotification); tabEq.setToggleState (e, juce::dontSendNotification);
             tabGate.setToggleState (gv, juce::dontSendNotification); tabMod.setToggleState (mv, juce::dontSendNotification);
@@ -1099,8 +1112,8 @@ namespace
             widthL.setBounds (284, 8, 38, 22); width.setBounds (322, 8, 70, 22);
             punchL.setBounds (398, 8, 38, 22); punch.setBounds (436, 8, getWidth() - 446, 22);
             // vocoder
-            vcOn->setBounds (12, 40, 110, 22); vcMeter.setBounds (130, 44, getWidth() - 142, 14);
-            vcHelp.setBounds (12, 68, getWidth() - 24, 48);
+            vcOn->setBounds (12, 40, 110, 22); vcSrc.setBounds (130, 40, 200, 22); vcMeter.setBounds (340, 44, getWidth() - 352, 14);
+            vcHelp.setBounds (12, 70, getWidth() - 24, 46);
             {
                 const int kw = (getWidth() - 24) / 5;
                 for (int k = 0; k < 5; ++k) vcK[k]->setBounds (12 + k * kw, 122, kw, 80);
@@ -1145,10 +1158,30 @@ namespace
         juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help, gtHelp;
         std::unique_ptr<Toggle> gtOn; std::unique_ptr<Combo> gtRate, mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing, mAmt[4]; juce::ComboBox gtPreset;
         juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[5]; juce::Label vcHelp;
+        juce::ComboBox vcSrc; bool vcSrcSync = false; juce::String vcSrcList;
+        // zoznam spevovych stop zapisuje Korgus Sequencer do docasneho suboru
+        void refreshVocTracks()
+        {
+            const auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("korgus_vokoder_stopy.txt");
+            const auto txt = f.existsAsFile() ? f.loadFileAsString() : juce::String();
+            const int cur = (int) std::round (p.params.getRawParameterValue ("vc_src")->load());
+            if (txt == vcSrcList && vcSrc.getSelectedId() == cur) return;
+            vcSrcList = txt;
+            juce::ScopedValueSetter<bool> g (vcSrcSync, true);
+            vcSrc.clear (juce::dontSendNotification);
+            auto lines = juce::StringArray::fromLines (txt); lines.removeEmptyStrings();
+            for (int i = 0; i < lines.size() && i < 32; ++i) vcSrc.addItem (lines[i], i + 1);
+            if (cur > 0 && cur <= lines.size()) vcSrc.setSelectedId (cur, juce::dontSendNotification);
+        }
         struct VocMeter : juce::Component, juce::Timer
         {
             explicit VocMeter (NovaProcessor& pr) : p (pr) { startTimerHz (20); }
-            void timerCallback() override { const float l = p.synth.vocLevel.load(); if (std::abs (l - shown) > 0.002f) { shown = l; repaint(); } }
+            std::function<void()> onTick; int tick = 0;
+            void timerCallback() override
+            {
+                const float l = p.synth.vocLevel.load(); if (std::abs (l - shown) > 0.002f) { shown = l; repaint(); }
+                if (onTick && isShowing() && (tick++ % 20) == 0) onTick();   // raz za sekundu zoznam stop
+            }
             void paint (juce::Graphics& g) override
             {
                 auto r = getLocalBounds().toFloat();

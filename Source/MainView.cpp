@@ -149,6 +149,7 @@ struct MainView::KbdPoll : juce::Timer
     std::vector<int> drumPitch;
     std::vector<juce::String> arm;            // dalsie zapnute (armovane) stopy - hraju naraz ako v Cubase
     bool jsText = false;                      // na stranke je fokus v textovom poli
+    bool pageFocus = true;                    // stranka (WebView) ma fokus klavesnice - skratky spracuje sama
     struct Held { juce::String track; int slot; int pitch; std::vector<std::pair<juce::String, int>> extra; };
     std::map<int, Held> held;                 // index klavesy -> nota
     bool down[17] = {}, zD = false, xD = false, cD = false, vD = false, spD = false;
@@ -224,7 +225,24 @@ struct MainView::KbdPoll : juce::Timer
             }
             was = d;
         }
+        // jednopismenove skratky (M, S, R, L, B...) bez Ctrl - okrem klaves, ktore prave hraju noty
+        if ((m & 7) == 0)
+            for (int vk = 'A'; vk <= 'Z'; ++vk)
+            {
+                const bool d = KbdKeys::isVkDown (vk);
+                bool& was = ltDown[vk - 'A'];
+                if (d && ! was && ! (on && noteLetter (vk)))
+                {
+                    auto o = obj(); put (o, "code", "Key" + juce::String::charToString ((juce::juce_wchar) vk));
+                    put (o, "key", juce::String::charToString ((juce::juce_wchar) (vk + 32)));
+                    put (o, "ctrl", false); put (o, "shift", false); put (o, "alt", false);
+                    mv.emit ("hostKey", o);
+                }
+                was = d;
+            }
     }
+    bool ltDown[26] {};
+    static bool noteLetter (int vk) { return juce::String ("AWSEDFTGYHUJKOLPZXCV").containsChar ((juce::juce_wchar) vk); }
 
     void sendState()
     {
@@ -251,7 +269,8 @@ struct MainView::KbdPoll : juce::Timer
         auto* fc = juce::Component::getCurrentlyFocusedComponent();
         const bool textFocus = (fc != nullptr && dynamic_cast<juce::TextEditor*> (fc) != nullptr) || KbdKeys::nativeTextFocus()
                                || (fgMain && jsText);   // pise sa do textoveho pola na stranke
-        if (fgPlug && ! textFocus && juce::Process::isForegroundProcess()) forwardShortcuts (fc != nullptr);
+        const bool fwd = fgPlug || (fgMain && ! pageFocus);   // stranka nema fokus (klik na listu okna) -> skratky posle tento casovac
+        if (fwd && ! textFocus && juce::Process::isForegroundProcess()) forwardShortcuts (fgPlug && fc != nullptr);
         if (! fg || textFocus || KbdKeys::commandModsDown() || ! juce::Process::isForegroundProcess())
         {
             releaseAll();
@@ -260,7 +279,7 @@ struct MainView::KbdPoll : juce::Timer
 
         // medzernik: ak JUCE okno ma fokus, spracuje ho PluginWindow::keyPressed; tu len natívny fokus pluginu
         const bool sp = KbdKeys::isScanDown (0x39, ' ');
-        if (fgPlug && sp && ! spD && fc == nullptr && PluginWindow::hostKey) PluginWindow::hostKey (juce::KeyPress (juce::KeyPress::spaceKey));
+        if (((fgPlug && fc == nullptr) || (fgMain && ! pageFocus)) && ! textFocus && sp && ! spD && PluginWindow::hostKey) PluginWindow::hostKey (juce::KeyPress (juce::KeyPress::spaceKey));
         spD = sp;
 
         if (! on) { releaseAll(); return; }
@@ -331,6 +350,18 @@ void MainView::onKbdState (const juce::var& v)
     if (kbdPoll == nullptr) return;
     auto& k = *kbdPoll;
     if (v.hasProperty ("text")) { k.jsText = (bool) v["text"]; if (k.jsText) k.releaseAll(); return; }
+    if (v.hasProperty ("page")) k.pageFocus = (bool) v["page"];
+    // zoznam spevovych (audio) stop pre vyber vo vocoderi Inspirie
+    if (const auto* a = v.getProperty ("aud", {}).getArray())
+    {
+        juce::StringArray names; for (const auto& x : *a) names.add (x.toString());
+        const auto txt = names.joinIntoString ("\n");
+        if (txt != vocTracksTxt)
+        {
+            vocTracksTxt = txt;
+            juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("korgus_vokoder_stopy.txt").replaceWithText (txt);
+        }
+    }
     const bool on = (bool) v.getProperty ("on", false);
     if (! on && k.on) k.releaseAll();
     k.on = on;
@@ -3046,7 +3077,10 @@ void MainView::watchPlugin (const juce::String& track, int which, juce::AudioPro
                 const auto id = hp->getParameterID();
                 if (id == "capture_seq" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("capture_seq", true))
                     || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("capture_seq", false)))
-                { w->captureIdx = hp->getParameterIndex(); break; }
+                    w->captureIdx = hp->getParameterIndex();
+                if (id == "vc_src" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("vc_src", true))
+                    || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("vc_src", false)))
+                    w->vocSrcIdx = hp->getParameterIndex();
             }
     }
     p->addListener (w.get());
@@ -3062,6 +3096,18 @@ void MainView::unwatchPlugin (const juce::String& track, int which)
 }
 
 // "Inspiracia": Korgus Inspire zvysil capture_seq -> precitame <capture> zo stavu a posleme frazu do rozhrania
+void MainView::vocSrcChanged (const juce::String& track, float v01)
+{
+    const int idx = juce::roundToInt (juce::jlimit (0.0f, 1.0f, v01) * 32.0f);
+    juce::Component::SafePointer<MainView> sp (this);
+    juce::MessageManager::callAsync ([sp, track, idx]
+    {
+        if (sp == nullptr) return;
+        auto o = obj(); put (o, "track", track); put (o, "idx", idx);
+        sp->emit ("vocSrc", o);
+    });
+}
+
 void MainView::inspireCaptured (const juce::String& track)
 {
     juce::Component::SafePointer<MainView> sp (this);
