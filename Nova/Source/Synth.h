@@ -44,6 +44,8 @@ namespace nova
         struct ModSlot { int src = 0, dst = 2; float amt = 0; } mm[4];
         // vocoder
         bool vcOn = false; float vcBands = 20, vcFormant = 0, vcClarity = 0.65f, vcRelease = 80, vcDry = 0.15f;
+        float vcMix = 1.0f;
+        bool vcEqOn = true; float vcEqLow = 0, vcEqMid = 0, vcEqMidF = 1000, vcEqHigh = 0;
     };
 
     class Synth
@@ -124,7 +126,7 @@ namespace nova
         const float* vocInL = nullptr; const float* vocInR = nullptr; int vocInN = 0;
         std::atomic<float> vocLevel { 0.0f };   // uroven hlasu pre ukazovatel v okne
     private:
-        korgus::KorgusVocoder vocoder; korgus::VoxPrep voxPrep; std::vector<float> voxBuf; bool vocWasOn = false;
+        korgus::KorgusVocoder vocoder; korgus::VoxPrep voxPrep; korgus::DeEsser deEss; Eq3 vcEq; std::vector<float> voxBuf; bool vocWasOn = false;
         Eq3 layerEq[2];
         FxChain fx;
         Noise noise;

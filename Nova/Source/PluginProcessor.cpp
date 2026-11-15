@@ -91,7 +91,8 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
     s.arpOct = (int) g ("arp_oct"); s.arpLen = g ("arp_len");
     s.mono = g ("mono") > 0.5f; s.glide = g ("glide"); s.veltrack = g ("veltrack"); s.morphX = g ("morph_x"); s.morphY = g ("morph_y");
     s.vcOn = g ("vc_on") > 0.5f; s.vcBands = g ("vc_bands"); s.vcFormant = g ("vc_formant"); s.vcClarity = g ("vc_clarity");
-    s.vcRelease = g ("vc_release"); s.vcDry = g ("vc_dry");
+    s.vcRelease = g ("vc_release"); s.vcDry = g ("vc_dry"); s.vcMix = g ("vc_mix");
+    s.vcEqOn = g ("vc_eqon") > 0.5f; s.vcEqLow = g ("vc_eql"); s.vcEqMid = g ("vc_eqm"); s.vcEqMidF = g ("vc_eqmf"); s.vcEqHigh = g ("vc_eqh");
     s.gtOn = g ("gt_on") > 0.5f; s.gtRate = (int) g ("gt_rate"); s.gtDepth = g ("gt_depth"); s.gtSmooth = g ("gt_smooth"); s.gtSwing = g ("gt_swing");
     for (int k = 0; k < 16; ++k) s.gtPat[k] = g ("gt_s" + juce::String (k)) > 0.5f;
     for (int k = 0; k < 4; ++k)

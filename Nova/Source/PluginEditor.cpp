@@ -904,10 +904,10 @@ namespace
 
     // ===================================================================== efekty + EQ
     // ciele EQ: 0 vrstva A, 1 vrstva B, 2 cely zvuk, 3 delay, 4 dozvuk
-    constexpr int NEQ = 5;
-    const char* eqPrefix (int t) { static const char* p[NEQ] = { "a_", "b_", "eq_", "dl_", "rv_" }; return p[t]; }
-    int eqTap (int t) { static const int tp[NEQ] = { 0, 1, 2, 4, 3 }; return tp[t]; }
-    juce::Colour eqColour (int t) { return t == 0 ? arc : (t == 1 ? arcB : (t == 2 ? text.darker (0.15f) : (t == 3 ? juce::Colour (0xff7fa89a) : amber.brighter (0.25f)))); }
+    constexpr int NEQ = 6;
+    const char* eqPrefix (int t) { static const char* p[NEQ] = { "a_", "b_", "eq_", "dl_", "rv_", "vc_" }; return p[t]; }
+    int eqTap (int t) { static const int tp[NEQ] = { 0, 1, 2, 4, 3, 2 }; return tp[t]; }
+    juce::Colour eqColour (int t) { return t == 0 ? arc : (t == 1 ? arcB : (t == 2 ? text.darker (0.15f) : (t == 3 ? juce::Colour (0xff7fa89a) : (t == 5 ? juce::Colour (0xffd08a6a) : amber.brighter (0.25f))))); }
 
     struct FxPanel : juce::Component
     {
@@ -933,8 +933,8 @@ namespace
                 for (int k = 0; k < 4; ++k) eq[(size_t) (t * 4 + k)]->setArc (eqColour (t));
             }
             for (int i = 0; i < (int) eq.size(); i += 4) eq[(size_t) i]->label.setText (T ("Basy", "Low"), juce::dontSendNotification);
-            const char* tn[] = { "Vrstva A", "Vrstva B", "Zvuk", "Delay", "Dozvuk" };
-            const char* tt[] = { "EQ len pre vrstvu A", "EQ len pre vrstvu B", "EQ celého zvuku", "EQ len pre opakovania delayu (napr. ubrať basy a výšky, aby delay nezahlcoval)", "EQ len pre dozvuk (napr. ubrať basy, aby dozvuk nehučal)" };
+            const char* tn[] = { "Vrstva A", "Vrstva B", "Zvuk", "Delay", "Dozvuk", "Vocoder" };
+            const char* tt[] = { "EQ len pre vrstvu A", "EQ len pre vrstvu B", "EQ celého zvuku", "EQ len pre opakovania delayu (napr. ubrať basy a výšky, aby delay nezahlcoval)", "EQ len pre dozvuk (napr. ubrať basy, aby dozvuk nehučal)", "EQ len pre vocoder (napr. ubrať výšky, ak sú sykavky ostré)" };
             for (int t = 0; t < NEQ; ++t)
             {
                 auto& b = targets[t];
@@ -968,14 +968,15 @@ namespace
             vcOn = std::make_unique<Toggle> (p.params, "vc_on", T ("VOCODER"), amber.brighter (0.3f));
             addAndMakeVisible (*vcOn);
             {
-                const char* ids[5] = { "vc_bands", "vc_formant", "vc_clarity", "vc_release", "vc_dry" };
-                const char* nm[5] = { "Pásma", "Formant", "Zrozumiteľnosť", "Dozvuk", "Hlas" };
-                const char* tip[5] = { "Menej pásiem = klasický robot, viac = zrozumiteľnejšie",
+                const char* ids[6] = { "vc_bands", "vc_formant", "vc_clarity", "vc_release", "vc_dry", "vc_mix" };
+                const char* nm[6] = { "Pásma", "Formant", "Zrozumiteľnosť", "Dozvuk", "Hlas", "Mix" };
+                const char* tip[6] = { "Menej pásiem = klasický robot, viac = zrozumiteľnejšie",
                                        "Posun farby hlasu (nižšie = mohutnejší, vyššie = detský / robotický)",
                                        "Spoluhlásky S, T, K z pôvodného hlasu – aby bolo rozumieť slovám",
                                        "Ako plynulo doznieva každé slovo",
-                                       "Trochu pôvodného hlasu pod vocoderom (človek + robot)" };
-                for (int k = 0; k < 5; ++k)
+                                       "Trochu pôvodného hlasu pod vocoderom (človek + robot)",
+                                       "Pomer syntezátor / vocoder: vľavo čistý syntezátor, vpravo len vocoder" };
+                for (int k = 0; k < 6; ++k)
                 {
                     vcK[k] = std::make_unique<Knob> (p.params, ids[k], T (nm[k]));
                     vcK[k]->setArc (amber); vcK[k]->s.setTooltip (T (tip[k]));
@@ -1115,8 +1116,8 @@ namespace
             vcOn->setBounds (12, 40, 110, 22); vcSrc.setBounds (130, 40, 200, 22); vcMeter.setBounds (340, 44, getWidth() - 352, 14);
             vcHelp.setBounds (12, 70, getWidth() - 24, 46);
             {
-                const int kw = (getWidth() - 24) / 5;
-                for (int k = 0; k < 5; ++k) vcK[k]->setBounds (12 + k * kw, 122, kw, 80);
+                const int kw = (getWidth() - 24) / 6;
+                for (int k = 0; k < 6; ++k) vcK[k]->setBounds (12 + k * kw, 122, kw, 80);
             }
             // gater
             gtOn->setBounds (12, 40, 92, 22); gtRate->setBounds (108, 40, 70, 22); gtPreset.setBounds (182, 40, 110, 22);
@@ -1145,7 +1146,7 @@ namespace
             reverb.setBounds (x2, 142, 100, 22);
             for (int i = 0; i < 4; ++i) fx[(size_t) rvk[i]]->setBounds (x2 + i * 58, 166, 56, 72);
             // EQ
-            for (int t = 0; t < NEQ; ++t) targets[t].setBounds (12 + t * 66, 38, 63, 24);
+            for (int t = 0; t < NEQ; ++t) targets[t].setBounds (12 + t * 64, 38, 61, 24);
             flatBtn.setBounds (getWidth() - 12 - 70, 38, 70, 24);
             for (auto& tg : eqOn) tg->setBounds (flatBtn.getX() - 6 - 96, 39, 96, 22);
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setBounds (12 + (i % 4) * 62, 66, 58, 70);
@@ -1157,7 +1158,7 @@ namespace
         std::vector<std::unique_ptr<Knob>> fx, eq;
         juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help, gtHelp;
         std::unique_ptr<Toggle> gtOn; std::unique_ptr<Combo> gtRate, mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing, mAmt[4]; juce::ComboBox gtPreset;
-        juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[5]; juce::Label vcHelp;
+        juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[6]; juce::Label vcHelp;
         juce::ComboBox vcSrc; bool vcSrcSync = false; juce::String vcSrcList;
         // zoznam spevovych stop zapisuje Korgus Sequencer do docasneho suboru
         void refreshVocTracks()

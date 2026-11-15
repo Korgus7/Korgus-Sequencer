@@ -13,7 +13,7 @@ struct VoxPrep
     {
         sr = (float) sampleRate;
         hp.setHighpass (sr, 95.0f, 0.707f);
-        pres.setPeak (sr, 2800.0f, 1.0f, 4.5f);
+        pres.setPeak (sr, 2600.0f, 1.0f, 2.5f);
         aAtt = coef (0.003f); aRel = coef (0.070f); aPkRel = coef (0.9f); aGate = coef (0.012f);
         reset();
     }
@@ -69,5 +69,41 @@ private:
 
     float sr = 48000.0f, env = 0, peak = 0, gateG = 0;
     float aAtt = 0.01f, aRel = 0.001f, aPkRel = 0.0001f, aGate = 0.01f;
+};
+
+// De-esser: rozdeli signal na nizsie a vysoke pasmo (od ~5 kHz); ked su vysky (S, C, Z) silne
+// voci celku, vysoke pasmo sa stisi. Stereo, bez alokacii.
+struct DeEsser
+{
+    void prepare (double sampleRate)
+    {
+        sr = (float) sampleRate;
+        const float w = 1.0f - std::exp (-6.2831853f * 5200.0f / sr);
+        a = w;
+        att = 1.0f - std::exp (-1.0f / (0.0015f * sr)); rel = 1.0f - std::exp (-1.0f / (0.06f * sr));
+        reset();
+    }
+    void reset() { for (auto& z : lp) z = 0; eH = eF = 0; g = 1; }
+    // amount 0..1 (0 = vypnute)
+    void process (float* L, float* R, int n, float amount)
+    {
+        if (amount <= 0.001f) return;
+        const float thr = 0.5f - 0.32f * amount;   // podiel vysok, nad ktorym sa zacne tlmit
+        for (int i = 0; i < n; ++i)
+        {
+            float l = L[i], r = R[i];
+            lp[0] += a * (l - lp[0]); lp[1] += a * (lp[0] - lp[1]);
+            lp[2] += a * (r - lp[2]); lp[3] += a * (lp[2] - lp[3]);
+            const float hl = l - lp[1], hr = r - lp[3];
+            const float h = std::abs (hl) + std::abs (hr), f = std::abs (l) + std::abs (r);
+            eH += (h > eH ? att : rel) * (h - eH);
+            eF += (f > eF ? att : rel) * (f - eF);
+            float tg = 1.0f;
+            if (eF > 1.0e-6f && eH > thr * eF) tg = std::max (0.15f, thr * eF / eH);
+            g += (tg < g ? att : rel) * (tg - g);
+            L[i] = lp[1] + hl * g; R[i] = lp[3] + hr * g;
+        }
+    }
+    float sr = 48000.0f, a = 0.5f, att = 0.01f, rel = 0.001f, eH = 0, eF = 0, g = 1, lp[4] {};
 };
 } // namespace korgus

@@ -9,7 +9,7 @@ namespace nova
     {
         sr = rate;
         for (auto* b : { &bufL, &bufR, &bufBL, &bufBR, &gateBuf, &voxBuf }) b->assign ((size_t) juce::jmax (1, maxBlock), 0);
-        vocoder.prepare (rate, juce::jmax (1, maxBlock)); voxPrep.prepare (rate); vocWasOn = false;
+        vocoder.prepare (rate, juce::jmax (1, maxBlock)); voxPrep.prepare (rate); deEss.prepare (rate); vocWasOn = false;
         layerEq[0].reset(); layerEq[1].reset();
         noise.s = 0x12345678u;
         for (size_t i = 0; i < voices.size(); ++i)
@@ -782,7 +782,7 @@ namespace nova
         // vocoder: zvuk Inspirie je nosic, upraveny spev zo sidechainu je modulator (pred efektmi)
         if (s.vcOn)
         {
-            if (! vocWasOn) { vocoder.reset(); voxPrep.reset(); vocWasOn = true; }
+            if (! vocWasOn) { vocoder.reset(); voxPrep.reset(); deEss.reset(); vcEq.reset(); vocWasOn = true; }
             const bool haveVox = vocInL != nullptr && vocInN >= total;
             if (haveVox)
             {
@@ -793,12 +793,15 @@ namespace nova
             else vocLevel.store (0.0f);
             const float r01 = std::log (juce::jlimit (6.0f, 360.0f, s.vcRelease) / 6.0f) / std::log (60.0f);
             vocoder.setParams (korgus::KorgusVocoder::carrierTrack, korgus::KorgusVocoder::bandsTo01 ((int) std::round (s.vcBands)),
-                               korgus::KorgusVocoder::semitonesToFormant (s.vcFormant), s.vcClarity, r01, 1.0f);
+                               korgus::KorgusVocoder::semitonesToFormant (s.vcFormant), s.vcClarity, r01, juce::jlimit (0.0f, 1.0f, s.vcMix));
             if (haveVox)
             {
                 vocoder.process (bufL.data(), bufR.data(), voxBuf.data(), voxBuf.data(), bufL.data(), bufR.data(), total);
                 const float dry = s.vcDry * 0.5f;
                 for (int i = 0; i < total; ++i) { bufL[(size_t) i] += dry * voxBuf[(size_t) i]; bufR[(size_t) i] += dry * voxBuf[(size_t) i]; }
+                deEss.process (bufL.data(), bufR.data(), total, 0.75f);   // tlmenie ostrych sykaviek (S, C, Z)
+                if (vcEq.update (s.vcEqLow, s.vcEqMid, s.vcEqMidF, s.vcEqHigh, (float) sr) && s.vcEqOn)   // EQ vocodera (zalozka EQ)
+                    for (int i = 0; i < total; ++i) vcEq.process (bufL[(size_t) i], bufR[(size_t) i]);
             }
         }
         else { vocWasOn = false; vocLevel.store (0.0f); }
