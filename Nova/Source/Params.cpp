@@ -129,6 +129,23 @@ namespace nova
             F ("mf_reso", "Rezonancia", 0, 1, 0, "%");
             F ("mf_drive", "Drive", 0, 1, 0, "%");
             F ("p_gain", "Úroveň zvuku", -30, 6, 0, "dB");
+            // rytmicky gater (sekanie zvuku do rytmu, synchronne s tempom)
+            B ("gt_on", "Gater", false);
+            C ("gt_rate", "Gater rýchlosť", "1/4|1/8|1/8T|1/16|1/32", 3);
+            F ("gt_depth", "Gater hĺbka", 0, 1, 0.85f, "%");
+            F ("gt_smooth", "Gater hladkosť", 0, 1, 0.25f, "%");
+            {
+                static const bool defPat[16] = { 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1 };
+                for (int k = 0; k < 16; ++k) B ("gt_s" + juce::String (k), ("Gater krok " + std::to_string (k + 1)).c_str(), defPat[k]);
+            }
+            // modulacna matica: 4 sloty zdroj -> ciel x mnozstvo
+            for (int k = 1; k <= 4; ++k)
+            {
+                const juce::String m = "mm" + juce::String (k) + "_";
+                C (m + "src", "Mod zdroj", "Vypnuté|LFO A|LFO B|Obálka filtra|Obálka hlasitosti|Sila úderu|Mod koliesko|Rytmus (gater)|Náhoda", 0);
+                C (m + "dst", "Mod cieľ", "Cutoff A|Cutoff B|Cutoff A+B|Úroveň A|Úroveň B|Úroveň A+B|Výška A|Výška B|Výška A+B|Farba A|Farba B|Farba A+B|Panoráma A+B|Rezonancia A+B", 2);
+                F (m + "amt", "Mod množstvo", -1, 1, 0, "bip");
+            }
             // spustace pre hostitela (Korgus Sequencer): kazda zmena = novy nahodny zvuk / obmena
             B ("x_rnd", "Surprise / Prekvap ma", false);
             B ("x_mut", "Vary / Obmena", false);

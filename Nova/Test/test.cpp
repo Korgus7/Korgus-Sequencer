@@ -350,6 +350,36 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "gatetest")
+    {
+        // gater + modulacna matica: drzany ton 3 s, meria RMS v 1/16 krokoch (120 BPM -> 6000 vzoriek pri 48k)
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        auto set = [&] (const char* id, float v) { if (auto* pr = q.params.getParameter (id)) pr->setValueNotifyingHost (pr->convertTo0to1 (v)); };
+        q.loadPreset ("f:Roj Mellotron");
+        for (int pass = 0; pass < 3; ++pass)
+        {
+            set ("gt_on", pass >= 1 ? 1.0f : 0.0f);
+            set ("mm1_src", pass == 2 ? 1.0f : 0.0f); set ("mm1_dst", 2); set ("mm1_amt", 0.8f); set ("a_ldepth", 0.0f); set ("a_lrate", 2.0f);
+            const int total = (int) (3.0 * sr); AudioBuffer<float> out (2, total); out.clear();
+            for (int pos = 0; pos < total; pos += bs)
+            {
+                const int n = std::min (bs, total - pos); MidiBuffer mb;
+                if (pos == 0) mb.addEvent (MidiMessage::noteOn (1, 60, 0.8f), 0);
+                AudioBuffer<float> blk (2, n); blk.clear(); q.processBlock (blk, mb);
+                for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+            }
+            bool nan = false; const int st = (int) (sr * 60.0 / 120.0 / 4.0);
+            printf ("pass %d (gt %d, matrix %d): ", pass, pass >= 1, pass == 2);
+            for (int k = 4; k < 20; ++k)
+            {
+                double e = 0; for (int i = k * st; i < (k + 1) * st && i < total; ++i) { const float x = out.getSample (0, i); if (! std::isfinite (x)) nan = true; e += x * x; }
+                printf ("%.0f ", 10.0 * std::log10 (e / st + 1e-12));
+            }
+            printf ("%s\n", nan ? "NAN!" : "");
+            MidiBuffer off; off.addEvent (MidiMessage::allNotesOff (1), 0); AudioBuffer<float> b2 (2, bs); for (int z = 0; z < 1500; ++z) { b2.clear(); q.processBlock (b2, off); off.clear(); }
+        }
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "rojwav")
     {
         // ukazky Roj: akordy / melodie do /home/claude/roj/inspire_*.wav (cez celu efektovu retaz zvuku)

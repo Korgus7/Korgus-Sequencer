@@ -7,7 +7,7 @@ namespace nova
     void Synth::prepare (double rate, int maxBlock)
     {
         sr = rate;
-        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR }) b->assign ((size_t) juce::jmax (1, maxBlock), 0);
+        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR, &gateBuf }) b->assign ((size_t) juce::jmax (1, maxBlock), 0);
         layerEq[0].reset(); layerEq[1].reset();
         noise.s = 0x12345678u;
         for (size_t i = 0; i < voices.size(); ++i)
@@ -161,6 +161,8 @@ namespace nova
     void Synth::startVoice (Voice& v, int note, float vel, float fromNote)
     {
         v.note = note; v.vel = vel; v.held = true; v.sustained = false; v.age = ++ageCounter;
+        v.mmRand = v.rng.next();
+        if (! st.playing) { bool other = false; for (auto& o : voices) if (&o != &v && o.note >= 0) { other = true; break; } if (! other) gtFree = 0; }
         v.curNote = fromNote; v.targetNote = (float) note;
         v.drift = v.rng.next() * 4.0f; v.driftTarget = v.rng.next() * 4.0f;
         for (int li = 0; li < 2; ++li) startLayer (v, li);
@@ -339,7 +341,14 @@ namespace nova
         const int nu = juce::jlimit (1, 8, s.uni);
         const float uniNorm = 1.0f / std::sqrt ((float) nu);
         const float tilt = 0.8f * bright;
-        const bool useFilter = s.cut < 19990.0f || s.fenv > 0.001f || s.ftype != 0 || bright < -0.01f || s.ltgt == 1;
+        bool anyMod = false, cutMod = false;
+        for (const auto& m : st.mm)
+            if (m.src > 0 && std::abs (m.amt) >= 0.001f)
+            {
+                anyMod = true;
+                if ((m.dst < 3 && (m.dst == 2 || m.dst == li)) || m.dst == 13) cutMod = true;
+            }
+        const bool useFilter = s.cut < 19990.0f || s.fenv > 0.001f || s.ftype != 0 || bright < -0.01f || s.ltgt == 1 || cutMod;
         const bool isPiano = lv.wave == 7 && lv.smp != nullptr;
         static const float bg[5] = { 0.9f, 0.7f, 0.55f, 0.7f, 0.45f };
 
@@ -416,21 +425,57 @@ namespace nova
             }
             const float fade = s.ldelay > 0 ? clampf ((lv.t - s.ldelay) / 0.4f, 0.0f, 1.0f) : 1.0f;
             const float lfoV = lfo * s.ldepth * fade;
-            float cents = s.ltgt == 0 ? lfoV * 100.0f : 0.0f;
-            if (modWheel > 0.001f) cents += modWheel * 30.0f * std::sin (twoPi * 5.5f * lv.t);
-            const float pitchMul = 1.0f + cents * 0.000577789f;
-            const float volMul = s.ltgt == 2 ? std::max (0.0f, 1.0f + 0.5f * lfoV) : 1.0f;
-            const float panMod = s.ltgt == 3 ? lfoV : 0.0f;
-            const float color = s.ltgt == 4 ? clampf (s.color + 0.5f * lfoV, 0.0f, 1.0f) : s.color;   // LFO ciel "Farba"
+            lv.lfoOut = lfo * fade;
             const float env = lv.amp.next();
             const float fe = lv.fenv.next();
+            // modulacna matica
+            float mCut = 0, mVol = 0, mPitch = 0, mCol = 0, mPan = 0, mRes = 0;
+            if (anyMod)
+                for (const auto& m : st.mm)
+                {
+                    if (m.src <= 0 || std::abs (m.amt) < 0.001f) continue;
+                    float sv = 0;
+                    switch (m.src)
+                    {
+                        case 1: sv = li == 0 ? lv.lfoOut : v.lv[0].lfoOut; break;
+                        case 2: sv = li == 1 ? lv.lfoOut : v.lv[1].lfoOut; break;
+                        case 3: sv = fe; break;
+                        case 4: sv = env; break;
+                        case 5: sv = v.vel; break;
+                        case 6: sv = modWheel; break;
+                        case 7: sv = curRhythm; break;
+                        default: sv = v.mmRand; break;
+                    }
+                    const float x = sv * m.amt;
+                    if (m.dst < 12)
+                    {
+                        const int w = m.dst % 3;
+                        if (w != 2 && w != li) continue;
+                        switch (m.dst / 3)
+                        {
+                            case 0: mCut += x * 4.0f; break;     // +-4 oktavy
+                            case 1: mVol += x; break;
+                            case 2: mPitch += x * 12.0f; break;  // +-12 poltonov
+                            default: mCol += x * 0.5f; break;
+                        }
+                    }
+                    else if (m.dst == 12) mPan += x;
+                    else mRes += x;
+                }
+            float cents = (s.ltgt == 0 ? lfoV * 100.0f : 0.0f) + mPitch * 100.0f;
+            if (modWheel > 0.001f) cents += modWheel * 30.0f * std::sin (twoPi * 5.5f * lv.t);
+            const float pitchMul = mPitch != 0.0f ? std::pow (2.0f, cents / 1200.0f) : 1.0f + cents * 0.000577789f;
+            const float volMul = (s.ltgt == 2 ? std::max (0.0f, 1.0f + 0.5f * lfoV) : 1.0f) * std::max (0.0f, 1.0f + mVol);
+            const float panMod = (s.ltgt == 3 ? lfoV : 0.0f) + mPan;
+            const float color = clampf ((s.ltgt == 4 ? s.color + 0.5f * lfoV : s.color) + mCol, 0.0f, 1.0f);   // LFO ciel "Farba"
 
             if (useFilter && (lv.cnt++ & 15) == 0)
             {
-                const float oct = kt + s.fenv * 5.0f * fe + (s.ltgt == 1 ? lfoV * 3.0f : 0.0f);
+                const float oct = kt + s.fenv * 5.0f * fe + (s.ltgt == 1 ? lfoV * 3.0f : 0.0f) + mCut;
                 const float hz = clampf (s.cut * std::pow (2.0f, oct), 20.0f, 20000.0f);
-                lv.f1L.set (hz, q, (float) sr); lv.f1R.set (hz, q, (float) sr);
-                if (s.f24) { lv.f2L.set (hz, q, (float) sr); lv.f2R.set (hz, q, (float) sr); }
+                const float rq = clampf (s.reso + mRes, 0.0f, 1.0f), qq = mRes != 0.0f ? 0.5f + 9.0f * rq * rq : q;
+                lv.f1L.set (hz, qq, (float) sr); lv.f1R.set (hz, qq, (float) sr);
+                if (s.f24) { lv.f2L.set (hz, qq, (float) sr); lv.f2R.set (hz, qq, (float) sr); }
             }
 
             float l = 0, r = 0;
@@ -649,7 +694,7 @@ namespace nova
         if (s.playing) beat = s.ppq;
 
         const int total = out.getNumSamples();
-        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR })
+        for (auto* b : { &bufL, &bufR, &bufBL, &bufBR, &gateBuf })
         {
             if ((int) b->size() < total) b->resize ((size_t) total);
             std::fill (b->begin(), b->begin() + total, 0.0f);
@@ -660,6 +705,25 @@ namespace nova
             while (pos < end)
             {
                 const int n = std::min (end - pos, 32);
+                // rytmicky gater: vzor 16 krokov synchronne s tempom (pri hrani z pozicie hostitela)
+                {
+                    static const double stepB[5] = { 1.0, 0.5, 1.0 / 3.0, 0.25, 0.125 };
+                    const double adv = juce::jmax (20.0, st.fx.bpm) / 60.0 / sr;
+                    const double sl = stepB[juce::jlimit (0, 4, st.gtRate)];
+                    const double b0 = st.playing ? beat : gtFree;
+                    const float a = 1.0f - std::exp (-1.0f / ((0.0005f + 0.025f * st.gtSmooth) * (float) sr));
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const double bp = (b0 + (double) i * adv) / sl;
+                        const double stp = std::floor (bp);
+                        const int k = (int) (((long long) stp % 16 + 16) % 16);
+                        const bool on = st.gtPat[k] && (bp - stp < 0.88 || ! st.gtPat[(k + 1) % 16]);   // medzera medzi susednymi krokmi
+                        gtR += a * ((on ? 1.0f : 0.0f) - gtR);
+                        gateBuf[(size_t) (pos + i)] = st.gtOn ? 1.0f - st.gtDepth * (1.0f - gtR) : 1.0f;
+                    }
+                    curRhythm = gtR;
+                    gtFree += (double) n * adv;
+                }
                 arpTick (n);
                 act = 0;
                 for (auto& v : voices)
@@ -718,6 +782,8 @@ namespace nova
         }
 
         fx.process (bufL.data(), bufR.data(), total, f);
+        if (s.gtOn)   // gater az za efektmi: seka aj dozvuk a delay (typicky "trance gate")
+            for (int i = 0; i < total; ++i) { bufL[(size_t) i] *= gateBuf[(size_t) i]; bufR[(size_t) i] *= gateBuf[(size_t) i]; }
         float* oL = out.getWritePointer (0);
         float* oR = out.getNumChannels() > 1 ? out.getWritePointer (1) : nullptr;
         if (oR != nullptr) { std::copy (bufL.begin(), bufL.begin() + total, oL); std::copy (bufR.begin(), bufR.begin() + total, oR); }

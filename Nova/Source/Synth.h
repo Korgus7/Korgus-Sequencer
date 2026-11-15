@@ -36,6 +36,10 @@ namespace nova
         // makra jednoduchej verzie
         float bright = 0.5f, attack = 0.5f, release = 0.5f, space = 0.5f, width = 0.5f;
         bool playing = false; double ppq = 0;
+        // rytmicky gater
+        bool gtOn = false; int gtRate = 3; float gtDepth = 0.85f, gtSmooth = 0.25f; bool gtPat[16] {};
+        // modulacna matica
+        struct ModSlot { int src = 0, dst = 2; float amt = 0; } mm[4];
     };
 
     class Synth
@@ -60,7 +64,7 @@ namespace nova
             Env amp, fenv;
             float ph[8] {}, det[8] {}, pl[8] {}, pr[8] {};
             Svf f1L, f1R, f2L, f2R, body[5]; int cnt = 0;
-            float lfoPh = 0, lfoHold = 0, lfoPrev = 0; float t = 0;
+            float lfoPh = 0, lfoHold = 0, lfoPrev = 0; float t = 0; float lfoOut = 0;
             OnePole noiseL, tiltL, tiltR;
             // pluck
             std::vector<float> dl; int dlen = 100, w = 0; float apC = 0, apIn = 0, apOut = 0, yPrev = 0, loopG = 0.99f, loopS = 0.3f, plPanL = 0.7f, plPanR = 0.7f;
@@ -79,6 +83,7 @@ namespace nova
             int note = -1; float vel = 0; bool held = false, sustained = false; uint64_t age = 0;
             float curNote = 60, targetNote = 60, drift = 0, driftTarget = 0;
             Noise rng;                     // vlastny generator hlasu (deterministicky seed v Synth::prepare)
+            float mmRand = 0;              // zdroj "Nahoda" modulacnej matice (novy pri kazdom tone)
             LayerVoice lv[2];
             bool isActive() const { return lv[0].active || lv[1].active; }
         };
@@ -108,7 +113,8 @@ namespace nova
         float bend = 0, modWheel = 0;
         int lastNote = -1;
         std::vector<int> monoStack;
-        std::vector<float> bufL, bufR, bufBL, bufBR;
+        std::vector<float> bufL, bufR, bufBL, bufBR, gateBuf;
+        double gtFree = 0; float gtR = 0, curRhythm = 0;   // rytmicky gater: volny beh, vyhladeny vzor
         Eq3 layerEq[2];
         FxChain fx;
         Noise noise;

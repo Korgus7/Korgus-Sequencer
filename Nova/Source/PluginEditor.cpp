@@ -955,9 +955,43 @@ namespace
             help.setText (T ("Ťahaj body v grafe:\nhore / dole = hlasnejšie alebo tichšie,\nstredný aj vľavo / vpravo.\nDvojklik na bod ho vynuluje."), juce::dontSendNotification);
             help.setFont (juce::FontOptions (12.0f)); help.setColour (juce::Label::textColourId, dim); help.setJustificationType (juce::Justification::topLeft);
             addAndMakeVisible (help);
-            for (auto* b : { &tabFx, &tabEq }) addAndMakeVisible (b);
-            tabFx.setButtonText (T ("EFEKTY")); tabEq.setButtonText ("EQ");
-            tabFx.onClick = [this] { showEq (false); }; tabEq.onClick = [this] { showEq (true); };
+            for (auto* b : { &tabFx, &tabEq, &tabGate, &tabMod }) addAndMakeVisible (b);
+            tabFx.setButtonText (T ("EFEKTY")); tabEq.setButtonText ("EQ"); tabGate.setButtonText ("GATER"); tabMod.setButtonText ("MOD");
+            tabGate.setTooltip (T ("Rytmický gater: seká zvuk do rytmu podľa tempa (trance, pop pady)"));
+            tabMod.setTooltip (T ("Modulačná matica: LFO, obálka, sila úderu… môže hýbať ľubovoľným cieľom"));
+            tabFx.onClick = [this] { showTab (0); }; tabEq.onClick = [this] { showTab (1); };
+            tabGate.onClick = [this] { showTab (2); }; tabMod.onClick = [this] { showTab (3); };
+            // gater
+            gtOn = std::make_unique<Toggle> (p.params, "gt_on", T ("GATER"), amber.brighter (0.3f));
+            gtRate = std::make_unique<Combo> (p.params, "gt_rate");
+            gtDepth = std::make_unique<Knob> (p.params, "gt_depth", T ("Hĺbka"));
+            gtSmooth = std::make_unique<Knob> (p.params, "gt_smooth", T ("Hladkosť"));
+            gtDepth->setArc (amber); gtSmooth->setArc (amber);
+            for (auto* c : std::initializer_list<juce::Component*> { gtOn.get(), gtRate.get(), gtDepth.get(), gtSmooth.get() }) addAndMakeVisible (c);
+            gtRate->setTooltip (T ("Dĺžka jedného kroku vzoru"));
+            for (int k = 0; k < 16; ++k)
+            {
+                auto& b = steps[k];
+                b.setClickingTogglesState (true);
+                b.setColour (juce::TextButton::buttonOnColourId, amber);
+                b.setTooltip (T ("Krok vzoru – klik zapne / vypne"));
+                stepAtt[k] = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.params, "gt_s" + juce::String (k), b);
+                addAndMakeVisible (b);
+            }
+            gtHelp.setText (T ("Zapni GATER a klikaj na kroky: zlaté = zvuk hrá, tmavé = ticho.\nNajlepšie znie s padmi a dlhými tónmi."), juce::dontSendNotification);
+            gtHelp.setFont (juce::FontOptions (12.0f)); gtHelp.setColour (juce::Label::textColourId, dim); gtHelp.setJustificationType (juce::Justification::topLeft);
+            addAndMakeVisible (gtHelp);
+            // modulacna matica
+            for (int k = 0; k < 4; ++k)
+            {
+                const juce::String m = "mm" + juce::String (k + 1) + "_";
+                mSrc[k] = std::make_unique<Combo> (p.params, m + "src");
+                mDst[k] = std::make_unique<Combo> (p.params, m + "dst");
+                mAmt[k] = std::make_unique<Knob> (p.params, m + "amt", T ("Množstvo"));
+                mSrc[k]->setTooltip (T ("Zdroj modulácie")); mDst[k]->setTooltip (T ("Čím sa bude hýbať"));
+                mAmt[k]->setArc (amber);
+                for (auto* c : std::initializer_list<juce::Component*> { mSrc[k].get(), mDst[k].get(), mAmt[k].get() }) addAndMakeVisible (c);
+            }
             auto mkSlider = [this] (juce::Slider& s, juce::Label& l, const char* id, const char* t)
             {
                 s.setSliderStyle (juce::Slider::LinearHorizontal); s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -968,14 +1002,14 @@ namespace
             };
             mkSlider (width, widthL, "fx_width", "Šírka"); mkSlider (punch, punchL, "fx_punch", "Úder");
             setTarget (0);
-            showEq (false);
+            showTab (0);
         }
         void setTarget (int t)
         {
             target = t;
             for (int i = 0; i < NEQ; ++i) targets[i].setToggleState (i == t, juce::dontSendNotification);
             graph.setTarget (eqPrefix (t), eqColour (t), eqTap (t));
-            showEq (eqShown);
+            showTab (tab);
         }
         void tick()   // spatna vazba ma zmysel len pri flangeri a phaseri
         {
@@ -988,12 +1022,18 @@ namespace
             const bool e = eqOn[target]->getToggleState();
             if (e != graph.enabled) { graph.enabled = e; graph.repaint(); }
         }
-        void showEq (bool e)
+        void showTab (int t)
         {
+            tab = t;
+            const bool e = t == 1, fxv = t == 0, gv = t == 2, mv = t == 3;
             eqShown = e;
-            tabFx.setToggleState (! e, juce::dontSendNotification); tabEq.setToggleState (e, juce::dontSendNotification);
-            for (auto* c : std::initializer_list<juce::Component*> { &drive, &chorus, &delay, &reverb, &pp, &sync, &chType }) c->setVisible (! e);
-            for (auto& k : fx) k->setVisible (! e);
+            tabFx.setToggleState (fxv, juce::dontSendNotification); tabEq.setToggleState (e, juce::dontSendNotification);
+            tabGate.setToggleState (gv, juce::dontSendNotification); tabMod.setToggleState (mv, juce::dontSendNotification);
+            for (auto* c : std::initializer_list<juce::Component*> { &drive, &chorus, &delay, &reverb, &pp, &sync, &chType }) c->setVisible (fxv);
+            for (auto& k : fx) k->setVisible (fxv);
+            for (auto* c : std::initializer_list<juce::Component*> { gtOn.get(), gtRate.get(), gtDepth.get(), gtSmooth.get(), (juce::Component*) &gtHelp }) c->setVisible (gv);
+            for (auto& b : steps) b.setVisible (gv);
+            for (int k = 0; k < 4; ++k) { mSrc[k]->setVisible (mv); mDst[k]->setVisible (mv); mAmt[k]->setVisible (mv); }
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setVisible (e && i / 4 == target);
             for (auto& b : targets) b.setVisible (e);
             flatBtn.setVisible (e); graph.setVisible (e); help.setVisible (e);
@@ -1004,13 +1044,34 @@ namespace
         void paint (juce::Graphics& g) override
         {
             drawPanel (g, getLocalBounds());
-            if (! eqShown) { g.setColour (line); g.fillRect (276, 44, 1, 196); }
+            if (tab == 0) { g.setColour (line); g.fillRect (276, 44, 1, 196); }
+            if (tab == 3)
+            {
+                g.setColour (dim); g.setFont (juce::FontOptions (12.0f));
+                for (int k = 0; k < 4; ++k) g.drawText (juce::String (k + 1), 12, 46 + k * 48, 16, 24, juce::Justification::centredLeft);
+            }
         }
         void resized() override
         {
-            tabFx.setBounds (10, 8, 72, 22); tabEq.setBounds (86, 8, 40, 22);
-            widthL.setBounds (150, 8, 44, 22); width.setBounds (194, 8, 130, 22);
-            punchL.setBounds (338, 8, 40, 22); punch.setBounds (378, 8, getWidth() - 390, 22);
+            tabFx.setBounds (10, 8, 66, 22); tabEq.setBounds (78, 8, 36, 22); tabGate.setBounds (116, 8, 54, 22); tabMod.setBounds (172, 8, 44, 22);
+            widthL.setBounds (226, 8, 40, 22); width.setBounds (266, 8, 90, 22);
+            punchL.setBounds (364, 8, 38, 22); punch.setBounds (402, 8, getWidth() - 412, 22);
+            // gater
+            gtOn->setBounds (12, 40, 100, 22); gtRate->setBounds (118, 40, 80, 22);
+            gtDepth->setBounds (getWidth() - 136, 36, 60, 72); gtSmooth->setBounds (getWidth() - 72, 36, 60, 72);
+            gtHelp.setBounds (12, 70, getWidth() - 160, 40);
+            {
+                const int sw = (getWidth() - 24 - 15 * 4 - 3 * 6) / 16;
+                for (int k = 0; k < 16; ++k) steps[k].setBounds (12 + k * (sw + 4) + (k / 4) * 6, 128, sw, 70);
+            }
+            // modulacna matica
+            for (int k = 0; k < 4; ++k)
+            {
+                const int y = 44 + k * 48;
+                mSrc[k]->setBounds (30, y + 2, 170, 24);
+                mDst[k]->setBounds (210, y + 2, 150, 24);
+                mAmt[k]->setBounds (getWidth() - 74, y - 4, 60, 46);
+            }
             drive.setBounds (12, 40, 100, 22);
             fx[0]->setBounds (12, 62, 58, 72);
             delay.setBounds (12, 142, 74, 22); sync.setBounds (88, 142, 92, 22); pp.setBounds (184, 142, 90, 22);
@@ -1032,11 +1093,13 @@ namespace
         NovaProcessor& p;
         Toggle drive, chorus, delay, reverb, pp; Combo sync, chType;
         std::vector<std::unique_ptr<Knob>> fx, eq;
-        juce::TextButton tabFx, tabEq, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help;
+        juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help, gtHelp;
+        std::unique_ptr<Toggle> gtOn; std::unique_ptr<Combo> gtRate, mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, mAmt[4];
+        juce::TextButton steps[16]; std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> stepAtt[16];
         EqGraph graph;
         std::unique_ptr<Toggle> eqOn[NEQ];
         std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> atts;
-        bool eqShown = false; int target = 0;
+        bool eqShown = false; int target = 0, tab = 0;
     };
 
     // ===================================================================== arpeggiator + hlas
