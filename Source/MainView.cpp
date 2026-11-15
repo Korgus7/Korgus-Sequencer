@@ -148,6 +148,7 @@ struct MainView::KbdPoll : juce::Timer
     std::set<juce::String> midiIds, drumIds;  // stopy, ktore prijmaju noty / su bicie
     std::vector<int> drumPitch;
     std::vector<juce::String> arm;            // dalsie zapnute (armovane) stopy - hraju naraz ako v Cubase
+    bool jsText = false;                      // na stranke je fokus v textovom poli
     struct Held { juce::String track; int slot; int pitch; std::vector<std::pair<juce::String, int>> extra; };
     std::map<int, Held> held;                 // index klavesy -> nota
     bool down[17] = {}, zD = false, xD = false, cD = false, vD = false, spD = false;
@@ -234,10 +235,23 @@ struct MainView::KbdPoll : juce::Timer
     void timerCallback() override
     {
         juce::String winTrack;
-        const bool fg = foregroundPlugin (winTrack);
+        const bool fgPlug = foregroundPlugin (winTrack);
+        // hlavne okno programu v popredi: noty hra tiez tento casovac (stranka ich uz nehra, aby nezneli dvakrat)
+        bool fgMain = false;
+        if (! fgPlug)
+            if (auto* top = mv.getTopLevelComponent())
+            {
+               #if JUCE_WINDOWS
+                if (auto* peer = top->getPeer()) fgMain = KbdKeys::isForeground (peer->getNativeHandle());
+               #else
+                fgMain = top->hasKeyboardFocus (true) || juce::Process::isForegroundProcess();
+               #endif
+            }
+        const bool fg = fgPlug || fgMain;
         auto* fc = juce::Component::getCurrentlyFocusedComponent();
-        const bool textFocus = (fc != nullptr && dynamic_cast<juce::TextEditor*> (fc) != nullptr) || KbdKeys::nativeTextFocus();
-        if (fg && ! textFocus && juce::Process::isForegroundProcess()) forwardShortcuts (fc != nullptr);
+        const bool textFocus = (fc != nullptr && dynamic_cast<juce::TextEditor*> (fc) != nullptr) || KbdKeys::nativeTextFocus()
+                               || (fgMain && jsText);   // pise sa do textoveho pola na stranke
+        if (fgPlug && ! textFocus && juce::Process::isForegroundProcess()) forwardShortcuts (fc != nullptr);
         if (! fg || textFocus || KbdKeys::commandModsDown() || ! juce::Process::isForegroundProcess())
         {
             releaseAll();
@@ -246,7 +260,7 @@ struct MainView::KbdPoll : juce::Timer
 
         // medzernik: ak JUCE okno ma fokus, spracuje ho PluginWindow::keyPressed; tu len natívny fokus pluginu
         const bool sp = KbdKeys::isScanDown (0x39, ' ');
-        if (sp && ! spD && fc == nullptr && PluginWindow::hostKey) PluginWindow::hostKey (juce::KeyPress (juce::KeyPress::spaceKey));
+        if (fgPlug && sp && ! spD && fc == nullptr && PluginWindow::hostKey) PluginWindow::hostKey (juce::KeyPress (juce::KeyPress::spaceKey));
         spD = sp;
 
         if (! on) { releaseAll(); return; }
@@ -316,6 +330,7 @@ void MainView::onKbdState (const juce::var& v)
 {
     if (kbdPoll == nullptr) return;
     auto& k = *kbdPoll;
+    if (v.hasProperty ("text")) { k.jsText = (bool) v["text"]; if (k.jsText) k.releaseAll(); return; }
     const bool on = (bool) v.getProperty ("on", false);
     if (! on && k.on) k.releaseAll();
     k.on = on;
