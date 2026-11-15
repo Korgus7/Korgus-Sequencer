@@ -4226,7 +4226,10 @@ document.addEventListener('keyup',e=>noteOff(e.code));
 // natívna cast hra noty z klavesnice - musi vediet, ked sa pise do textoveho pola
 { const isTxt=t=>!!t&&((t.tagName==='INPUT'&&!['range','checkbox','button','radio','color','file'].includes(t.type))||t.tagName==='TEXTAREA'||t.isContentEditable);
   document.addEventListener('focusin',e=>{ if(NATIVE) nat('kbdState',{text:isTxt(e.target)}); });
-  document.addEventListener('focusout',e=>{ if(NATIVE&&isTxt(e.target)) nat('kbdState',{text:false}); }); }
+  document.addEventListener('focusout',e=>{ if(NATIVE&&isTxt(e.target)) nat('kbdState',{text:false}); });
+  // okno stranky stratilo fokus (iny program, klik na listu okna): do textoveho pola sa nepise -> klavesnica moze hrat
+  window.addEventListener('blur',()=>{ if(NATIVE) nat('kbdState',{text:false}); });
+  window.addEventListener('focus',()=>{ if(NATIVE) nat('kbdState',{text:isTxt(document.activeElement)}); }); }
 document.addEventListener('change',e=>{if(e.target.type==='range') e.target.blur();});
 window.addEventListener('blur',()=>Object.keys(held).forEach(noteOff));
 document.addEventListener('dragover',e=>e.preventDefault());
