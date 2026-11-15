@@ -462,7 +462,7 @@ function natUpload(f,trId,bar){
     rd.readAsArrayBuffer(f.slice(o,end)); };
   next(); }
 function natDefaultInst(tr){ if(!NATIVE) return; const p=natPlugins.find(x=>x.inst&&/korgus inspir/i.test(x.name))||natPlugins.find(x=>x.inst&&/korgus/i.test(x.name)&&!/sampler/i.test(x.name)); if(p) nat('trackPlugin',{track:tr.id,uid:p.uid,name:tr.name,quiet:true}); }
-function isInspire(tr){ const c=natTrackPlugins[tr.id]; return !!(c&&c.name&&/inspire/i.test(c.name)); }
+function isInspire(tr){ const c=natTrackPlugins[tr.id]; return !!(c&&c.name&&/inspir/i.test(c.name)); }
 function natNoteShort(tr,pitch,vel){ nat('note',{track:tr.id,pitch,vel,on:true}); setTimeout(()=>nat('note',{track:tr.id,pitch,vel:0,on:false}),250); }
 function setupNative(){
   document.body.classList.add('native');
