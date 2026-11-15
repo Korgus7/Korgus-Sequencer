@@ -3373,6 +3373,9 @@ void MainView::onLearnSound (const juce::var& v)
     if (job->src == nullptr || job->ins == nullptr) { fail (sk ("Nástroj sa nepodarilo pripraviť.")); return; }
     for (auto* p : { job->src.get(), job->ins.get() })
     {
+        // cisty restart: createInstance moze mat plugin uz aktivovany na rate zariadenia (VST3 prepareToPlay by sa vratil skoro)
+        p->releaseResources();
+        p->setNonRealtime (true);
         p->enableAllBuses();
         p->setRateAndBufferSizeDetails (SoundMatch::kSR, SoundMatch::kBS);
         p->prepareToPlay (SoundMatch::kSR, SoundMatch::kBS);
@@ -3401,6 +3404,7 @@ void MainView::learnFinished()
     learnJob = nullptr;
     auto o = obj();
     put (o, "ok", r.ok);
+    put (o, "diag", r.diag);
     if (! r.ok) { put (o, "error", r.error == "cancel" ? juce::String ("cancel") : r.error); emit ("learnDone", o); return; }
     if (auto* p = engine.getPlugin (engine.getOrCreateSlot (learnTarget)))
     {

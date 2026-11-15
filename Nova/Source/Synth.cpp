@@ -114,6 +114,21 @@ namespace nova
             const float pan = clampf (((float) v.note - 64.0f) / 40.0f, -0.6f, 0.6f);
             lv.plPanL = std::cos ((pan + 1.0f) * pi * 0.25f); lv.plPanR = std::sin ((pan + 1.0f) * pi * 0.25f);
         }
+        else if (s.wave == 8)
+        {
+            // Roj: pocet alikvot 4*uni (skutocny unison sa nepouziva); Schroederove fazy a pevne rozhodene startovne fazy
+            const int N = 4 * juce::jlimit (1, 8, s.uni);
+            for (int k = 0; k < 32; ++k)
+            {
+                const float kk = (float) (k + 1);
+                lv.rojPsi[k] = kk * kk / (2.0f * (float) N);              // psi_k / 2pi, psi_k = pi k^2 / N
+                lv.rojPsi[k] -= std::floor (lv.rojPsi[k]);
+                float th = lv.rojPsi[k] + rojScatter (k + 1 + 50) * 0.5f;
+                lv.rojTh[k] = th - std::floor (th);
+                lv.rojG[k] = 0; lv.rojC[k] = 0;
+            }
+            lv.rojPhi = 0; lv.rojFocus = -1; lv.rojN = 0; lv.rojTog = 0;
+        }
         else if (s.wave == 6) { lv.cPh = lv.mPh = 0; }
         else
         {
@@ -325,6 +340,45 @@ namespace nova
         const bool useFilter = s.cut < 19990.0f || s.fenv > 0.001f || s.ftype != 0 || bright < -0.01f || s.ltgt == 1;
         const bool isPiano = lv.wave == 7 && lv.smp != nullptr;
         static const float bg[5] = { 0.9f, 0.7f, 0.55f, 0.7f, 0.45f };
+
+        // Roj: parametre na blok (frekvencne nasobky, ciele hlasitosti alikvot, panorama)
+        const float* sinT = sineLutData();
+        float rojKf[32], rojStep[32], rojPL[32], rojPR[32], rojTgt[32];
+        int rojAct = 0;
+        float rojFocusA = 0;
+        if (lv.wave == 8)
+        {
+            const int Nt = juce::jlimit (4, 32, 4 * nu);
+            const int nMax = std::max (Nt, lv.rojN);
+            const float B = 0.0012f * s.spread;
+            // tmavsi tvar pri nizkom jase / tichsej hre (0.8 - 1.6)
+            const float tiltR = clampf (1.25f - 0.3f * bright - 0.5f * (v.vel - 0.7f), 0.8f, 1.6f);
+            const float sr32 = (float) sr;
+            float sumSq = 0;
+            for (int k = 0; k < nMax; ++k)
+            {
+                const float kk = (float) (k + 1);
+                const float sk = k == 0 ? 0.0f : 0.5f * (kk - 1.0f) / 8.0f + 0.5f * rojScatter (k + 1);
+                rojKf[k] = kk * (1.0f + B * sk);
+                const float fk = rojKf[k] * baseHz * 1.06f;                  // rezerva na vibrato
+                float a = k < Nt ? std::exp (-tiltR * std::log (kk)) : 0.0f;
+                if (fk > 0.45f * sr32) a = 0;
+                else if (fk > 0.35f * sr32) a *= (0.45f * sr32 - fk) / (0.1f * sr32);
+                rojTgt[k] = a; sumSq += a * a;
+                const float p = (k % 2 == 0 ? -0.35f : 0.35f) * std::min (1.0f, kk * 0.25f);   // neparne mierne vlavo, parne vpravo
+                rojPL[k] = std::sqrt (0.5f * (1.0f - p)); rojPR[k] = std::sqrt (0.5f * (1.0f + p));
+            }
+            const float norm = sumSq > 1.0e-12f ? 0.6f / std::sqrt (sumSq) : 0.0f;
+            const float inv = 1.0f / (float) n;
+            for (int k = 0; k < nMax; ++k)
+            {
+                rojTgt[k] *= norm;
+                rojStep[k] = (rojTgt[k] - lv.rojG[k]) * inv;
+                if (rojTgt[k] > 0 || lv.rojG[k] > 0) rojAct = k + 1;
+            }
+            lv.rojN = Nt;
+            rojFocusA = 1.0f - std::exp (-1.0f / (0.0113f * sr32));
+        }
         for (int i = 0; i < n; ++i)
         {
             // LFO
@@ -409,6 +463,35 @@ namespace nova
                 lv.cPh += f; if (lv.cPh >= 1) lv.cPh -= 1;
                 l = r = std::sin (twoPi * lv.cPh + idx * std::sin (twoPi * lv.mPh)) * 0.7071f;
             }
+            else if (lv.wave == 8)
+            {
+                const float fc = baseHz * pitchMul * invSr;                 // cykly na vzorku (aj s vibratom, benderom, glide)
+                lv.rojPhi += fc; lv.rojPhi -= std::floor (lv.rojPhi);
+                // Focus = Farba, filtrova obalka ho meni (nota "kristalizuje"); vyhladene jednopolovym filtrom
+                const float envTerm = (1.0f - std::abs (s.fenv)) + std::abs (s.fenv) * fe;
+                const float ft = clampf (s.color * envTerm, 0.0f, 1.0f);
+                if (lv.rojFocus < 0) lv.rojFocus = ft; else lv.rojFocus += rojFocusA * (ft - lv.rojFocus);
+                const float Kc = std::min (0.5f * lv.rojFocus * lv.rojFocus * fc, 0.1f);   // K/sr = min(kappa f, 0.1 sr)/sr
+                const float phi = lv.rojPhi;
+                lv.rojTog ^= 1; const bool upd = lv.rojTog != 0;
+                float sl = 0, sr_ = 0;
+                for (int k = 0; k < rojAct; ++k)
+                {
+                    float th = lv.rojTh[k];
+                    if (upd)   // vazba (Adler) sa pocita kazdy 2. vzorok kvoli procesoru
+                    {
+                        float d = (float) (k + 1) * phi + lv.rojPsi[k] - th + 1.0f; d -= (float) (int) d;   // d > 0, frac bez volania floor
+                        lv.rojC[k] = Kc * sinCyc (sinT, d);
+                    }
+                    th += fc * rojKf[k] + lv.rojC[k];
+                    th += th < 0.0f ? 1.0f : (th >= 1.0f ? -1.0f : 0.0f);                               // prirastok < 1 (alikvoty pod 0.45 sr)
+                    lv.rojTh[k] = th;
+                    lv.rojG[k] += rojStep[k];
+                    const float y = lv.rojG[k] * sinCyc (sinT, th);
+                    sl += y * rojPL[k]; sr_ += y * rojPR[k];
+                }
+                l = sl; r = sr_;
+            }
             else if (isPiano)
             {
                 const auto* sm = lv.smp;
@@ -486,6 +569,7 @@ namespace nova
             }
             if (! isPiano && ! lv.amp.active()) { lv.active = false; break; }
         }
+        if (lv.wave == 8) for (int k = 0; k < std::max (rojAct, 0); ++k) lv.rojG[k] = rojTgt[k];
     }
 
     void Synth::process (juce::AudioBuffer<float>& out, const juce::MidiBuffer& midi, const Settings& s)

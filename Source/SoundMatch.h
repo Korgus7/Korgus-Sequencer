@@ -18,12 +18,16 @@ namespace SoundMatch
         float startLoss = 0, synthLoss = 0, finalLoss = 0;
         bool usedSample = false;
         int evals = 0;
+        juce::String diag;            // priecinok so zaznamom ucenia (diagnostika)
     };
 
     // progress (0..1, sprava) vracia false = zrusit
     using Progress = std::function<bool (double, const juce::String&)>;
 
-    // src a insp musia byt pripravene (prepareToPlay (kSR, kBS)); vola sa na pozadi
+    // priecinok diagnostiky: Dokumenty\Korgus Sequencer\Ucenie
+    juce::File diagFolder();
+
+    // src a insp musia byt pripravene (prepareToPlay); zdroj sa sam znova pripravi na 48 kHz (na hlavnom vlakne); vola sa na pozadi
     Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp,
                 const juce::MemoryBlock& inspState, bool allowSample, const juce::String& srcName, Progress progress);
 }

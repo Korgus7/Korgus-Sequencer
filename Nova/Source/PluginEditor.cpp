@@ -411,7 +411,7 @@ namespace
     {
         LayerPanel (NovaProcessor& pr, int layer) : p (pr), li (layer), pre (layer == 0 ? "a_" : "b_"),
             on (pr.params, pre + "on", layer == 0 ? T ("VRSTVA A") : T ("VRSTVA B"), layer == 0 ? arc : arcB),
-            wave (pr.params, pre + "wave", juce::StringArray::fromTokens (T ("Sín|Troj|Píla|Obdĺž|Šum|Pluck|FM|Sampel"), "|", ""), layer == 0 ? steelHi : accentB),
+            wave (pr.params, pre + "wave", juce::StringArray::fromTokens (T ("Sín|Troj|Píla|Obdĺž|Šum|Pluck|FM|Sampel|Roj"), "|", ""), layer == 0 ? steelHi : accentB),
             ftype (pr.params, pre + "ftype"),
             f24 (pr.params, pre + "f24", "24 dB", layer == 0 ? arc : arcB),
             lshape (pr.params, pre + "lshape"), ltgt (pr.params, pre + "ltgt"), ratio (pr.params, pre + "ratio"), src (pr.params, pre + "src"),
@@ -474,12 +474,13 @@ namespace
             {
                 lastWave = w; lastUser = isUser;
                 const char* ct = "Farba";
-                switch (w) { case 3: ct = "Šírka pulzu"; break; case 4: ct = "Farba šumu"; break; case 5: ct = "Jas struny"; break; case 6: ct = "FM index"; break; case 7: ct = "Tvrdosť"; break; default: break; }
+                switch (w) { case 3: ct = "Šírka pulzu"; break; case 4: ct = "Farba šumu"; break; case 5: ct = "Jas struny"; break; case 6: ct = "FM index"; break; case 7: ct = "Tvrdosť"; break; case 8: ct = "Focus"; break; default: break; }
                 color->setTitle (T (ct));
+                row1[3]->setTitle (T (w == 8 ? "Bohatosť" : "Unison")); row1[4]->setTitle (T (w == 8 ? "Rozptyl" : "Rozlad."));
                 color->setVisible (w >= 3 && ! isUser);
                 ratio.setVisible (w == 6); ratioLabel.setVisible (w == 6);
                 src.setVisible (isSample); load.setVisible (isSample); root->setVisible (isUser); loop.setVisible (isUser); smpName.setVisible (isUser);
-                row1[3]->setEnabled (w <= 3); row1[4]->setEnabled (w <= 3);
+                row1[3]->setEnabled (w <= 3 || w == 8); row1[4]->setEnabled (w <= 3 || w == 8);
                 resized();
             }
             const auto nm = p.sampleName (li);
@@ -1420,6 +1421,11 @@ namespace
             g.drawText (T (shownCat), nameBox.reduced (12, 0), juce::Justification::centredRight);
             g.drawText (T ("Veľkosť"), size.getBounds().translated (-62, 0).withWidth (56), juce::Justification::centredRight);
             g.drawText (T ("Hlasitosť"), vol.getBounds().translated (-72, 0).withWidth (66), juce::Justification::centredRight);
+           #ifndef INSPIRE_BUILD
+            #define INSPIRE_BUILD 0
+           #endif
+            g.setFont (juce::FontOptions (10.5f));
+            g.drawText ("v1." + juce::String (INSPIRE_BUILD), juce::Rectangle<int> (vol.getX(), 40, vol.getWidth(), 12), juce::Justification::centredRight);
         }
         void resized() override
         {

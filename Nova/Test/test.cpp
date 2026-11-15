@@ -201,6 +201,97 @@ int main (int argc, char** argv)
         printf ("dozvuk bez EQ s mix 0.5:\n"); run ({ { "rv_mix", 0.5f }, { "a_ar", 0.02f } });
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "rojbench")
+    {
+        // CPU pre Roj: jeden hlas s N alikvotmi (uni 1..8 = 4..32), efekty vypnute
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        q.loadPreset ("f:Roj Mellotron");
+        for (auto id : { "ch_on", "dl_on", "rv_on", "b_on" }) setParam (q, id, 0);
+        for (int voices : { 1, 4 })
+            for (int uni : { 5, 8 })
+            {
+                setParam (q, "a_uni", (float) uni);
+                const int total = (int) (6.0 * sr); double cpu = 0; float pk = 0; bool nan = false;
+                for (int pos = 0; pos < total; pos += bs)
+                {
+                    MidiBuffer mb; if (pos == 0) for (int v = 0; v < voices; ++v) mb.addEvent (MidiMessage::noteOn (1, 48 + v * 4, 0.8f), 0);
+                    AudioBuffer<float> blk (2, bs); blk.clear();
+                    const auto t0 = Time::getHighResolutionTicks();
+                    q.processBlock (blk, mb);
+                    if (pos > (int) (2.0 * sr)) cpu += Time::highResolutionTicksToSeconds (Time::getHighResolutionTicks() - t0);
+                    for (int c = 0; c < 2; ++c) for (int i = 0; i < bs; ++i) { const float x = blk.getSample (c, i); if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); }
+                }
+                const double secs = (double) (total - (int) (2.0 * sr)) / sr;
+                printf ("voices %d partials %d: %.2f %% CPU (x%.0f realtime) peak %.2f %s\n", voices, uni * 4, 100.0 * cpu / secs, secs / cpu, pk, nan ? "NAN!" : "");
+            }
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "rojsur")
+    {
+        // Prekvap ma: kolko z 40 pokusov pre pad / lead / zvonky vyberie Roj, a ci su hlasitosti v norme
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int ty : { 0, 4, 5 })
+        {
+            int roj = 0; float lo = 99, hi = -99;
+            for (int i = 0; i < 40; ++i)
+            {
+                q.surprise (ty); auto p = q.currentPatch();
+                if (p.values.at ("a_wave") == 8.0f)
+                {
+                    ++roj; const float l = NovaProcessor::measureLevel (p) + p.values.at ("p_gain"); lo = std::min (lo, l); hi = std::max (hi, l);
+                    if (roj <= 2) printf ("  %s %s: color %.2f spread %.1f uni %.0f fenv %.2f fa %.2f ad %.2f as %.2f p_gain %.1f\n", p.name.toRawUTF8(), p.category.toRawUTF8(), p.values.at ("a_color"), p.values.at ("a_spread"), p.values.at ("a_uni"), p.values.at ("a_fenv"), p.values.at ("a_fa"), p.values.at ("a_ad"), p.values.at ("a_as"), p.values.at ("p_gain"));
+                }
+            }
+            printf ("typ %d: Roj %d/40, uroven %.1f .. %.1f dB\n", ty, roj, lo, hi);
+        }
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "rojwav")
+    {
+        // ukazky Roj: akordy / melodie do /home/claude/roj/inspire_*.wav (cez celu efektovu retaz zvuku)
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        struct Ev { double t, len; int note; float vel; };
+        auto render = [&] (const char* preset, const std::vector<Ev>& evs, double dur, const char* file)
+        {
+            q.loadPreset (String ("f:") + preset);
+            const int total = (int) (dur * sr); AudioBuffer<float> out (2, total); out.clear();
+            for (int pos = 0; pos < total; pos += bs)
+            {
+                const int n = std::min (bs, total - pos); MidiBuffer mb;
+                for (auto& e : evs)
+                {
+                    const int on = (int) (e.t * sr), off = (int) ((e.t + e.len) * sr);
+                    if (on >= pos && on < pos + n) mb.addEvent (MidiMessage::noteOn (1, e.note, e.vel), on - pos);
+                    if (off >= pos && off < pos + n) mb.addEvent (MidiMessage::noteOff (1, e.note), off - pos);
+                }
+                AudioBuffer<float> blk (2, n); blk.clear(); q.processBlock (blk, mb);
+                for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+            }
+            float pk = 0; bool nan = false;
+            for (int c = 0; c < 2; ++c) for (int i = 0; i < total; ++i) { const float x = out.getSample (c, i); if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); }
+            printf ("%-16s -> %s peak %.2f %s\n", preset, file, pk, nan ? "NAN!" : "");
+            File wf (file); wf.deleteFile();
+            WavAudioFormat w; std::unique_ptr<OutputStream> os (wf.createOutputStream().release());
+            auto wr = w.createWriterFor (os, AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (24));
+            wr->writeFromAudioSampleBuffer (out, 0, total);
+        };
+        std::vector<Ev> pad;
+        const int ch[4][4] = { { 45, 57, 60, 64 }, { 41, 57, 60, 65 }, { 48, 55, 60, 64 }, { 43, 55, 59, 62 } };
+        for (int c = 0; c < 4; ++c) for (int m : ch[c]) pad.push_back ({ c * 2.6, 2.4, m, m < 50 ? 0.6f : 0.75f });
+        render ("Roj Mellotron", pad, 12.0, "/home/claude/roj/inspire_pad.wav");
+        std::vector<Ev> bells; const int mel[] = { 76, 79, 81, 79, 76, 74, 72, 74 };
+        for (int i = 0; i < 8; ++i) bells.push_back ({ i * 0.55, 0.5, mel[i], 0.8f });
+        render ("Roj zvony", bells, 9.0, "/home/claude/roj/inspire_zvony.wav");
+        std::vector<Ev> keys; const int kc[3][3] = { { 57, 60, 64 }, { 57, 62, 65 }, { 56, 59, 64 } };
+        for (int c = 0; c < 3; ++c) for (int m : kc[c]) keys.push_back ({ c * 1.2, 1.1, m, 0.75f });
+        render ("Roj klávesy", keys, 6.0, "/home/claude/roj/inspire_klavesy.wav");
+        std::vector<Ev> lead; const int lm[] = { 69, 72, 74, 76, 74, 72, 74, 69 }; const double ld[] = { 0.4, 0.4, 0.4, 1.2, 0.4, 0.4, 0.8, 1.4 };
+        double t = 0; for (int i = 0; i < 8; ++i) { lead.push_back ({ t, ld[i] * 0.95, lm[i], 0.8f }); t += ld[i]; }
+        render ("Roj lead", lead, 7.0, "/home/claude/roj/inspire_lead.wav");
+        std::vector<Ev> cloud; for (int m : { 57, 60, 64 }) cloud.push_back ({ 0.0, 9.0, m, 0.8f });
+        render ("Roj oblak", cloud, 16.0, "/home/claude/roj/inspire_oblak.wav");
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "pitch")
     {
         // stabilita ladenia: drzany ton A3 (220 Hz) 10 s, efekty vypnute, vyska po 0.5 s

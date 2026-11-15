@@ -341,6 +341,16 @@ namespace
             case 0:   // pad
             {
                 noun = pick ({ 0, 1, 2 }) == 0 ? "pad" : (chance (0.5f) ? "oblak" : "opar"); cat = "Pady";
+                if (chance (0.3f))
+                {
+                    // Roj: pad, ktory pri nabehu "kristalizuje" (Focus rastie cez filtrovu obalku)
+                    v["a_wave"] = 8; v["a_color"] = R (0.35f, 0.7f); v["a_spread"] = R (8, 30); v["a_uni"] = I (4, 8);
+                    v["a_fenv"] = R (0.4f, 0.9f); v["a_fa"] = R (0.8f, 2.5f); v["a_fd"] = R (0.5f, 2); v["a_fs"] = 1; v["a_fr"] = 15;
+                    v["a_aa"] = R (0.5f, 1.5f); v["a_ad"] = 1.5f; v["a_as"] = R (0.8f, 0.95f); v["a_ar"] = R (1.2f, 3); v["a_level"] = 0.8f;
+                    if (chance (0.5f)) { v["ch_on"] = 1; v["ch_mix"] = R (0.2f, 0.4f); }
+                    v["rv_mix"] = R (0.35f, 0.5f); v["rv_size"] = R (0.7f, 0.9f);
+                    break;
+                }
                 v["a_wave"] = pick ({ 2, 2, 3, 1 }); v["a_uni"] = I (3, 7); v["a_spread"] = R (7, 20); v["a_color"] = R (0.2f, 0.6f);
                 v["a_cut"] = LR (600, 4000); v["a_reso"] = R (0.05f, 0.35f); v["a_fenv"] = R (0, 0.35f);
                 v["a_fa"] = R (0.3f, 2); v["a_fd"] = R (1, 3); v["a_fs"] = R (0.3f, 0.8f); v["a_fr"] = R (1, 2.5f);
@@ -409,6 +419,16 @@ namespace
             case 4:   // lead
             {
                 noun = chance (0.5f) ? "lead" : "hlas"; cat = "Leady";
+                if (chance (0.3f))
+                {
+                    v["a_wave"] = 8; v["a_color"] = R (0.7f, 0.95f); v["a_spread"] = R (5, 15); v["a_uni"] = I (2, 4);
+                    v["a_fenv"] = R (0, 0.35f); v["a_fa"] = R (0.1f, 0.4f); v["a_fd"] = 0.5f; v["a_fs"] = 1; v["a_fr"] = 0.4f;
+                    v["a_aa"] = R (0.01f, 0.06f); v["a_ad"] = 0.5f; v["a_as"] = R (0.75f, 0.9f); v["a_ar"] = R (0.2f, 0.5f); v["a_level"] = 0.9f;
+                    v["a_lrate"] = R (4.8f, 6); v["a_ldepth"] = R (0.08f, 0.15f); v["a_ldelay"] = R (0.2f, 0.4f);
+                    if (chance (0.8f)) { v["mono"] = 1; v["glide"] = R (0.03f, 0.1f); }
+                    if (chance (0.6f)) { v["dl_on"] = 1; v["dl_sync"] = pick ({ 2, 3 }); v["dl_mix"] = R (0.12f, 0.22f); v["dl_fb"] = R (0.2f, 0.4f); }
+                    break;
+                }
                 v["a_wave"] = pick ({ 2, 3 }); v["a_uni"] = I (1, 4); v["a_spread"] = R (5, 15); v["a_color"] = R (0.3f, 0.6f);
                 v["a_cut"] = LR (1200, 6000); v["a_reso"] = R (0.1f, 0.4f); v["a_fenv"] = R (0.1f, 0.4f);
                 v["a_fa"] = 0.005f; v["a_fd"] = R (0.3f, 0.8f); v["a_fs"] = R (0.4f, 0.8f);
@@ -427,6 +447,15 @@ namespace
             case 5:   // zvonky (FM)
             {
                 noun = chance (0.5f) ? "zvonček" : "kryštál"; cat = "Zvonky";
+                if (chance (0.35f))
+                {
+                    // Roj: zvony - nizky Focus, velky rozptyl, rychly nabeh, dlhe doznievanie
+                    v["a_wave"] = 8; v["a_color"] = R (0.1f, 0.35f); v["a_spread"] = R (15, 40); v["a_uni"] = I (3, 6);
+                    v["a_fenv"] = chance (0.5f) ? R (0.3f, 0.6f) : 0.0f; v["a_fa"] = R (1.5f, 3); v["a_fd"] = 1; v["a_fs"] = 1; v["a_fr"] = 3;
+                    v["a_aa"] = 0.003f; v["a_ad"] = R (1, 4); v["a_as"] = 0; v["a_ar"] = R (0.8f, 2.5f); v["a_level"] = 1;
+                    v["rv_mix"] = R (0.35f, 0.5f); v["rv_size"] = R (0.65f, 0.9f);
+                    break;
+                }
                 v["a_wave"] = 6; v["a_ratio"] = pick ({ 5, 6, 8, 9 }); v["a_color"] = R (0.2f, 0.5f); v["a_fenv"] = R (0.7f, 1);
                 v["a_fa"] = 0.001f; v["a_fd"] = R (0.3f, 1.2f); v["a_fs"] = 0; v["a_aa"] = 0.001f; v["a_ad"] = R (2.5f, 6); v["a_as"] = 0; v["a_ar"] = R (0.6f, 1.5f); v["a_level"] = 1;
                 if (chance (0.6f)) { v["b_on"] = 1; v["b_wave"] = 0; v["b_oct"] = pick ({ 1, 2 }); v["b_level"] = R (0.1f, 0.25f); v["b_aa"] = 0.001f; v["b_ad"] = R (1, 3); v["b_as"] = 0; v["b_ar"] = 0.6f; }
@@ -458,6 +487,8 @@ namespace
                 break;
             }
         }
+        // Roj: velky rozptyl pri minimalnom Focuse len pre zvony
+        if (v.count ("a_wave") && v["a_wave"] == 8 && v["a_spread"] > 40.0f && v["a_color"] < 0.1f && type != 5) v["a_spread"] = 40.0f;
         if (chance (0.4f)) v["eq_high"] = R (-4, 3);
         if (type == 0 || type == 6 || type == 7) v["rv_pre"] = R (0, 60);
         if (v.count ("ch_on") && v["ch_on"] > 0.5f && (type == 0 || type == 6 || type == 2) && chance (0.4f)) { v["ch_type"] = pick ({ 1, 1, 3, 2 }); v["ch_fb"] = R (0.1f, 0.5f); }

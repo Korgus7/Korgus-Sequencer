@@ -4,7 +4,7 @@
 #include "Fx.h"
 #include "PianoBank.h"
 
-// Zvukovy motor Korgus Nova: 2 vrstvy na hlas (sinus, trojuholnik, pila, obdlznik, sum, pluck, FM, sampel),
+// Zvukovy motor Korgus Nova: 2 vrstvy na hlas (sinus, trojuholnik, pila, obdlznik, sum, pluck, FM, sampel, Roj),
 // filter s obalkou, LFO, mono/glide, arpeggiator a spolocne efekty
 namespace nova
 {
@@ -64,6 +64,8 @@ namespace nova
             std::vector<float> dl; int dlen = 100, w = 0; float apC = 0, apIn = 0, apOut = 0, yPrev = 0, loopG = 0.99f, loopS = 0.3f, plPanL = 0.7f, plPanR = 0.7f;
             // FM
             float cPh = 0, mPh = 0;
+            // Roj (harmonicky roj): 32 sinusovych alikvot s injekcnym zamykanim na hlavnu fazu
+            float rojTh[32] {}, rojPsi[32] {}, rojG[32] {}, rojC[32] {}; float rojPhi = 0, rojFocus = -1; int rojN = 0, rojTog = 0;   // rojC: vazba (obnovuje sa kazdy 2. vzorok)
             // sampel
             const PianoBank::Sample* smp = nullptr; UserSamplePtr user; double pos = 0; float gain = 1, level = 1, dampCoef = 1, atk = 1, atkInc = 1; bool damping = false, noDamper = false;
             float velGain = 1, peak = 0;

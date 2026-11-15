@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "Dsp.h"
+#include "SuperVerb.h"
 
 // Efekty na celom zvuku Korgus Nova
 namespace nova
@@ -74,7 +75,7 @@ namespace nova
         void prepare (double sampleRate)
         {
             sr = (float) sampleRate;
-            mod.prepare (sr); reverb.prepare (sr); reverb.setPre (0);
+            mod.prepare (sr); reverb.prepare (sampleRate, 8192); reverb.reset();
             dlL.assign ((size_t) (sr * 2.6f), 0); dlR.assign ((size_t) (sr * 2.6f), 0); dw = 0;
             dlTimeSm = -1; compEnv = 0; grDb = 0; pf = ps = 0; mfL.reset(); mfR.reset(); mf2L.reset(); mf2R.reset();
             eq.reset(); rvEq.reset(); dlEq.reset();
@@ -88,8 +89,7 @@ namespace nova
             const bool rvEqOn = rvEq.update (s.rvEqLow, s.rvEqMid, s.rvEqMidF, s.rvEqHigh, sr) && s.rvEqEnabled;
             const bool tapRv = an != nullptr && an->wants (3), tapOut = an != nullptr && an->wants (2), tapDl = an != nullptr && an->wants (4);
             const bool dlEqOn = dlEq.update (s.dlEqLow, s.dlEqMid, s.dlEqMidF, s.dlEqHigh, sr) && s.dlEqEnabled;
-            if (std::abs (s.rvSize - reverb.size) > 0.01f || std::abs (s.rvDamp - reverb.damp) > 0.01f) reverb.setSize (s.rvSize, s.rvDamp);
-            if (std::abs (s.rvPre - reverb.preMs) > 0.5f) reverb.setPre (s.rvPre);
+            reverb.setFromLegacy (s.rvSize, s.rvDamp, s.rvPre);
             // delay: cas zo synchra s tempom
             float dTime = s.dlTime * 0.001f;
             if (s.dlSync > 0)
@@ -143,7 +143,7 @@ namespace nova
                 {
                     dlTimeSm += 0.0005f * (dTarget - dlTimeSm);
                     float rp = (float) dw - dlTimeSm; while (rp < 0) rp += (float) dlL.size();
-                    const int i0 = (int) rp; const float fr = rp - (float) i0; const int i1 = (i0 + 1) % (int) dlL.size();
+                    int i0 = (int) rp; const float fr = rp - (float) i0; if (i0 >= (int) dlL.size()) i0 -= (int) dlL.size(); if (i0 < 0) i0 = 0; const int i1 = (i0 + 1) % (int) dlL.size();
                     const float yl = dlL[(size_t) i0] + fr * (dlL[(size_t) i1] - dlL[(size_t) i0]);
                     const float yr = dlR[(size_t) i0] + fr * (dlR[(size_t) i1] - dlR[(size_t) i0]);
                     const float fbl = dlTone.lp (yl), fbr = yr * 0.8f + 0.2f * fbl;
@@ -157,7 +157,7 @@ namespace nova
                 }
                 if (rvSm > 0.0005f || s.rvOn)
                 {
-                    float rl, rr; reverb.process (l, r, rl, rr);
+                    float rl, rr; reverb.processSample (l, r, rl, rr); rl *= 0.8f; rr *= 0.8f;   // SuperVerb je o ~2 dB hlasnejsi
                     if (rvEqOn) rvEq.process (rl, rr);
                     if (tapRv) an->push (3, 0.5f * (rl + rr));
                     l += rl * rvSm; r += rr * rvSm;
@@ -190,7 +190,7 @@ namespace nova
 
     private:
         float sr = 48000;
-        ModFx mod; Reverb reverb;
+        ModFx mod; korgus::SuperVerb reverb;
         std::vector<float> dlL, dlR; int dw = 0; float dlTimeSm = -1; OnePole dlTone;
         Eq3 eq, rvEq, dlEq;
         Svf mfL, mfR, mf2L, mf2R;

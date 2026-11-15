@@ -34,7 +34,7 @@ namespace nova
             {
                 const juce::String p = L + "_", up = L.toUpperCase();
                 B (p + "on", L == "a" ? "Vrstva A" : "Vrstva B", L == "a");
-                C (p + "wave", "Priebeh", "Sínus|Trojuholník|Píla|Obdĺžnik|Šum|Pluck|FM|Sampel", 2);
+                C (p + "wave", "Priebeh", "Sínus|Trojuholník|Píla|Obdĺžnik|Šum|Pluck|FM|Sampel|Roj", 2);
                 F (p + "oct", "Oktáva", -3, 3, 0, "oct");
                 F (p + "semi", "Poltón", -12, 12, 0, "st");
                 F (p + "fine", "Jemne", -100, 100, 0, "ct");
@@ -339,6 +339,23 @@ namespace nova
             v.push_back (P ("Spevavý lead", "Leady").s ("a_wave", 3).s ("a_color", 0.35f).s ("a_uni", 2).s ("a_spread", 6).s ("a_cut", 2500).s ("a_reso", 0.35f).s ("a_fenv", 0.15f)
                          .s ("a_aa", 0.04f).s ("a_ad", 0.4f).s ("a_as", 0.9f).s ("a_ar", 0.3f).s ("a_level", 0.8f).s ("a_lrate", 5.3f).s ("a_ldepth", 0.14f).s ("a_ldelay", 0.35f)
                          .s ("mono", 1).s ("glide", 0.1f).s ("rv_mix", 0.35f).s ("rv_size", 0.75f).s ("rv_pre", 50).s ("dl_on", 1).s ("dl_sync", 2).s ("dl_mix", 0.15f).s ("p_gain", -13.5f).s ("veltrack", 0.6f).f);
+            // Roj (harmonicky roj, wave 8): Farba = Focus, Rozladenie = Rozptyl, Unison = Bohatost (4 alikvoty na krok); filtrova obalka riadi Focus
+            v.push_back (P ("Roj Mellotron", "Pady").s ("a_wave", 8).s ("a_color", 0.7f).s ("a_uni", 5).s ("a_spread", 18).s ("a_level", 0.8f).s ("a_fenv", 0.83f)
+                         .s ("a_fa", 1.6f).s ("a_fd", 0.5f).s ("a_fs", 1).s ("a_fr", 15).s ("a_aa", 1.0f).s ("a_ad", 1.5f).s ("a_as", 0.85f).s ("a_ar", 1.6f)
+                         .s ("rv_mix", 0.45f).s ("rv_size", 0.85f).s ("rv_damp", 0.4f).s ("p_gain", -12.8f).s ("veltrack", 0.7f).f);
+            v.push_back (P ("Roj zvony", "Zvonky").s ("a_wave", 8).s ("a_color", 0.3f).s ("a_uni", 4).s ("a_spread", 34).s ("a_level", 1).s ("a_fenv", 0.6f)
+                         .s ("a_fa", 2.5f).s ("a_fd", 1).s ("a_fs", 1).s ("a_fr", 3).s ("a_aa", 0.003f).s ("a_ad", 3).s ("a_as", 0).s ("a_ar", 2.5f)
+                         .s ("morph_y", 0.5f).s ("rv_mix", 0.4f).s ("rv_size", 0.8f).s ("p_gain", -8.4f).s ("veltrack", 0.8f).f);
+            v.push_back (P ("Roj klávesy", "Klávesy").s ("a_wave", 8).s ("a_color", 0.6f).s ("a_uni", 4).s ("a_spread", 18).s ("a_level", 1).s ("a_fenv", 0.5f)
+                         .s ("a_fa", 0.4f).s ("a_fd", 0.5f).s ("a_fs", 1).s ("a_fr", 0.8f).s ("a_aa", 0.005f).s ("a_ad", 1.4f).s ("a_as", 0.25f).s ("a_ar", 0.8f)
+                         .s ("morph_y", -0.15f).s ("rv_mix", 0.3f).s ("rv_size", 0.6f).s ("p_gain", -7.7f).s ("veltrack", 0.75f).f);
+            v.push_back (P ("Roj lead", "Leady").s ("a_wave", 8).s ("a_color", 0.9f).s ("a_uni", 2).s ("a_spread", 8).s ("a_level", 0.9f).s ("a_fenv", 0.3f)
+                         .s ("a_fa", 0.25f).s ("a_fd", 0.5f).s ("a_fs", 1).s ("a_fr", 0.4f).s ("a_aa", 0.03f).s ("a_ad", 0.5f).s ("a_as", 0.8f).s ("a_ar", 0.3f)
+                         .s ("a_lrate", 5.2f).s ("a_ldepth", 0.12f).s ("a_ldelay", 0.3f).s ("mono", 1).s ("glide", 0.05f)
+                         .s ("morph_y", 0.6f).s ("rv_mix", 0.3f).s ("rv_size", 0.6f).s ("p_gain", -5.9f).s ("veltrack", 0.6f).f);
+            v.push_back (P ("Roj oblak", "Pady").s ("a_wave", 8).s ("a_color", 0.85f).s ("a_uni", 6).s ("a_spread", 28).s ("a_level", 0.8f).s ("a_fenv", 1)
+                         .s ("a_fa", 5).s ("a_fd", 1).s ("a_fs", 1).s ("a_fr", 15).s ("a_aa", 2).s ("a_ad", 2).s ("a_as", 0.9f).s ("a_ar", 3.5f)
+                         .s ("ch_on", 1).s ("ch_mix", 0.3f).s ("rv_mix", 0.5f).s ("rv_size", 0.9f).s ("rv_pre", 30).s ("p_gain", -6.4f).s ("veltrack", 0.6f).f);
             return v;
         }();
         return list;

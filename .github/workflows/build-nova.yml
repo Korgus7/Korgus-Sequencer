@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -S Nova -B build -A x64 -DNOVA_HOSTTEST=ON
+        run: cmake -S Nova -B build -A x64 -DNOVA_HOSTTEST=ON -DKORGUS_BUILD=${{ github.run_number }}
 
       - name: Build
         run: cmake --build build --config Release --parallel

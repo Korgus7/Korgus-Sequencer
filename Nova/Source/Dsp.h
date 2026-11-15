@@ -85,6 +85,28 @@ namespace nova
         float lp (float x) { z += a * (x - z); return z; }
     };
 
+    // tabulka sinusu (2048 bodov + 2 strazne, linearna interpolacia) - pre synt "Roj"
+    struct SineLut
+    {
+        float t[2050];
+        SineLut() { for (int i = 0; i < 2050; ++i) t[i] = (float) std::sin (6.283185307179586 * (double) i / 2048.0); }
+    };
+    inline const float* sineLutData() { static const SineLut lut; return lut.t; }
+    // sinus z fazy v cykloch (x z <0,1>; aj presne 1.0 po zaokruhleni je bezpecne)
+    inline float sinCyc (const float* t, float x)
+    {
+        const float p = x * 2048.0f; const int i = (int) p; const float f = p - (float) i;
+        return t[i] + f * (t[i + 1] - t[i]);
+    }
+
+    // pevna pseudonahodna tabulka rozptylu <-1,1> pre synt "Roj" (rovnaka pre vsetky noty a hlasy)
+    inline float rojScatter (int k)
+    {
+        uint32_t x = 0x9E3779B9u * (uint32_t) (k + 17);
+        x ^= x >> 15; x *= 0x2C1B3C6Du; x ^= x >> 12; x *= 0x297A2D39u; x ^= x >> 15;
+        return (float) ((x & 0xFFFF) / 65535.0) * 2.0f - 1.0f;
+    }
+
     // pilovity priebeh s PolyBLEP (bez aliasu)
     inline float polyBlep (float t, float dt)
     {
@@ -101,7 +123,7 @@ namespace nova
         float tap (const std::vector<float>& b, float delaySmp) const
         {
             float rp = (float) w - delaySmp; while (rp < 0) rp += (float) n;
-            const int i0 = (int) rp; const float f = rp - (float) i0;
+            int i0 = (int) rp; if (i0 >= n) i0 -= n; if (i0 < 0) i0 = 0; const float f = rp - (float) (int) rp;
             return b[(size_t) i0] + f * (b[(size_t) ((i0 + 1) % n)] - b[(size_t) i0]);
         }
         void process (float& l, float& r, float mix, float depthMs, float rate = 0.31f)
@@ -133,7 +155,7 @@ namespace nova
         float tap (const std::vector<float>& b, float d) const
         {
             float rp = (float) w - d; while (rp < 0) rp += (float) n;
-            const int i0 = (int) rp; const float f = rp - (float) i0;
+            int i0 = (int) rp; if (i0 >= n) i0 -= n; if (i0 < 0) i0 = 0; const float f = rp - (float) (int) rp;
             return b[(size_t) i0] + f * (b[(size_t) ((i0 + 1) % n)] - b[(size_t) i0]);
         }
         void process (float& l, float& r, int type, float mix, float depth, float rate, float fb)
@@ -261,7 +283,7 @@ namespace nova
                 l.ph += l.rate / sr; if (l.ph >= 1) l.ph -= 1;
                 const float d = (float) l.len + 2.5f * std::sin (twoPi * l.ph);
                 float r = (float) l.w - d; while (r < 0) r += (float) l.b.size();
-                const int i0 = (int) r; const float f = r - (float) i0;
+                int i0 = (int) r; const float f = r - (float) i0; if (i0 >= (int) l.b.size()) i0 -= (int) l.b.size(); if (i0 < 0) i0 = 0;
                 const float s = l.b[(size_t) i0] + f * (l.b[(size_t) ((i0 + 1) % (int) l.b.size())] - l.b[(size_t) i0]);
                 l.lp += dampA * (s - l.lp);
                 o[i] = l.ap.process (l.lp) * g[i];

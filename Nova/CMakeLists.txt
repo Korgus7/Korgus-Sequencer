@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 # Korgus Inspire (predtym Korgus Nova) - syntezator (klavir, pady, slaciky, husle, pluck...)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+set(KORGUS_BUILD "0" CACHE STRING "Build number")
 project(KorgusNova VERSION 0.1.0)
 
 if(DEFINED NOVA_JUCE_DIR)
@@ -50,7 +51,8 @@ target_compile_definitions(KorgusNova PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0)
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    INSPIRE_BUILD=${KORGUS_BUILD})
 
 target_link_libraries(KorgusNova PRIVATE
     juce::juce_dsp

@@ -1,3 +1,4 @@
+#include "../Nova/Source/SuperVerb.h"
 #include "BuiltinFx.h"
 #include "UiCommon.h"
 #include <juce_dsp/juce_dsp.h>
@@ -401,29 +402,27 @@ class ReverbFx final : public FxBase
 public:
     ReverbFx() : FxBase ("Korgus Dozvuk", "reverb")
     {
-        size = add ("size", "Veľkosť", 0, 100, 50, "%", 1.0f, 0);
-        damp = add ("damping", "Tlmenie", 0, 100, 50, "%", 1.0f, 0);
+        size  = add ("size", "Veľkosť", 0, 100, 50, "%", 1.0f, 0);
+        decay = add ("decay", "Dĺžka", 0, 100, 45, "%", 1.0f, 0);
+        damp  = add ("damping", "Tlmenie", 0, 100, 50, "%", 1.0f, 0);
+        pre   = add ("predelay", "Predozvuk", 0, 250, 20, "ms", 1.0f, 0);
         width = add ("width", "Šírka", 0, 100, 100, "%", 1.0f, 0);
-        mix  = add ("mix", "Mix", 0, 100, 25, "%", 1.0f, 0);
-        tail = 6.0;
+        mix   = add ("mix", "Mix", 0, 100, 25, "%", 1.0f, 0);
+        tail = 12.0;
     }
 
 private:
-    void prepare() override { rv.prepare (spec); rv.reset(); }
+    void prepare() override { rv.prepare (rate, 8192); rv.reset(); }
 
     void process (AudioBuffer<float>& b) override
     {
-        dsp::Reverb::Parameters p;
-        p.roomSize = size->get() * 0.01f; p.damping = damp->get() * 0.01f; p.width = width->get() * 0.01f;
-        const float m = mix->get() * 0.01f;
-        p.wetLevel = m; p.dryLevel = 1.0f - m;
-        rv.setParameters (p);
-        dsp::AudioBlock<float> blk (b);
-        rv.process (dsp::ProcessContextReplacing<float> (blk));
+        rv.setParams (size->get() * 0.01f, decay->get() * 0.01f, damp->get() * 0.01f, pre->get() / 250.0f, width->get() * 0.01f);
+        tail = rv.getTailSeconds();
+        rv.process (b.getWritePointer (0), b.getNumChannels() > 1 ? b.getWritePointer (1) : nullptr, b.getNumSamples(), mix->get() * 0.01f);
     }
 
-    FxParam *size, *damp, *width, *mix;
-    dsp::Reverb rv;
+    FxParam *size, *decay, *damp, *pre, *width, *mix;
+    korgus::SuperVerb rv;
 };
 
 //==============================================================================
@@ -482,8 +481,10 @@ private:
             curD += (target - curD) * 0.0005f;
             float rp = (float) w - curD;
             if (rp < 0) rp += (float) size;
-            const int i0 = (int) rp, i1 = (i0 + 1) % size;
+            int i0 = (int) rp;
             const float fr = rp - (float) i0;
+            if (i0 >= size) i0 -= size; if (i0 < 0) i0 = 0;   // float zaokruhlenie moze dat presne size
+            const int i1 = (i0 + 1) % size;
             float yl = dl[i0] + (dl[i1] - dl[i0]) * fr;
             float yr = dr[i0] + (dr[i1] - dr[i0]) * fr;
             lp[0] = yl + (lp[0] - yl) * a; lp[1] = yr + (lp[1] - yr) * a;
