@@ -3,6 +3,73 @@
 
 static const int GM_DRUMS[] = { 36, 38, 39, 42, 46, 45, 50, 37, 49, 56 };
 
+namespace
+{
+    // akordovy symbol -> MIDI noty (rovnako ako parseChord / chordPitches v index.html: bas + akord v strednej polohe)
+    std::vector<int> chordNotes (const juce::String& txt)
+    {
+        const auto t = txt.trim();
+        if (t.isEmpty()) return {};
+        auto pc = [] (juce::juce_wchar l, juce::juce_wchar acc) -> int
+        {
+            int v;
+            switch (juce::CharacterFunctions::toUpperCase (l))
+            {
+                case 'C': v = 0; break;  case 'D': v = 2; break;  case 'E': v = 4; break;  case 'F': v = 5; break;
+                case 'G': v = 7; break;  case 'A': v = 9; break;  case 'H': case 'B': v = 11; break;
+                default: return -1;
+            }
+            if (acc == '#') ++v;
+            if (acc == 'b') --v;
+            return (v + 12) % 12;
+        };
+        int i = 0;
+        const int root = pc (t[i++], 0);
+        if (root < 0) return {};
+        int rootAcc = 0;
+        if (t[i] == '#' || t[i] == 'b') { rootAcc = t[i] == '#' ? 1 : -1; ++i; }
+        const int rt = (root + rootAcc + 12) % 12;
+        auto rest = t.substring (i);
+        int bass = -1;
+        if (const int sl = rest.indexOfChar ('/'); sl >= 0)
+        {
+            const auto b = rest.substring (sl + 1).trim();
+            if (b.isNotEmpty()) bass = pc (b[0], b.length() > 1 ? b[1] : 0);
+            rest = rest.substring (0, sl);
+        }
+        const auto q = rest.toLowerCase().removeCharacters (" \t");
+        auto has = [&q] (const char* x) { return q.contains (x); };
+        std::vector<int> iv;
+        if (q.startsWith ("maj7") || q == "m7+") iv = { 0, 4, 7, 11 };
+        else if (q.startsWith ("m7b5")) iv = { 0, 3, 6, 10 };
+        else if (q.startsWith ("dim") || q == "o") iv = has ("7") ? std::vector<int> { 0, 3, 6, 9 } : std::vector<int> { 0, 3, 6 };
+        else if (q.startsWith ("aug") || q == "+") iv = { 0, 4, 8 };
+        else if (q.startsWith ("sus2")) iv = { 0, 2, 7 };
+        else if (q.startsWith ("sus")) iv = { 0, 5, 7 };
+        else if (q.startsWith ("m") && ! q.startsWith ("maj"))
+        {
+            iv = { 0, 3, 7 };
+            if (has ("7")) iv.push_back (10); else if (has ("6")) iv.push_back (9);
+            if (has ("9")) iv.push_back (14);
+        }
+        else
+        {
+            iv = { 0, 4, 7 };
+            if (has ("7")) iv.push_back (10); else if (has ("6")) iv.push_back (9);
+            if (has ("9")) iv.push_back (14);
+        }
+        if (has ("add9") && std::find (iv.begin(), iv.end(), 14) == iv.end()) iv.push_back (14);
+        const int base = 48 + rt + (rt > 7 ? -12 : 0);
+        std::vector<int> ps;
+        ps.push_back (bass >= 0 ? 36 + bass + (bass > 7 ? -12 : 0) + 12 : base);
+        for (int x : iv) ps.push_back (base + 12 + x);
+        std::sort (ps.begin(), ps.end());
+        ps.erase (std::unique (ps.begin(), ps.end()), ps.end());
+        ps.erase (std::remove_if (ps.begin(), ps.end(), [] (int x) { return x < 0 || x > 127; }), ps.end());
+        return ps;
+    }
+}
+
 std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int (const juce::String&)>& slotFor,
                                      const std::function<AudioBufPtr (const juce::String&, double, int)>& clipFor)
 {
@@ -30,6 +97,20 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
     sd->loopOn  = (bool) j.getProperty ("loopOn", false);
     sd->click   = (bool) j.getProperty ("click", false);
     { const float mv = (float) (double) j.getProperty ("masterVol", 1.0); sd->masterGain = mv * mv; }
+    if (const int kk = (int) j.getProperty ("keyK", -1); kk >= 0 && kk < 12)
+    {
+        sd->keyTonic = kk;
+        sd->keyScale = (int) j.getProperty ("keyM", 0) == 1 ? 1 : 0;
+    }
+    if (const auto* ch = j["chords"].getArray())
+    {
+        for (const auto& c : *ch)
+        {
+            auto notes = chordNotes (c["c"].toString());
+            if (! notes.empty()) sd->chords.push_back ({ juce::jmax (0.0, (double) c["s"]), std::move (notes) });
+        }
+        std::stable_sort (sd->chords.begin(), sd->chords.end(), [] (const auto& a, const auto& b) { return a.step < b.step; });
+    }
     if (const auto* aux = j["aux"].getArray())
         for (int k = 0; k < juce::jmin (2, aux->size()); ++k)
         {

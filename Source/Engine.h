@@ -4,6 +4,7 @@
 #include <atomic>
 #include <array>
 #include "AudioStore.h"
+#include "BuiltinFx.h"
 
 // Jedna nota na casovej osi (v krokoch = 1/16)
 struct CcEv
@@ -143,6 +144,8 @@ struct SongData
         }
         return x;
     }
+    int keyTonic = -1, keyScale = -1;            // tonina piesne (tonika 0..11, 0 dur / 1 moll), -1 = nezname
+    std::vector<BuiltinFx::ChordSpan> chords;    // akordova stopa (zoradene podla kroku)
     float masterGain = 1;
     float auxGain[2] { 1, 1 };  // navrat FX 1 / FX 2
     unsigned masterFxOff = 0, auxFxOff[2] { 0, 0 };   // vypnute efekty mastra a FX 1/2
@@ -172,6 +175,7 @@ public:
     static constexpr int numFx = 4;
     void setTrackFx (int slot, int index, std::unique_ptr<juce::AudioPluginInstance>);
     juce::AudioPluginInstance* getFx (int slot, int index);
+    void notifyNewSong();     // nova / nacitana pieseň: efekty zabudnu naucene (Korgus Master)
     void setTrackMidiFx (int slot, std::unique_ptr<juce::AudioPluginInstance> p);   // arpeggiator pred nastrojom
     // referencna piesen (A/B): pri zapnuti a prehravani znie namiesto mixu
     void setReference (AudioBufPtr buf, float gain) { const juce::SpinLock::ScopedLockType l (refLock); refBuf = std::move (buf); refGain = gain; }
@@ -334,7 +338,7 @@ private:
     std::atomic<double> recStartStep { 0 };
     std::vector<std::unique_ptr<Rec>> recs;
     std::atomic<int> numRecs { 0 };
-    juce::MidiBuffer fxMidi;
+    juce::MidiBuffer fxMidi, trackMidi;   // trackMidi: MIDI stopy pre efekty s acceptsMidi (Korgus Vocoder)
     juce::SpinLock filterLock, trigLock;
     struct Trig { int slot; AudioBufPtr buf; float gain; int lane; };
     std::vector<Trig> trigs;

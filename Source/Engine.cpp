@@ -75,7 +75,8 @@ Engine::Engine()
     cmds.reserve (64);
     order.reserve (512);
     trigs.reserve (64);
-    fxMidi.ensureSize (64);
+    fxMidi.ensureSize (2048);
+    trackMidi.ensureSize (2048);
     masterSlot = getOrCreateSlot ("__master");
     auxSlot[0] = getOrCreateSlot ("__aux1");
     auxSlot[1] = getOrCreateSlot ("__aux2");
@@ -136,6 +137,12 @@ juce::AudioPluginInstance* Engine::getFx (int slot, int index)
     const juce::ScopedLock sl (slotLock);
     if (! juce::isPositiveAndBelow (slot, (int) slots.size()) || ! juce::isPositiveAndBelow (index, numFx)) return nullptr;
     return slots[(size_t) slot]->fx[(size_t) index].get();
+}
+
+void Engine::notifyNewSong()
+{
+    const juce::ScopedLock sl (slotLock);
+    forEachPlugin ([] (juce::AudioPluginInstance& p) { BuiltinFx::newSong (&p); });
 }
 
 void Engine::setTrackPlugin (int slot, std::unique_ptr<juce::AudioPluginInstance> p)
@@ -693,8 +700,9 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     if (keyBuf.getNumSamples() < n) keyBuf.setSize (2, n, false, false, true);
     keyBuf.clear (0, n);
     bool keyReady = false;
-    auto setKey = [this, n, &keyReady] (juce::AudioPluginInstance* f)
+    auto setKey = [this, n, &keyReady, sd] (juce::AudioPluginInstance* f)
     {
+        BuiltinFx::setSong (f, sd != nullptr ? sd->keyTonic : -1, sd != nullptr ? sd->keyScale : -1, sd != nullptr ? &sd->chords : nullptr);
         if (keyReady) BuiltinFx::setSidechain (f, keyBuf.getReadPointer (0), keyBuf.getReadPointer (1), n);
         else BuiltinFx::setSidechain (f, nullptr, nullptr, 0);
     };
@@ -757,11 +765,23 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             }
 
             if (slot.midiFx != nullptr) { CrashGuard::Busy cg (slot.midiFx.get()); slot.midiFx->processBlock (view, slot.midi); }
+            // MIDI stopy (po arpeggiatore, pred nastrojom) pre efekty, ktore ho chcu (Korgus Vocoder: Interny syntezator)
+            trackMidi.clear();
+            for (int k = 0; k < numFx; ++k)
+                if (auto& f = slot.fx[(size_t) k]; f != nullptr && f->acceptsMidi()) { trackMidi.addEvents (slot.midi, 0, n, 0); break; }
             bool any = false;
             if (slot.plugin != nullptr) { CrashGuard::Busy cg (slot.plugin.get()); slot.plugin->processBlock (view, slot.midi); any = true; }
             if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
             for (int k = 0; k < numFx; ++k)
-                if (auto& f = slot.fx[(size_t) k]; f != nullptr && ! (td.fxOff & (1u << k))) { CrashGuard::Busy cg (f.get()); setKey (f.get()); fxMidi.clear(); f->processBlock (view, fxMidi); any = true; }
+                if (auto& f = slot.fx[(size_t) k]; f != nullptr && ! (td.fxOff & (1u << k)))
+                {
+                    CrashGuard::Busy cg (f.get());
+                    setKey (f.get());
+                    fxMidi.clear();
+                    if (f->acceptsMidi()) fxMidi.addEvents (trackMidi, 0, n, 0);
+                    f->processBlock (view, fxMidi);
+                    any = true;
+                }
             if (! any && ! td.isAudio) continue;
             if (td.isKey)
                 for (int c = 0; c < 2; ++c)
@@ -905,6 +925,16 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
                             const std::function<bool (double)>& progress)
 {
     double savedPos = 0;
+    bool prepass = false;     // Korgus Master na mastri: predbezny prechod, v ktorom sa nauci hlasitost
+    int latency = 0;          // oneskorenie efektov mastra (vzorky) - zo suboru sa odstrihne
+    // efekty mastra, ktore sa pri tomto exporte realne pouziju (volat pod slotLock)
+    auto forMasterFx = [this, &sd] (bool onlyActive, const std::function<void (juce::AudioPluginInstance&)>& fn)
+    {
+        if (onlyActive && bypassMaster.load()) return;
+        auto& ms = *slots[(size_t) masterSlot];
+        for (int q = 0; q < numFx; ++q)
+            if (ms.fx[(size_t) q] != nullptr && (! onlyActive || ! (sd.masterFxOff & (1u << q)))) fn (*ms.fx[(size_t) q]);
+    };
     {
         const juce::ScopedLock sl (slotLock);
         {
@@ -919,26 +949,70 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
         clickLeft = clickDelay = 0;
         state = playing;
         pos = 0;
+        forMasterFx (true, [&] (juce::AudioPluginInstance& p)
+        {
+            prepass = prepass || BuiltinFx::wantsExportPrepass (&p);
+            latency += juce::jmax (0, p.getLatencySamples());
+        });
     }
 
     const int bs = juce::jmax (64, blockSize);
     juce::AudioBuffer<float> buf (2, bs);
-    const juce::int64 total = (juce::int64) ((sd.secondsBetween (0, endStep) + tailSec) * sampleRate);
+    const juce::int64 total = (juce::int64) ((sd.secondsBetween (0, endStep) + tailSec) * sampleRate) + latency;
     bool ok = true;
-    for (juce::int64 done = 0; done < total; done += bs)
+
+    // jeden prechod celou piesnou; write = false: zvuk sa zahodi (ucenie hlasitosti)
+    auto runPass = [&] (bool write, double p0, double p1)
     {
-        const int n = (int) juce::jmin ((juce::int64) bs, total - done);
-        buf.clear();
+        juce::int64 skip = write ? latency : 0;
+        for (juce::int64 done = 0; done < total; done += bs)
+        {
+            const int n = (int) juce::jmin ((juce::int64) bs, total - done);
+            buf.clear();
+            {
+                const juce::ScopedLock sl (slotLock);
+                process (nullptr, 0, buf.getArrayOfWritePointers(), 2, n, &sd);
+            }
+            if (write)
+            {
+                const int first = (int) juce::jmin ((juce::int64) n, skip);
+                skip -= first;
+                if (n > first) w.writeFromAudioSampleBuffer (buf, first, n - first);
+            }
+            if (progress && ! progress (p0 + (p1 - p0) * (double) done / (double) total)) return false;
+        }
+        return true;
+    };
+
+    if (prepass)
+    {
         {
             const juce::ScopedLock sl (slotLock);
-            process (nullptr, 0, buf.getArrayOfWritePointers(), 2, n, &sd);
+            forMasterFx (true, [] (juce::AudioPluginInstance& p) { BuiltinFx::setExportPhase (&p, 1); });
         }
-        w.writeFromAudioSampleBuffer (buf, 0, n);
-        if (progress && ! progress ((double) done / (double) total)) { ok = false; break; }
+        ok = runPass (false, 0.0, 0.5);
+        if (ok)
+        {
+            // zaciatok odznova: stav efektov sa vynuluje, nauceny zisk Korgus Master zostane a zmrzne
+            const juce::ScopedLock sl (slotLock);
+            {
+                const juce::SpinLock::ScopedLockType l (cmdLock);
+                cmds.clear();
+            }
+            for (auto& s : slots) { s->active.clear(); s->voices.clear(); s->lastParams.clear(); }
+            forEachPlugin ([] (juce::AudioPluginInstance& p) { p.reset(); });
+            clickLeft = clickDelay = 0;
+            state = playing;
+            pos = 0;
+            forMasterFx (true, [] (juce::AudioPluginInstance& p) { BuiltinFx::setExportPhase (&p, 2); });
+        }
+        if (ok) ok = runPass (true, 0.5, 1.0);
     }
+    else ok = runPass (true, 0.0, 1.0);
 
     {
         const juce::ScopedLock sl (slotLock);
+        forMasterFx (false, [] (juce::AudioPluginInstance& p) { BuiltinFx::setExportPhase (&p, 0); });
         state = stopped;
         pos = savedPos;
         for (auto& s : slots) s->active.clear();

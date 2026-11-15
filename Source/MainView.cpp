@@ -11,7 +11,9 @@
 #include "Melody.h"
 #include "Separator.h"
 #include "CrashGuard.h"
+#include "KbdKeys.h"
 #include <set>
+#include <array>
 #include "SoundMatch.h"
 
 struct MainView::LearnJob : juce::Thread
@@ -122,6 +124,161 @@ namespace
     void put (juce::var& o, const juce::Identifier& k, const juce::var& v) { if (auto* d = o.getDynamicObject()) d->setProperty (k, v); }
 }
 
+//==============================================================================
+// Hranie z klavesnice pocitaca v oknach pluginov (ako Ableton). Natívne okno pluginu dostava klavesy
+// priamo od systemu, preto stav klaves zistujeme pollingom (fyzicke klavesy podla skenkodu ako e.code v JS).
+struct MainView::KbdPoll : juce::Timer
+{
+    explicit KbdPoll (MainView& m) : mv (m) { startTimerHz (100); }
+    ~KbdPoll() override { stopTimer(); releaseAll(); }
+
+    struct Key { int sc; char ch; int semi; };   // semi = index v KEYS (A W S E D F T G Y H U J K O L P ;)
+    static const std::array<Key, 17>& keys()
+    {
+        static const std::array<Key, 17> k { { { 0x1E, 'A', 0 }, { 0x11, 'W', 1 }, { 0x1F, 'S', 2 }, { 0x12, 'E', 3 }, { 0x20, 'D', 4 },
+            { 0x21, 'F', 5 }, { 0x14, 'T', 6 }, { 0x22, 'G', 7 }, { 0x15, 'Y', 8 }, { 0x23, 'H', 9 }, { 0x16, 'U', 10 },
+            { 0x24, 'J', 11 }, { 0x25, 'K', 12 }, { 0x18, 'O', 13 }, { 0x26, 'L', 14 }, { 0x19, 'P', 15 }, { 0x27, ';', 16 } } };
+        return k;
+    }
+
+    MainView& mv;
+    bool on = false;
+    int oct = 3, vel = 100;
+    juce::String track;                       // cielova stopa z JS (vybrana / armovana)
+    std::set<juce::String> midiIds, drumIds;  // stopy, ktore prijmaju noty / su bicie
+    std::vector<int> drumPitch;
+    struct Held { juce::String track; int slot; int pitch; };
+    std::map<int, Held> held;                 // index klavesy -> nota
+    bool down[17] = {}, zD = false, xD = false, cD = false, vD = false, spD = false;
+
+    // stopa okna pluginu v popredi ("" ak ziadne okno nie je v popredi)
+    bool foregroundPlugin (juce::String& winTrack)
+    {
+        for (auto& [k, w] : mv.pluginWindows)
+        {
+            if (w == nullptr || ! w->isVisible()) continue;
+            bool fg = false;
+           #if JUCE_WINDOWS
+            if (auto* peer = w->getPeer()) fg = KbdKeys::isForeground (peer->getNativeHandle());
+           #else
+            fg = w->isActiveWindow();
+           #endif
+            if (fg)
+            {
+                const auto base = k.upToFirstOccurrenceOf ("#", false, false);
+                winTrack = base.startsWith ("__") ? juce::String() : base;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void releaseAll()
+    {
+        for (auto& [i, h] : held)
+        {
+            mv.engine.liveNote (h.slot, h.pitch, 0.0f, false);
+            mv.recordLive (h.track, h.pitch, 0.0f, false, mv.engine.isPlaying() ? mv.engine.getPosition() : -1.0);
+            auto o = obj(); put (o, "track", h.track); put (o, "key", i); put (o, "on", false);
+            mv.emit ("kbdNote", o);
+        }
+        held.clear();
+        for (auto& d : down) d = false;
+        zD = xD = cD = vD = spD = false;
+    }
+
+    void sendState()
+    {
+        auto o = obj(); put (o, "on", on); put (o, "oct", oct); put (o, "vel", vel);
+        mv.emit ("kbdState", o);
+    }
+
+    void timerCallback() override
+    {
+        juce::String winTrack;
+        const bool fg = foregroundPlugin (winTrack);
+        auto* fc = juce::Component::getCurrentlyFocusedComponent();
+        const bool textFocus = (fc != nullptr && dynamic_cast<juce::TextEditor*> (fc) != nullptr) || KbdKeys::nativeTextFocus();
+        if (! fg || textFocus || KbdKeys::commandModsDown() || ! juce::Process::isForegroundProcess())
+        {
+            releaseAll();
+            return;
+        }
+
+        // medzernik: ak JUCE okno ma fokus, spracuje ho PluginWindow::keyPressed; tu len natívny fokus pluginu
+        const bool sp = KbdKeys::isScanDown (0x39, ' ');
+        if (sp && ! spD && fc == nullptr && PluginWindow::hostKey) PluginWindow::hostKey (juce::KeyPress (juce::KeyPress::spaceKey));
+        spD = sp;
+
+        if (! on) { releaseAll(); return; }
+
+        // oktava / sila uderu (Z X C V)
+        bool chg = false;
+        const bool z = KbdKeys::isScanDown (0x2C, 'Z'), x = KbdKeys::isScanDown (0x2D, 'X'),
+                   c = KbdKeys::isScanDown (0x2E, 'C'), v = KbdKeys::isScanDown (0x2F, 'V');
+        if (z && ! zD) { oct = juce::jmax (0, oct - 1); chg = true; }
+        if (x && ! xD) { oct = juce::jmin (7, oct + 1); chg = true; }
+        if (c && ! cD) { vel = juce::jlimit (1, 127, vel - 20); chg = true; }
+        if (v && ! vD) { vel = juce::jlimit (1, 127, vel + 20); chg = true; }
+        zD = z; xD = x; cD = c; vD = v;
+        if (chg) sendState();
+
+        // cielova stopa: stopa okna pluginu (ak prijma noty), inak stopa vybrana v programe
+        juce::String tr = winTrack;
+        if (tr.isEmpty() || midiIds.count (tr) == 0) tr = track;
+        if (tr.isEmpty()) { releaseAll(); return; }
+        const bool drum = drumIds.count (tr) != 0;
+
+        for (size_t n = 0; n < keys().size(); ++n)
+        {
+            const auto& k = keys()[n];
+            const bool d = KbdKeys::isScanDown (k.sc, k.ch);
+            if (d && ! down[n])
+            {
+                int pitch;
+                if (drum) { if (k.semi >= (int) drumPitch.size()) { down[n] = d; continue; } pitch = drumPitch[(size_t) k.semi]; }
+                else pitch = juce::jlimit (0, 127, (oct + 2) * 12 + k.semi);
+                const int slot = mv.engine.getOrCreateSlot (tr);
+                const float vf = (float) vel / 127.0f;
+                mv.engine.liveNote (slot, pitch, vf, true);
+                mv.recordLive (tr, pitch, vf, true, mv.engine.isPlaying() ? mv.engine.getPosition() : -1.0);
+                held[(int) n] = { tr, slot, pitch };
+                auto o = obj(); put (o, "track", tr); put (o, "key", (int) n); put (o, "on", true);
+                put (o, "val", k.semi); put (o, "pitch", pitch); put (o, "vel", vf);
+                mv.emit ("kbdNote", o);
+            }
+            else if (! d && down[n])
+            {
+                if (auto it = held.find ((int) n); it != held.end())
+                {
+                    mv.engine.liveNote (it->second.slot, it->second.pitch, 0.0f, false);
+                    mv.recordLive (it->second.track, it->second.pitch, 0.0f, false, mv.engine.isPlaying() ? mv.engine.getPosition() : -1.0);
+                    auto o = obj(); put (o, "track", it->second.track); put (o, "key", (int) n); put (o, "on", false);
+                    mv.emit ("kbdNote", o);
+                    held.erase (it);
+                }
+            }
+            down[n] = d;
+        }
+    }
+};
+
+void MainView::onKbdState (const juce::var& v)
+{
+    if (kbdPoll == nullptr) return;
+    auto& k = *kbdPoll;
+    const bool on = (bool) v.getProperty ("on", false);
+    if (! on && k.on) k.releaseAll();
+    k.on = on;
+    k.oct = juce::jlimit (0, 7, (int) v.getProperty ("oct", 3));
+    k.vel = juce::jlimit (1, 127, (int) v.getProperty ("vel", 100));
+    k.track = v.getProperty ("track", "").toString();
+    k.midiIds.clear(); k.drumIds.clear(); k.drumPitch.clear();
+    if (const auto* a = v.getProperty ("midi", {}).getArray()) for (const auto& x : *a) k.midiIds.insert (x.toString());
+    if (const auto* a = v.getProperty ("drum", {}).getArray()) for (const auto& x : *a) k.drumIds.insert (x.toString());
+    if (const auto* a = v.getProperty ("drumPitch", {}).getArray()) for (const auto& x : *a) k.drumPitch.push_back ((int) x);
+}
+
 MainView::MainView (juce::ApplicationProperties& p) : props (p)
 {
     setLookAndFeel (&lnf);
@@ -181,6 +338,7 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     web->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());
    #endif
 
+    kbdPoll = std::make_unique<KbdPoll> (*this);
     setSize (1320, 860);
     startTimerHz (30);
 }
@@ -189,6 +347,7 @@ MainView::~MainView()
 {
     if (learnJob != nullptr) { learnJob->signalThreadShouldExit(); learnJob->stopThread (10000); learnJob = nullptr; }
     stopTimer();
+    kbdPoll = nullptr;
     saveSession();
     saveSettings();
     PluginWindow::hostKey = nullptr;
@@ -221,8 +380,10 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withKeepPageLoadedWhenBrowserIsHidden()
         .withResourceProvider ([this] (const juce::String& url) { return getResource (url); })
         .withEventListener ("song",        [this] (const juce::var& v) { onSong (v); })
+        .withEventListener ("songReset",   [this] (const juce::var&) { engine.notifyNewSong(); })
         .withEventListener ("transport",   [this] (const juce::var& v) { onTransport (v); })
         .withEventListener ("note",        [this] (const juce::var& v) { onNote (v); })
+        .withEventListener ("kbdState",    [this] (const juce::var& v) { onKbdState (v); })
         .withEventListener ("selTrack",    [this] (const juce::var& v) { onSelTrack (v); })
         .withEventListener ("trackFx",     [this] (const juce::var& v) { onTrackFx (v); })
         .withEventListener ("openFx",      [this] (const juce::var& v) { onOpenFx (v); })

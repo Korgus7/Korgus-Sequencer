@@ -41,7 +41,8 @@ target_sources(KorgusSequencer PRIVATE
     Source/UiCommon.cpp
     Source/MainView.cpp
     Source/CrashGuard.cpp
-    Source/SoundMatch.cpp)
+    Source/SoundMatch.cpp
+    Source/KbdKeys.cpp)
 
 target_compile_definitions(KorgusSequencer PRIVATE
     JUCE_WEB_BROWSER=1

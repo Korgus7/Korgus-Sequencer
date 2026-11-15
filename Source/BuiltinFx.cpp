@@ -1,4 +1,7 @@
 #include "../Nova/Source/SuperVerb.h"
+#include "KorgusMaster.h"
+#include "KorgusVocoder.h"
+#include <array>
 #include "BuiltinFx.h"
 #include "UiCommon.h"
 #include <juce_dsp/juce_dsp.h>
@@ -44,6 +47,8 @@ struct FxParam final : public AudioPluginInstance::HostedParameter
     StringArray choices;                     // vyber zo zoznamu (rozbalovaci zoznam)
     bool toggle = false;                     // zap/vyp (prepinac)
     bool inEditor = true;                    // false = ovlada sa inde (napr. ikony v grafe)
+    bool transient = false;                  // neuklada sa do stavu piesne (napr. A/B porovnanie)
+    bool wide = false;                       // dlhsie texty vo vyberovom zozname: siroky stlpec v okne
     std::function<String (float)> textFn;    // vlastny text hodnoty
     std::atomic<float> value { 0 };
 };
@@ -71,10 +76,12 @@ public:
     {
         if (display != nullptr) display->setBounds (8, 8, getWidth() - 16, top - 12);
         auto r = getLocalBounds().reduced (8, 0).withTrimmedTop (top + 28).withTrimmedBottom (8);
-        const int w = r.getWidth() / jmax (1, (int) comps.size());
+        int tot = 0;
+        for (size_t i = 0; i < comps.size(); ++i) tot += colWidth (i);
+        const int full = r.getWidth();
         for (size_t i = 0; i < comps.size(); ++i)
         {
-            auto cell = r.removeFromLeft (w).reduced (4, 0);
+            auto cell = r.removeFromLeft (full * colWidth (i) / jmax (1, tot)).reduced (4, 0);
             if (params[i]->toggle) comps[i]->setBounds (cell.withY (top + 4).withHeight (26));
             else if (! params[i]->choices.isEmpty()) comps[i]->setBounds (cell.withHeight (26).withY (cell.getCentreY() - 20));
             else comps[i]->setBounds (cell);
@@ -82,6 +89,7 @@ public:
     }
 
 private:
+    int colWidth (size_t i) const { return params[i]->wide ? 128 : 92; }
     void timerCallback() override
     {
         for (size_t i = 0; i < comps.size(); ++i)
@@ -159,13 +167,15 @@ public:
     }
     void releaseResources() override {}
 
-    void processBlock (AudioBuffer<float>& buf, MidiBuffer&) override
+    void processBlock (AudioBuffer<float>& buf, MidiBuffer& midi) override
     {
         ScopedNoDenormals nd;
         const int ch = jmin (buf.getNumChannels(), (int) spec.numChannels);
         if (ch <= 0 || buf.getNumSamples() == 0) return;
         AudioBuffer<float> view (buf.getArrayOfWritePointers(), ch, buf.getNumSamples());
+        curMidi = acceptsMidi() ? &midi : nullptr;
         process (view);
+        curMidi = nullptr;
     }
 
     double getTailLengthSeconds() const override { return tail; }
@@ -186,7 +196,7 @@ public:
     {
         XmlElement x ("KORGUSFX");
         x.setAttribute ("type", fxKey);
-        for (auto* p : knobs) x.setAttribute (p->id, (double) p->get());
+        for (auto* p : knobs) if (! p->transient) x.setAttribute (p->id, (double) p->get());
         copyXmlToBinary (x, mb);
     }
 
@@ -194,15 +204,22 @@ public:
     {
         if (auto x = getXmlFromBinary (data, size))
             for (auto* p : knobs)
-                if (x->hasAttribute (p->id))
+                if (! p->transient && x->hasAttribute (p->id))
                     p->setValueNotifyingHost (p->range.convertTo0to1 ((float) x->getDoubleAttribute (p->id)));
     }
 
     void setKey (const float* l, const float* r, int n) { scL = l; scR = r != nullptr ? r : l; scN = l != nullptr ? n : 0; }
+    void setSong (int tonic, int scale, const std::vector<BuiltinFx::ChordSpan>* chords) { songKey = tonic; songScale = scale; songChords = chords; }
+    virtual void newSong() {}                                 // nova / nacitana pieseň (hlavne vlakno)
+    virtual bool wantsPrepass() const { return false; }       // export: potrebuje predbezny prechod
+    virtual void exportPhase (int) {}                         // 0 normal, 1 ucenie, 2 zaverecny prechod
 
 protected:
     virtual void prepare() = 0;
     const float* scL = nullptr; const float* scR = nullptr; int scN = 0;
+    int songKey = -1, songScale = -1;                         // tonina piesne (-1 = nezname)
+    const std::vector<BuiltinFx::ChordSpan>* songChords = nullptr;
+    const MidiBuffer* curMidi = nullptr;                      // MIDI stopy (len pre efekty s acceptsMidi)
     virtual void process (AudioBuffer<float>&) = 0;
 
     double rate = 44100;
@@ -272,7 +289,9 @@ KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProce
     }
     display = p.makeDisplay();
     if (display != nullptr) { top = p.displayHeight(); addAndMakeVisible (*display); }
-    setSize (jmax (display != nullptr ? 460 : 260, 92 * (int) comps.size() + 16), 150 + top);
+    int totW = 16;
+    for (size_t i = 0; i < comps.size(); ++i) totW += colWidth (i);
+    setSize (jmax (display != nullptr ? 460 : 260, totW), 150 + top);
     startTimerHz (20);
 }
 
@@ -1740,6 +1759,421 @@ private:
 
 AudioProcessorEditor* ArpFx::createEditor() { return new ArpEditor (*this); }
 
+//==============================================================================
+// Korgus Master (mastering v jednom efekte) a Korgus Vocoder
+namespace mvcol
+{
+    inline const Colour panel (0xff161c24), tile (0xff1f2630), steel (0xff2d4362), hover (0xff3a5478),
+                        gold (0xffc9a35a), text (0xffc9d2dc), dim (0xff8a96a6), warn (0xffd08070);
+}
+
+inline const char* langText (const char* skText, const char* enText) { return appLang() == 1 ? enText : skText; }
+
+// plochy prepinac s minimalnym zaoblenim (3 px)
+struct FlatBtn final : public Component
+{
+    String text;
+    bool on = false;
+    std::function<void()> onClick;
+    void paint (Graphics& g) override
+    {
+        g.setColour (on ? mvcol::gold : (isMouseOver() ? mvcol::hover : mvcol::steel));
+        g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+        g.setColour (on ? Colour (0xff1f2630) : mvcol::text);
+        g.setFont (FontOptions (13.0f));
+        g.drawFittedText (text, getLocalBounds(), Justification::centred, 1);
+    }
+    void mouseDown (const MouseEvent&) override { if (onClick) onClick(); }
+    void mouseEnter (const MouseEvent&) override { repaint(); }
+    void mouseExit (const MouseEvent&) override { repaint(); }
+};
+
+class MasterFx;
+
+class MasterDisplay final : public Component, private Timer
+{
+public:
+    explicit MasterDisplay (MasterFx& f);
+    ~MasterDisplay() override { stopTimer(); }
+    void paint (Graphics& g) override;
+    void resized() override { btn.setBounds (getWidth() - 116, 12, 108, 28); }
+    void mouseDoubleClick (const MouseEvent&) override;
+private:
+    void timerCallback() override;
+    static String num (float v, int dec) { return v <= -99.0f ? String::fromUTF8 ("\xe2\x80\x93") : String (v, dec); }
+    MasterFx& fx;
+    FlatBtn btn;
+    korgus::KorgusMaster::Meters m;
+    String tTitle[4], tBands, tTarget, tReset;
+};
+
+class MasterFx final : public FxBase
+{
+public:
+    MasterFx() : FxBase ("Korgus Master", "master")
+    {
+        using M = korgus::KorgusMaster;
+        const bool en = appLang() == 1;
+        auto kn = [en] (int i) { return en ? M::knobNameEn (i) : M::knobNameSk (i); };
+        style = add ("style", en ? M::styleLabelEn() : M::styleLabelSk(), 0, (float) (M::kNumStyles - 1), 0, "", 1.0f, 0);
+        style->range.interval = 1.0f;
+        style->wide = true;
+        for (int i = 0; i < M::kNumStyles; ++i) style->choices.add (String::fromUTF8 (en ? M::styleNameEn (i) : M::styleNameSk (i)));
+        loud   = add ("loudness", kn (M::Loudness), -18, -8, -14, "LUFS", 1.0f, 1);
+        punch  = add ("punch",    kn (M::Punch),      0, 100, 50, "%", 1.0f, 0);
+        bright = add ("bright",   kn (M::Bright),  -100, 100, 0, "%", 1.0f, 0);
+        bass   = add ("bass",     kn (M::Bass),    -100, 100, 0, "%", 1.0f, 0);
+        width  = add ("width",    kn (M::Width),      0, 150, 100, "%", 1.0f, 0);
+        cmp = add ("compare", "Porovnať", 0, 1, 0, "", 1.0f, 0);   // A/B, neuklada sa
+        cmp->toggle = true; cmp->transient = true; cmp->inEditor = false;
+    }
+
+    std::unique_ptr<Component> makeDisplay() override { return std::make_unique<MasterDisplay> (*this); }
+    int displayHeight() const override { return 128; }
+
+    void newSong() override { learnReq = true; }
+    bool wantsPrepass() const override { return true; }
+    void exportPhase (int ph) override
+    {
+        // volane z exportneho vlakna, ked audio vlakno tento efekt nespracuva
+        exporting = ph != 0;
+        if (ph == 1) { mm.setLearningFrozen (false); mm.resetLearning(); mm.reset(); }
+        else if (ph == 2) { mm.reset(); mm.setLearningFrozen (true); }
+        else mm.setLearningFrozen (false);
+    }
+    void reset() override { resetReq = true; }
+
+    korgus::KorgusMaster mm;
+    FxParam *style, *loud, *punch, *bright, *bass, *width, *cmp;
+    std::atomic<bool> learnReq { false }, resetReq { false }, exporting { false };
+
+private:
+    void prepare() override
+    {
+        mm.prepare (rate, (int) spec.maximumBlockSize, 2);
+        setLatencySamples (mm.getLatencySamples());
+    }
+
+    void process (AudioBuffer<float>& b) override
+    {
+        if (learnReq.exchange (false)) mm.resetLearning();
+        if (resetReq.exchange (false)) mm.reset();
+        mm.setParams (roundToInt (style->get()), (loud->get() + 18.0f) * 0.1f, punch->get() * 0.01f,
+                      (bright->get() + 100.0f) * 0.005f, (bass->get() + 100.0f) * 0.005f, width->get() / 150.0f);
+        mm.setBypass (cmp->get() > 0.5f && ! exporting.load(), true);
+        mm.process (b.getWritePointer (0), b.getNumChannels() > 1 ? b.getWritePointer (1) : nullptr, b.getNumSamples());
+    }
+};
+
+MasterDisplay::MasterDisplay (MasterFx& f) : fx (f)
+{
+    tTitle[0] = sk ("Krátkodobá (LUFS)"); tTitle[1] = sk ("Celková (LUFS)");
+    tTitle[2] = sk ("Špička (dBTP)");     tTitle[3] = sk ("Limiter (dB)");
+    tBands = sk ("Redukcia v pásmach (dB)");
+    tTarget = sk ("Cieľ: ");
+    tReset = sk ("Dvojklik: vynulovať merače");
+    btn.text = sk ("Porovnať");
+    btn.onClick = [this] { fx.cmp->beginChangeGesture(); fx.cmp->setValueNotifyingHost (fx.cmp->get() > 0.5f ? 0.0f : 1.0f); fx.cmp->endChangeGesture(); };
+    addAndMakeVisible (btn);
+    startTimerHz (30);
+}
+
+void MasterDisplay::timerCallback()
+{
+    m = fx.mm.getMeters();
+    btn.on = fx.cmp->get() > 0.5f;
+    btn.repaint();
+    repaint();
+}
+
+void MasterDisplay::mouseDoubleClick (const MouseEvent&) { fx.mm.resetMeters(); }
+
+void MasterDisplay::paint (Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (mvcol::panel);
+    g.fillRoundedRectangle (r, 3.0f);
+
+    auto row = r.reduced (8, 8).withHeight (52);
+    row.removeFromRight (124);
+    const float tw = row.getWidth() / 4.0f;
+    const bool onTarget = m.outIntegrated > -99.0f && std::abs (m.outIntegrated - m.targetLufs) <= 1.0f;
+    const String vals[4] = { num (m.outShortTerm, 1), num (m.outIntegrated, 1), num (m.truePeakDb, 1),
+                             m.limiterGrDb > 0.05f ? "-" + String (m.limiterGrDb, 1) : String ("0.0") };
+    const Colour cols[4] = { mvcol::text, onTarget ? mvcol::gold : mvcol::text,
+                             m.truePeakDb > -0.5f ? mvcol::warn : mvcol::text, m.limiterGrDb > 6.0f ? mvcol::warn : mvcol::text };
+    for (int i = 0; i < 4; ++i)
+    {
+        auto c = Rectangle<float> (row.getX() + tw * (float) i, row.getY(), tw - 6.0f, row.getHeight());
+        g.setColour (mvcol::tile);
+        g.fillRoundedRectangle (c, 3.0f);
+        g.setColour (mvcol::dim);
+        g.setFont (FontOptions (11.0f));
+        g.drawFittedText (tTitle[i], c.toNearestInt().removeFromTop (18).reduced (6, 0), Justification::centredLeft, 1);
+        g.setColour (cols[i]);
+        g.setFont (FontOptions (22.0f).withStyle ("Bold"));
+        g.drawFittedText (vals[i], c.toNearestInt().withTrimmedTop (16).reduced (6, 0), Justification::centredLeft, 1);
+    }
+
+    // redukcia v 4 pasmach
+    static const char* const bandName[4] = { "< 120 Hz", "120 - 800 Hz", "0.8 - 5 kHz", "> 5 kHz" };
+    auto bands = r.reduced (8, 0).withTrimmedTop (68);
+    g.setColour (mvcol::dim);
+    g.setFont (FontOptions (11.0f));
+    g.drawFittedText (tBands, bands.removeFromTop (16).toNearestInt(), Justification::centredLeft, 1);
+    const float bw = (bands.getWidth() - 124.0f) / 4.0f;
+    for (int i = 0; i < 4; ++i)
+    {
+        auto c = Rectangle<float> (bands.getX() + bw * (float) i, bands.getY() + 2, bw - 6.0f, 8.0f);
+        g.setColour (mvcol::steel);
+        g.fillRoundedRectangle (c, 3.0f);
+        const float f = jlimit (0.0f, 1.0f, m.bandGrDb[i] / 9.0f);
+        g.setColour (mvcol::gold);
+        if (f > 0.01f) g.fillRoundedRectangle (c.withWidth (jmax (3.0f, c.getWidth() * f)), 3.0f);
+        g.setColour (mvcol::dim);
+        g.drawFittedText (String (bandName[i]) + "  " + String (m.bandGrDb[i], 1), c.translated (0, 10).withHeight (14).toNearestInt(), Justification::centredLeft, 1);
+    }
+    // cielova hlasitost a napoveda k meracom
+    auto right = r.reduced (8, 0).withTrimmedTop (68).removeFromRight (116).toNearestInt();
+    g.setColour (mvcol::text);
+    g.drawFittedText (tTarget + String (m.targetLufs, 1) + " LUFS", right.removeFromTop (16), Justification::centredRight, 1);
+    g.setColour (mvcol::dim);
+    g.setFont (FontOptions (10.0f));
+    g.drawFittedText (tReset, right.withTrimmedTop (4).removeFromTop (28), Justification::topRight, 2);
+}
+
+//==============================================================================
+class VocoderFx;
+
+class VocoderDisplay final : public Component, private Timer
+{
+public:
+    explicit VocoderDisplay (VocoderFx& f);
+    ~VocoderDisplay() override { stopTimer(); }
+    void paint (Graphics& g) override;
+private:
+    void timerCallback() override { repaint(); }
+    VocoderFx& fx;
+    String hSidechain, hSidechain2, hNotes, hNotes2, hRobot, hTrack2, hRobot2;
+};
+
+class VocoderFx final : public FxBase
+{
+public:
+    VocoderFx() : FxBase ("Korgus Vocoder", "vocoder")
+    {
+        using V = korgus::KorgusVocoder;
+        const bool en = appLang() == 1;
+        mode = add ("carrier", en ? "Carrier" : "Nosič", 0, 2, 0, "", 1.0f, 0);
+        mode->range.interval = 1.0f;
+        mode->wide = true;
+        mode->choices = StringArray { String::fromUTF8 (en ? "Track" : "Stopa"), String::fromUTF8 (en ? "Internal synth" : "Intern\xc3\xbd syntez\xc3\xa1tor"), "Robot" };
+        bands   = add ("bands", en ? "Bands" : "Pásma", (float) V::kMinBands, (float) V::kMaxBands, 32, "", 1.0f, 0);
+        bands->range.interval = 1.0f;
+        formant = add ("formant", "Formant", -12, 12, 0, "st", 1.0f, 1);
+        formant->textFn = [] (float x) { return String::fromUTF8 ((x >= 0.05f ? "+" : "")) + String (x, 1) + " st"; };
+        clarity = add ("clarity", en ? "Clarity" : "Zrozumiteľnosť", 0, 100, 60, "%", 1.0f, 0);
+        release = add ("release", en ? "Release" : "Dozvuk", 0, 1, 0.35f, "", 1.0f, 2);
+        release->textFn = [] (float x) { char b[24]; V::formatParam (4, x, b, 24); return String (b); };
+        mix     = add ("mix", "Mix", 0, 100, 100, "%", 1.0f, 0);
+        tail = 0.2;
+    }
+
+    std::unique_ptr<Component> makeDisplay() override { return std::make_unique<VocoderDisplay> (*this); }
+    int displayHeight() const override { return 136; }
+    bool acceptsMidi() const override { return true; }
+
+    int keyOf() const { return songKey; }
+    int scaleOf() const { return songScale; }
+    korgus::KorgusVocoder voc;
+    FxParam *mode, *bands, *formant, *clarity, *release, *mix;
+    std::atomic<bool> uiMissing { false };
+    std::atomic<int> uiVoices { 0 };
+
+private:
+    struct Ev { int t, type, a; float v; };   // 0 nota vypnuta, 1 nota zapnuta, 2 vsetky noty vypnute, 3 akord (a = index)
+
+    void prepare() override
+    {
+        voc.prepare (rate, (int) spec.maximumBlockSize);
+        midiOn.fill (false); chordOn.fill (false); midiCnt = 0;
+        setLatencySamples (0);
+    }
+
+    int chordIndexAt (double step) const
+    {
+        if (songChords == nullptr || songChords->empty()) return -1;
+        auto it = std::upper_bound (songChords->begin(), songChords->end(), step + 1.0e-6,
+                                    [] (double v, const BuiltinFx::ChordSpan& c) { return v < c.step; });
+        return (int) (it - songChords->begin()) - 1;
+    }
+
+    void setChord (int idx)
+    {
+        std::array<bool, 128> want {};
+        if (idx >= 0 && songChords != nullptr && idx < (int) songChords->size() && midiCnt == 0)
+            for (int p : (*songChords)[(size_t) idx].notes) if (p >= 0 && p < 128) want[(size_t) p] = true;
+        for (int p = 0; p < 128; ++p)
+        {
+            const auto k = (size_t) p;
+            if (chordOn[k] && ! want[k]) { chordOn[k] = false; if (! midiOn[k]) voc.noteOff (p); }
+            else if (! chordOn[k] && want[k]) { chordOn[k] = true; if (! midiOn[k]) voc.noteOn (p, 0.8f); }
+        }
+    }
+
+    void apply (const Ev& e)
+    {
+        switch (e.type)
+        {
+            case 0: if (isPositiveAndBelow (e.a, 128)) { midiOn[(size_t) e.a] = false; if (! chordOn[(size_t) e.a]) voc.noteOff (e.a); } break;
+            case 1: if (isPositiveAndBelow (e.a, 128)) { midiOn[(size_t) e.a] = true; voc.noteOn (e.a, e.v); } break;
+            case 2: midiOn.fill (false); chordOn.fill (false); voc.allNotesOff(); break;
+            case 3: setChord (e.a); break;
+            default: break;
+        }
+        midiCnt = 0;
+        for (bool b : midiOn) midiCnt += b ? 1 : 0;
+    }
+
+    void process (AudioBuffer<float>& b) override
+    {
+        using V = korgus::KorgusVocoder;
+        const int n = b.getNumSamples(), ch = b.getNumChannels();
+        float* L = b.getWritePointer (0);
+        float* R = ch > 1 ? b.getWritePointer (1) : nullptr;
+        const int md = jlimit (0, 2, roundToInt (mode->get()));
+
+        voc.setParams (md, V::bandsTo01 (roundToInt (bands->get())), V::semitonesToFormant (formant->get()),
+                       clarity->get() * 0.01f, release->get(), mix->get() * 0.01f);
+        if (songKey >= 0) voc.setKey (songKey, songScale >= 0 ? songScale : 0);
+        else voc.setKey (0, -1);
+
+        // MIDI stopy (vlastne noty, klavesy) a akordy piesne -> udalosti v bloku
+        int nev = 0;
+        auto push = [&nev, this] (int t, int type, int a, float v) { if (nev < (int) evs.size()) evs[(size_t) nev++] = { t, type, a, v }; };
+        if (curMidi != nullptr)
+            for (const auto meta : *curMidi)
+            {
+                const auto m = meta.getMessage();
+                const int t = jlimit (0, n - 1, meta.samplePosition);
+                if (m.isNoteOn()) push (t, 1, m.getNoteNumber(), m.getFloatVelocity());
+                else if (m.isNoteOff()) push (t, 0, m.getNoteNumber(), 0.0f);
+                else if (m.isAllNotesOff() || m.isAllSoundOff()) push (t, 2, 0, 0.0f);
+            }
+
+        bool playing = false;
+        double step0 = 0, bpm = 120;
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition())
+            {
+                playing = pos->getIsPlaying();
+                if (auto q = pos->getPpqPosition()) step0 = *q * 4.0;
+                if (auto v = pos->getBpm()) bpm = jlimit (20.0, 400.0, *v);
+            }
+        const bool chords = md == 1 && playing;
+        const int idx0 = chords ? chordIndexAt (step0) : -1;
+        if (chords && songChords != nullptr)
+        {
+            const double stepsPerSample = bpm / 15.0 / rate;
+            const double end = step0 + n * stepsPerSample;
+            for (int k = idx0 + 1; k < (int) songChords->size() && (*songChords)[(size_t) k].step < end; ++k)
+                push (jlimit (0, n - 1, (int) (((*songChords)[(size_t) k].step - step0) / stepsPerSample)), 3, k, 0.0f);
+        }
+        for (int i = 1; i < nev; ++i)   // radenie podla casu (stabilne)
+        {
+            const Ev x = evs[(size_t) i];
+            int j = i - 1;
+            while (j >= 0 && evs[(size_t) j].t > x.t) { evs[(size_t) j + 1] = evs[(size_t) j]; --j; }
+            evs[(size_t) j + 1] = x;
+        }
+
+        const bool haveKey = scL != nullptr && scN >= n;
+        int pos = 0;
+        auto run = [&] (int to)
+        {
+            if (to <= pos) return;
+            voc.process (L + pos, R != nullptr ? R + pos : nullptr, haveKey ? scL + pos : nullptr, haveKey ? scR + pos : nullptr,
+                         L + pos, R != nullptr ? R + pos : nullptr, to - pos);
+            pos = to;
+        };
+        setChord (idx0);   // zaciatok bloku: akord podla polohy (alebo ticho, ked sa nehra)
+        for (int i = 0; i < nev; ++i) { run (evs[(size_t) i].t); apply (evs[(size_t) i]); }
+        run (n);
+
+        uiMissing = md == 0 && voc.sidechainMissing();
+        uiVoices = voc.getActiveVoices();
+        tail = voc.getTailSeconds();
+    }
+
+    std::array<Ev, 512> evs {};
+    std::array<bool, 128> midiOn {}, chordOn {};
+    int midiCnt = 0;
+};
+
+VocoderDisplay::VocoderDisplay (VocoderFx& f) : fx (f)
+{
+    hSidechain  = sk ("Vyber stopu so spevom ako kľúč (sidechain)");
+    hSidechain2 = sk ("Pravý klik na stopu so spevom → Kľúčová stopa (sidechain). Efekt dáš na stopu s nástrojom (nosič).");
+    hNotes      = sk ("Zahraj akordy (MIDI) alebo zvoľ Robot");
+    hNotes2     = sk ("Noty: MIDI na tejto stope, klávesy (vybraná stopa) alebo akordová stopa piesne. Efekt patrí na stopu so spevom.");
+    hRobot      = sk ("Robot: nosič sleduje výšku hlasu");
+    hRobot2     = sk ("Tónina piesne: ");
+    hTrack2     = sk ("Hlas zo stopy označenej ako kľúčová; jej fader ho neovplyvní (kľúč ide pred hlasitosťou).");
+    startTimerHz (30);
+}
+
+void VocoderDisplay::paint (Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour (mvcol::panel);
+    g.fillRoundedRectangle (r, 3.0f);
+
+    const int md = jlimit (0, 2, roundToInt (fx.mode->get()));
+    String h1, h2;
+    bool warn = false;
+    if (md == 0)
+    {
+        if (fx.uiMissing.load()) { h1 = hSidechain; h2 = hSidechain2; warn = true; }
+        else { h1 = sk ("Nosič: zvuk tejto stopy, modulátor: kľúčová stopa (spev)"); h2 = hTrack2; }
+    }
+    else if (md == 1)
+    {
+        if (fx.uiVoices.load() == 0) { h1 = hNotes; warn = true; }
+        else h1 = sk ("Interný syntezátor hrá");
+        h2 = hNotes2;
+    }
+    else
+    {
+        h1 = hRobot;
+        h2 = hRobot2;
+        const int note = fx.voc.getRobotNote();
+        static const char* const nm[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        if (fx.keyOf() >= 0) h2 << String (nm[fx.keyOf() % 12]) << (fx.scaleOf() == 1 ? sk (" moll") : sk (" dur"));
+        else h2 << sk ("neznáma (voľná výška)");
+        if (note >= 0) h1 << "  (" << nm[note % 12] << String (note / 12 - 1) << ")";
+    }
+    auto area = r.reduced (10, 8).toNearestInt();
+    g.setColour (warn ? mvcol::gold : mvcol::text);
+    g.setFont (FontOptions (14.0f).withStyle ("Bold"));
+    g.drawFittedText (h1, area.removeFromTop (20), Justification::centredLeft, 1);
+    g.setColour (mvcol::dim);
+    g.setFont (FontOptions (11.0f));
+    g.drawFittedText (h2, area.removeFromTop (30), Justification::topLeft, 2);
+
+    // hladiny pasiem modulatora
+    area.removeFromTop (4);
+    const int nb = jmax (1, fx.voc.getNumBands());
+    const float bw = (float) area.getWidth() / (float) nb;
+    for (int i = 0; i < nb; ++i)
+    {
+        const float lv = jlimit (0.0f, 1.0f, std::sqrt (fx.voc.getBandLevel (i)) * 0.6f);
+        const float hgt = jmax (2.0f, lv * (float) area.getHeight());
+        auto c = Rectangle<float> ((float) area.getX() + bw * (float) i + 1.0f, (float) area.getBottom() - hgt, jmax (1.0f, bw - 2.0f), hgt);
+        g.setColour (mvcol::steel.interpolatedWith (mvcol::gold, lv * lv));
+        g.fillRoundedRectangle (c, jmin (3.0f, c.getWidth() * 0.5f));
+    }
+}
+
 struct Entry { const char* key; const char* name; std::function<std::unique_ptr<AudioPluginInstance>()> make; bool inst = false; };
 
 const std::vector<Entry>& entries()
@@ -1755,6 +2189,8 @@ const std::vector<Entry>& entries()
         { "deesser", "Korgus De-esser",  [] { return std::unique_ptr<AudioPluginInstance> (new DeEsserFx()); } },
         { "sampler", "Korgus Sampler",   [] { return std::unique_ptr<AudioPluginInstance> (new SamplerInst()); }, true },
         { "arp",     "Korgus Arp",       [] { return std::unique_ptr<AudioPluginInstance> (new ArpFx()); } },
+        { "master",  "Korgus Master",    [] { return std::unique_ptr<AudioPluginInstance> (new MasterFx()); } },
+        { "vocoder", "Korgus Vocoder",   [] { return std::unique_ptr<AudioPluginInstance> (new VocoderFx()); } },
     };
     return e;
 }
@@ -1774,6 +2210,27 @@ juce::PluginDescription arpDescription() { auto d = FxBase::describe ("Korgus Ar
 void setSidechain (juce::AudioPluginInstance* p, const float* l, const float* r, int n)
 {
     if (auto* f = dynamic_cast<FxBase*> (p)) f->setKey (l, r, n);
+}
+
+void setSong (juce::AudioPluginInstance* p, int keyTonic, int keyScale, const std::vector<ChordSpan>* chords)
+{
+    if (auto* f = dynamic_cast<FxBase*> (p)) f->setSong (keyTonic, keyScale, chords);
+}
+
+void newSong (juce::AudioPluginInstance* p)
+{
+    if (auto* f = dynamic_cast<FxBase*> (p)) f->newSong();
+}
+
+bool wantsExportPrepass (juce::AudioPluginInstance* p)
+{
+    auto* f = dynamic_cast<FxBase*> (p);
+    return f != nullptr && f->wantsPrepass();
+}
+
+void setExportPhase (juce::AudioPluginInstance* p, int phase)
+{
+    if (auto* f = dynamic_cast<FxBase*> (p)) f->exportPhase (phase);
 }
 
 bool isBuiltin (const juce::PluginDescription& d) { return d.pluginFormatName == formatName && d.fileOrIdentifier.startsWith ("korgus:"); }

@@ -163,6 +163,10 @@ private:
 
     std::unique_ptr<juce::WebBrowserComponent> web;
     std::map<juce::String, std::unique_ptr<PluginWindow>> pluginWindows;
+    // klavesnica pocitaca hra aj v oknach pluginov (system posiela klavesy natívnemu oknu, nie JUCE)
+    struct KbdPoll;
+    std::unique_ptr<KbdPoll> kbdPoll;
+    void onKbdState (const juce::var&);
     std::unique_ptr<juce::DocumentWindow> settingsWindow;
     std::unique_ptr<PluginManagerWindow> managerWindow;
     std::unique_ptr<juce::FileChooser> chooser;
