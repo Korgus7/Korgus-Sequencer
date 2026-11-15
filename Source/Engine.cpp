@@ -453,7 +453,7 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
         if (! juce::isPositiveAndBelow (td.slot, (int) slots.size())) continue;
         auto& s = *slots[(size_t) td.slot];
 
-        if (td.isAudio)
+        if (td.isAudio || td.frozen)
         {
             if (td.audible) mixClips (td, s.buf, p0, off, len, sps);
             continue;
@@ -764,12 +764,14 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 }
             }
 
+            bool any = false;
+            if (td.frozen) { slot.midi.clear(); any = true; }   // zmrazena: len nahrane audio, setri procesor
+            else {
             if (slot.midiFx != nullptr) { CrashGuard::Busy cg (slot.midiFx.get()); slot.midiFx->processBlock (view, slot.midi); }
             // MIDI stopy (po arpeggiatore, pred nastrojom) pre efekty, ktore ho chcu (Korgus Vocoder: Interny syntezator)
             trackMidi.clear();
             for (int k = 0; k < numFx; ++k)
                 if (auto& f = slot.fx[(size_t) k]; f != nullptr && f->acceptsMidi()) { trackMidi.addEvents (slot.midi, 0, n, 0); break; }
-            bool any = false;
             if (slot.plugin != nullptr) { CrashGuard::Busy cg (slot.plugin.get()); slot.plugin->processBlock (view, slot.midi); any = true; }
             if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
             for (int k = 0; k < numFx; ++k)
@@ -782,6 +784,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                     f->processBlock (view, fxMidi);
                     any = true;
                 }
+            }
             if (! any && ! td.isAudio) continue;
             if (td.isKey)
                 for (int c = 0; c < 2; ++c)

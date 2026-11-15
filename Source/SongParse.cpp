@@ -209,6 +209,16 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                           && (! anySolo || (bool) t.getProperty ("solo", false) || (out.isNotEmpty() && soloGroups.contains (out)));
             }
 
+            // zmrazena stopa: namiesto nastroja sa hra nahrane audio (od zaciatku piesne)
+            if (const auto fz = t["frozen"]; fz.isObject() && ! td.isAudio)
+            {
+                ClipEv c;
+                c.start = 0; c.off = 0;
+                c.dur = (double) fz.getProperty ("dur", 0.0);
+                c.buf = clipFor (fz["aid"].toString(), 1.0, 0);
+                if (c.buf != nullptr && c.dur > 0) { td.frozen = true; td.clips.push_back (c); sd->tracks.push_back (std::move (td)); continue; }
+            }
+
             std::array<AudioBufPtr, 10> laneBuf {};
             if (type == "drum")
                 if (auto* sm = t["smp"].getDynamicObject())

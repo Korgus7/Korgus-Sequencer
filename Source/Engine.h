@@ -78,6 +78,7 @@ struct TrackData
     unsigned fxOff = 0;         // vypnute efekty (bity 0..3)
     std::vector<NoteEv> notes;  // zoradene podla start
     std::vector<CcEv> ccs;      // MIDI CC a pitch bend, zoradene podla start
+    bool frozen = false;        // zmrazena stopa: hra sa nahrane audio, nastroj a efekty sa nepocitaju
 };
 
 // Skupinova stopa (zbernica): stopy sa do nej scitaju, potom jej efekty, hlasitost a panorama -> master

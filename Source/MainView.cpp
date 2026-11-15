@@ -2879,6 +2879,7 @@ void MainView::onBounce (const juce::var& v)
     auto& t = sd->tracks[(size_t) idx];
     t.audible = true; t.gainL = t.gainR = 1.0f; t.vol = 1.0f; t.pan = 0;
     t.autos.erase (std::remove_if (t.autos.begin(), t.autos.end(), [] (const AutoLane& a) { return a.type != 2; }), t.autos.end());
+    if ((bool) v.getProperty ("freeze", false)) t.group = -1;   // zmrazenie: bez skupiny (skupina sa prida pri prehravani)
     const double end = juce::jmax (1.0, (double) v.getProperty ("end", 64));
     const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("korgus_bounce.wav");
     engine.stop();
