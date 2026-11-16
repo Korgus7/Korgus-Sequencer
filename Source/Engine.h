@@ -34,6 +34,16 @@ struct ClipEv
 };
 
 // Uder bicich zo samplu
+// Uprava zvuku nastroja bicich (editor samplu): vyska, filter, obalky, hlasitost
+struct DrumSet
+{
+    bool on = false;
+    float tr = 0, tune = 0, pEnv = 0, pA = 0, pH = 0, pD = 0.3f, pVel = 0;                 // vyska (poltony, centy), obalka vysky
+    bool fOn = false, soft = true; int fType = 0;                                          // filter: 0 dolny, 1 horny, 2 pasmovy
+    float cut = 20000, res = 0, fEnv = 0, fA = 0, fH = 0, fD = 0.3f, fVel = 0, drive = 0, punch = 0;
+    float gain = 0, pan = 0, aA = 0, aH = 2, aD = 4, aVel = 1;                              // hlasitost (dB), panorama, obalka (aH>=2 / aD>=4 = bez konca)
+};
+
 struct HitEv
 {
     double start = 0;
@@ -64,6 +74,7 @@ struct TrackData
     float vol = 0.8f, pan = 0;  // zakladna hlasitost a panorama (pre automatizaciu)
     std::vector<AutoLane> autos;
     std::vector<HitEv> hits;    // zoradene podla start
+    std::array<DrumSet, 10> dset {};   // uprava zvuku nastrojov bicich
     bool isAudio = false;
     bool monitor = false;       // odposluch vstupu (audio stopa)
     int inA = 0, inB = -1;      // vstupne kanaly zvukovky (inB = -1 -> mono)
@@ -276,10 +287,14 @@ private:
         float curL = -1, curR = -1;                        // posledne zosilnenie (plynuly prechod)
         std::vector<std::pair<int, float>> lastParams;     // posledne nastavene parametre z automatizacie
         std::unique_ptr<juce::AudioPluginInstance> midiFx;   // MIDI efekt pred nastrojom (Korgus Arp)
-        struct Voice { AudioBufPtr buf; juce::int64 pos = 0; float gain = 1; int lane = 0; int fade = -1; int fadeLen = 64; };
+        struct Voice { AudioBufPtr buf; juce::int64 pos = 0; float gain = 1; int lane = 0; int fade = -1; int fadeLen = 64;
+                       DrumSet ds; double rpos = 0; float t = 0, fc = 0, s1[4] {}, s2[4] {}; float g = 0, k = 2; int cnt = 0; };
+        std::array<DrumSet, 10> dset {};   // aktualne upravy nastrojov (z piesne)
+        double sr = 48000;
         std::vector<Voice> voices;
         void addVoice (AudioBufPtr b, juce::int64 pos, float gain, int lane);
         void renderVoices (juce::AudioBuffer<float>& dst, int n);
+        static bool renderEdited (Voice& v, float* oL, float* oR, int n, double sr);
         void prepare (double sr, int bs);
         int  numChans() const;
     };

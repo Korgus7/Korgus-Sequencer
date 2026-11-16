@@ -24,7 +24,79 @@ void Engine::Slot::addVoice (AudioBufPtr b, juce::int64 pos, float gain, int lan
     if (lane == 99)  // nahlad v prehliadaci zvukov: predosly nahlad stichne
         for (auto& v : voices) if (v.lane == 99 && v.fade < 0) { v.fade = 256; v.fadeLen = 256; }
     if (voices.size() >= 64) voices.erase (voices.begin());
-    voices.push_back ({ std::move (b), pos, gain, lane, -1, 64 });
+    Voice v; v.buf = std::move (b); v.pos = pos; v.gain = gain; v.lane = lane;
+    if (juce::isPositiveAndBelow (lane, 10)) v.ds = dset[(size_t) lane];
+    voices.push_back (std::move (v));
+}
+
+namespace
+{
+    inline float ahd (float t, float a, float h, float d, bool infH, bool infD)
+    {
+        if (t < a) return a > 0 ? t / a : 1.0f;
+        t -= a;
+        if (infH || t < h) return 1.0f;
+        if (infD) return 1.0f;
+        t -= h;
+        return t >= d ? 0.0f : 1.0f - t / d;
+    }
+}
+
+// hlas s upravou zvuku (vyska, filter, obalky, panorama); vrati true, ked doznel
+bool Engine::Slot::renderEdited (Voice& v, float* oL, float* oR, int n, double sr)
+{
+    const auto& d = v.ds;
+    const int len = v.buf->getNumSamples();
+    const float* l = v.buf->getReadPointer (0);
+    const float* r = v.buf->getNumChannels() > 1 ? v.buf->getReadPointer (1) : l;
+    const float vel = juce::jlimit (0.0f, 1.0f, v.gain);
+    const float baseSt = d.tr + d.tune * 0.01f + d.pVel * (vel - 0.75f) * 12.0f;
+    const float ampG = juce::Decibels::decibelsToGain (d.gain) * ((1.0f - d.aVel) + d.aVel * vel);
+    const float pl = std::cos ((d.pan + 1.0f) * 0.25f * juce::MathConstants<float>::pi) * 1.41421356f;
+    const float pr = std::sin ((d.pan + 1.0f) * 0.25f * juce::MathConstants<float>::pi) * 1.41421356f;
+    const bool infH = d.aH >= 1.999f, infD = d.aD >= 3.999f;
+    const float dt = (float) (1.0 / sr);
+    const float drv = 1.0f + d.drive * 6.0f, drvN = 1.0f / std::tanh (drv);
+    for (int i = juce::jmax (0, (int) -v.pos); i < n; ++i)
+    {
+        if (v.rpos >= len - 1) return true;
+        const float pe = ahd (v.t, d.pA, d.pH, d.pD, false, false);
+        const float st = baseSt + d.pEnv * pe;
+        const int i0 = (int) v.rpos; const float fr = (float) (v.rpos - i0);
+        float xl = l[i0] + (l[i0 + 1] - l[i0]) * fr, xr = r[i0] + (r[i0 + 1] - r[i0]) * fr;
+        v.rpos += std::exp2 (st / 12.0f);
+        if (d.fOn)
+        {
+            if ((v.cnt++ & 15) == 0)
+            {
+                const float fe = ahd (v.t, d.fA, d.fH, d.fD, false, false);
+                const float fc = juce::jlimit (20.0f, (float) sr * 0.45f, d.cut * std::exp2 (d.fEnv * 5.0f * fe + d.fVel * (vel - 0.75f) * 4.0f));
+                v.g = std::tan (juce::MathConstants<float>::pi * fc / (float) sr);
+                v.k = 2.0f - 1.94f * juce::jlimit (0.0f, 1.0f, d.res);
+            }
+            const int stages = d.soft ? 1 : 2;
+            float* xs[2] = { &xl, &xr };
+            for (int c = 0; c < 2; ++c)
+                for (int sg = 0; sg < stages; ++sg)
+                {
+                    const int z = c * 2 + sg;
+                    const float x = *xs[c];
+                    const float hp = (x - (v.k + v.g) * v.s1[z] - v.s2[z]) / (1.0f + v.g * (v.k + v.g));
+                    const float bp = v.g * hp + v.s1[z]; v.s1[z] = v.g * hp + bp;
+                    const float lp = v.g * bp + v.s2[z]; v.s2[z] = v.g * bp + lp;
+                    *xs[c] = d.fType == 1 ? hp : (d.fType == 2 ? bp : lp);
+                }
+        }
+        if (d.drive > 0.001f) { xl = std::tanh (xl * drv) * drvN; xr = std::tanh (xr * drv) * drvN; }
+        const float ae = ahd (v.t, d.aA, d.aH, d.aD, infH, infD);
+        if (v.t > d.aA && ae <= 0.0f) return true;
+        float g = ampG * ae * (1.0f + d.punch * 1.5f * std::exp (-v.t / 0.012f));
+        if (v.fade >= 0) { if (v.fade == 0) return true; g *= (float) v.fade / (float) v.fadeLen; --v.fade; }
+        if (! std::isfinite (xl) || ! std::isfinite (xr)) return true;
+        oL[i] += xl * g * pl; oR[i] += xr * g * pr;
+        v.t += dt;
+    }
+    return false;
 }
 
 void Engine::Slot::renderVoices (juce::AudioBuffer<float>& dst, int n)
@@ -32,6 +104,14 @@ void Engine::Slot::renderVoices (juce::AudioBuffer<float>& dst, int n)
     for (size_t k = 0; k < voices.size();)
     {
         auto& v = voices[k];
+        if (v.ds.on)
+        {
+            const bool done = renderEdited (v, dst.getWritePointer (0), dst.getWritePointer (1), n, sr);
+            v.pos += n;
+            if (done) { voices[k] = std::move (voices.back()); voices.pop_back(); }
+            else ++k;
+            continue;
+        }
         const int len = v.buf->getNumSamples();
         const float* l = v.buf->getReadPointer (0);
         const float* r = v.buf->getNumChannels() > 1 ? v.buf->getReadPointer (1) : l;
@@ -60,8 +140,10 @@ int Engine::Slot::numChans() const
     return ch;
 }
 
-void Engine::Slot::prepare (double sr, int bs)
+void Engine::Slot::prepare (double rate, int bs)
 {
+    sr = rate;
+    const double sr = rate;
     preparePlugin (plugin.get(), sr, bs);
     for (auto& f : fx) preparePlugin (f.get(), sr, bs);
     preparePlugin (midiFx.get(), sr, bs);
@@ -461,6 +543,7 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
     {
         if (! juce::isPositiveAndBelow (td.slot, (int) slots.size())) continue;
         auto& s = *slots[(size_t) td.slot];
+        s.dset = td.dset;   // upravy zvuku bicich pre nove udery
 
         if (td.isAudio || td.frozen)
         {

@@ -219,6 +219,22 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                 if (c.buf != nullptr && c.dur > 0) { td.frozen = true; td.clips.push_back (c); sd->tracks.push_back (std::move (td)); continue; }
             }
 
+            if (type == "drum")
+                if (auto* ds = t["dset"].getDynamicObject())   // uprava zvuku nastrojov (editor samplu)
+                    for (const auto& prop : ds->getProperties())
+                    {
+                        const int l = prop.name.toString().getIntValue();
+                        if (! juce::isPositiveAndBelow (l, 10)) continue;
+                        const auto& o = prop.value;
+                        auto f = [&o] (const char* k, float def) { return (float) (double) o.getProperty (k, def); };
+                        auto& d = td.dset[(size_t) l];
+                        d.on = true;
+                        d.tr = f ("tr", 0); d.tune = f ("tune", 0); d.pEnv = f ("pEnv", 0); d.pA = f ("pA", 0); d.pH = f ("pH", 0); d.pD = f ("pD", 0.3f); d.pVel = f ("pVel", 0);
+                        d.fOn = (bool) o.getProperty ("fOn", false); d.soft = (bool) o.getProperty ("soft", true); d.fType = (int) o.getProperty ("fType", 0);
+                        d.cut = f ("cut", 20000); d.res = f ("res", 0); d.fEnv = f ("fEnv", 0); d.fA = f ("fA", 0); d.fH = f ("fH", 0); d.fD = f ("fD", 0.3f);
+                        d.fVel = f ("fVel", 0); d.drive = f ("drive", 0); d.punch = f ("punch", 0);
+                        d.gain = f ("gain", 0); d.pan = f ("pan", 0); d.aA = f ("aA", 0); d.aH = f ("aH", 2); d.aD = f ("aD", 4); d.aVel = f ("aVel", 1);
+                    }
             std::array<AudioBufPtr, 10> laneBuf {};
             if (type == "drum")
                 if (auto* sm = t["smp"].getDynamicObject())
