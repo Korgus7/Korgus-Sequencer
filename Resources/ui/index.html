@@ -2049,8 +2049,11 @@ function vocSrcMenu(tr,x,y){
 /* zmena vysky okien (aranzman / editor) tahanim deliacej ciary */
 { const hs=$('hSplit'), aw=$('arrWin');
   const apply=h=>{ if(h>0){ aw.style.flex='0 0 '+h+'px'; } };
-  try{ apply(+localStorage.getItem('korgus.arrH')||0); }catch(e){}
-  const vis=()=>{ hs.style.display=$('edWin').hidden?'none':''; }; vis(); new MutationObserver(vis).observe($('edWin'),{attributes:true,attributeFilter:['hidden']});
+  // pevna vyska aranzmanu len ked je otvoreny editor - inak aranzman vyplni okno az po spodny panel
+  const vis=()=>{ const ed=!$('edWin').hidden; hs.style.display=ed?'':'none';
+    if(ed){ try{ apply(+localStorage.getItem('korgus.arrH')||0); }catch(e){} } else aw.style.flex='';
+    requestAnimationFrame(()=>drawArrange()); };
+  vis(); new MutationObserver(vis).observe($('edWin'),{attributes:true,attributeFilter:['hidden']});
   hs.onmousedown=e=>{ e.preventDefault(); const y0=e.clientY, h0=aw.getBoundingClientRect().height;
     const mv=ev=>{ const h=clamp(h0+ev.clientY-y0,140,innerHeight-260); apply(h); drawArrange(); };
     const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); try{ localStorage.setItem('korgus.arrH',String(Math.round(aw.getBoundingClientRect().height))); }catch(e){} renderEditor(); };
