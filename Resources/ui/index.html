@@ -35,7 +35,7 @@ input[type=range]{accent-color:#2d4362}
 #topWin{flex:none}
 #arrWin{flex:1 1 0;min-height:140px}
 #edWin{flex:1.25 1 0;min-height:180px}
-#dgrid .dsed{width:22px;flex:none;padding:0;font-size:12px;background:transparent;border:0;color:#7d8ba0;cursor:pointer}#dgrid .dsed:hover,#dgrid .dsed.on{color:#c9a35a}
+#dgrid .dsed{width:22px;flex:none;padding:0;font-size:12px;background:transparent;border:0;color:#3d4c62;cursor:pointer}#dgrid .dsed:hover,#dgrid .dsed.on{color:#c9a35a}
 #dsePanel{position:fixed;right:24px;top:80px;width:453px;height:721px;background:#151c27;border:1px solid #2d4362;border-radius:3px;z-index:60;box-shadow:0 6px 24px #0009;user-select:none;font-family:'Segoe UI',Arial,sans-serif;cursor:move}
 .dseHead{position:absolute;left:0;top:0;width:453px;height:50px}
 .dseHead button{position:absolute;top:13px;height:29px;background:#2d4362;color:#d8dee8;border:1px solid #3d5577;border-radius:3px;font-size:15px;cursor:pointer;padding:0}
@@ -177,6 +177,7 @@ body.native #outSel,body.native #outLbl{display:none!important}
 body:not(.native) #bRef,body:not(.native) #bAi,body:not(.native) #bAuto,body:not(.native) #bImpMidi,body:not(.native) #bStems,body:not(.native) #bMp3{display:none}
 body.native #trackList{background:#232c38}
 body.native #trackList .thead{background:#232c38;border-bottom:1px solid #161d27;height:58px;box-sizing:border-box}
+body.native #trackList .thead,body.native #trackList .thead span{color:#c9d2dc}
 .trk button.plw svg{display:block;margin:auto}
 .ntr{position:relative;display:flex;gap:6px;padding:5px 14px 0 4px;background:#2a3442;border-bottom:1px solid #161d27;box-sizing:border-box;overflow:hidden;cursor:default;color:#e4e9ef}
 .ntr.sel{background:#55657a}
@@ -506,7 +507,7 @@ function setupNative(){
     playStep=song.pos; natLast={pos:song.pos,t:performance.now()+(cnt?cnt*4*60000/song.tempo:0)}; updTransport(); };
   stop=function(){
     natRecStop();
-    if(playing){ Object.keys(held).forEach(noteOff); nat('transport',{cmd:'stop'}); playing=false; counting=false; rec=false; song.pos=playStep; }
+    if(playing){ Object.keys(held).forEach(noteOff); nat('transport',{cmd:'stop'}); playing=false; counting=false; if(rec){ recMergeOverlaps(); drawArrange(); } rec=false; song.pos=playStep; }
     else { song.pos=(song.loopOn&&song.pos!==song.locL)?song.locL:0; playStep=song.pos; nat('transport',{cmd:'setPos',pos:song.pos}); }
     lastStep=-1; onStep(); updTransport(); save(); };
   setPos=function(s){ s=clamp(s,0,song.bars*SPB-1); song.pos=s; playStep=s; natLast={pos:s,t:performance.now()};
@@ -522,9 +523,12 @@ function setupNative(){
     delete tr.nkit; save(); renderEditor(); drawArrange(); previewDrum(tr,0,1); toast('Súprava <b>'+esc(e.name)+'</b> natiahnutá ('+n+' zvukov). Ctrl+Z vráti späť.'); });
   previewDrum=function(tr,l,v){ const sm=smpOf(tr,l); if(sm) nat('drumHit',{track:tr.id,id:sm.id,vel:v===2?1:.62,lane:l}); else natNoteShort(tr,DRUMS[l][1],v===2?1:.62); };
   preview=function(tr,p){ natNoteShort(tr,p,.8); };
-  recOn=function(){ if(!rec||!playing||counting) return false; const ps=Math.floor(curNatPos());
+  recOn=function(){ if(!rec||!playing) return false;
+    // prva nota zahrata tesne pred koncom odpocitavania (do 1/8) sa zapise na zaciatok
+    if(counting){ if(curNatPos()<song.pos-2) return false; window._recAt=song.pos; setTimeout(()=>{ window._recAt=null; },0); }
+    const ps=Math.floor(curNatPos());
     if(song.punchIn&&ps<song.locL) return false; if(song.punchOut&&ps>=song.locR) return false; return true; };
-  recPos=function(){ let s=Math.round(curNatPos()*16)/16; if(cycOK()&&s>=song.locR) s=song.locL+(s-song.locR); if(s>=song.bars*SPB) s=0; return s; };
+  recPos=function(){ let s=Math.round((window._recAt!=null?window._recAt:curNatPos())*16)/16; if(cycOK()&&s>=song.locR) s=song.locL+(s-song.locR); if(s>=song.bars*SPB) s=0; return s; };
   noteOn=function(key,val,vel,fromNative){
     const tr=targetTrack(); if(!tr||held[key]||tr.type==='audio') return;
     if(tr.type==='drum'&&(val<0||val>=DRUMS.length)) return;
@@ -549,8 +553,8 @@ function setupNative(){
     if(!rec){ const at=natRecTracks(); if(at.length){ rec=true; pushUndo(); natRecPk={}; natRec={ids:at.map(t=>t.id),startStep:song.pos};
       nat('recAudio',{on:true,tracks:at.map(t=>({track:t.id,inp:t.inp||'0'}))});
       if(!playing) play(COUNT_BARS); else natRec.startStep=Math.floor(curNatPos()); updTransport(); return; } }
-    rec=!rec; if(rec){ pushUndo(); if(!playing) play(COUNT_BARS); }
-    else { Object.keys(held).forEach(k=>{const h=held[k]; if(h.r){recEnd(h.r); h.r=null;}}); natRecStop(); }
+    rec=!rec; if(rec){ recTake++; pushUndo(); if(!playing) play(COUNT_BARS); }
+    else { Object.keys(held).forEach(k=>{const h=held[k]; if(h.r){recEnd(h.r); h.r=null;}}); natRecStop(); recMergeOverlaps(); drawArrange(); save(); }
     updTransport(); };
   $('bStop').onclick=stop; $('bRec').onclick=toggleRec;
   $('bAudio').onclick=()=>nat('showSettings'); showLat=function(){ $('latV').textContent=''; };
@@ -568,7 +572,10 @@ function setupNative(){
     if(e.pitch===-64){ if(e.on&&stepActive()) stepMove(stepSize()); return; }
     const tr=targetTrack(); if(!tr) return;
     let val=e.pitch; if(tr.type==='drum'){ val=DRUMS.findIndex(d=>d[1]===e.pitch); if(val<0) val=(((e.pitch-36)%10)+10)%10; }
+    // presny cas noty z programu (pozicia, ktoru hrac pocul), nie cas dorucenia spravy
+    window._recAt=(typeof e.pos==='number'&&e.pos>=0&&playing&&!counting)?e.pos:null;
     if(e.on&&e.vel>0) noteOn('m'+e.pitch,val,e.vel,true); else noteOff('m'+e.pitch);
+    window._recAt=null;
   });
   onNat('plugins',list=>{ natPlugins=Array.isArray(list)?list:[]; renderTracks(); });
   onNat('blockedPlugins',list=>{ natBlocked=Array.isArray(list)?list:[]; });
@@ -587,8 +594,11 @@ function setupNative(){
   onNat('trackPlugins',m=>{ natTrackPlugins=m||{}; renderTracks(); });
   pickAudio=function(){ audioBrowser(audTarget&&audTarget.trId||'',audTarget?audTarget.bar:0); };
   importAudioFile=function(f,trId,bar){ natUpload(f,trId,bar); };
-  $('bWav').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
-    stopIfPlaying(); nat('exportWav',{end}); };
+  // export: ak je zapnuty cyklus (lokatory L-R), len ten usek, inak cela piesen
+  window.exportRange=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
+    if(song.loopOn&&song.locR>song.locL) return {start:song.locL,end:song.locR,txt:'úsek L–R (takty '+(Math.floor(song.locL/SPB)+1)+'–'+Math.ceil(song.locR/SPB)+')'};
+    return {start:0,end,txt:'celá pieseň'}; };
+  $('bWav').onclick=()=>{ const r=exportRange(); stopIfPlaying(); toast('Export WAV: '+r.txt); nat('exportWav',{start:r.start,end:r.end}); };
   onNat('busy',e=>{ dialog('Import audio','<p>'+esc(e.text)+'</p>'); });
   onNat('audioPeaks',natPeaks);
   onNat('aiState',e=>{ aiHasKey=!!e.hasKey; });
@@ -638,13 +648,13 @@ function setupNative(){
   onNat('midiImported',midiImported);
   onNat('inspireCapture',inspireIn);
   $('bImpMidi').onclick=()=>fileBrowser('midi');
-  $('bMp3').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
+  $('bMp3').onclick=()=>{ const rr=exportRange(), end=rr.end;
     const lo=[[-14,'TikTok / YouTube / Spotify (−14 LUFS)'],[-11,'Hlasnejšie (−11 LUFS)'],[-9,'Veľmi hlasno (−9 LUFS)'],[0,'Bez úpravy hlasitosti']];
-    dialog('Export MP3',`<p>Pieseň sa uloží ako MP3. Hlasitosť sa dorovná na zvolenú úroveň a vrcholy sa obmedzia na −1 dB, aby sa nič neskreslilo.</p>
+    dialog('Export MP3',`<p>Uloží sa <b>${rr.txt}</b> ako MP3. Hlasitosť sa dorovná na zvolenú úroveň (len do miery, ktorá nič neskreslí) a vrcholy sa obmedzia na −1 dB.</p>
       <div class="frow"><label>Hlasitosť</label><select id="mp3L" style="flex:1">${lo.map(([v,n])=>`<option value="${v}"${v===(song.mp3L??-14)?' selected':''}>${n}</option>`).join('')}</select></div>
       <div class="frow"><label>Kvalita</label><select id="mp3K" style="flex:1"><option value="320">320 kbps (najlepšia)</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps (menší súbor)</option></select></div>
       <div class="row"><span style="flex:1"></span><button id="mp3Ok">Uložiť MP3…</button></div>`);
-    $('mp3Ok').onclick=()=>{ const l=+$('mp3L').value, k=+$('mp3K').value; song.mp3L=l; $('dlgBack').hidden=true; stopIfPlaying(); nat('exportMp3',{end,lufs:l,kbps:k}); }; };
+    $('mp3Ok').onclick=()=>{ const l=+$('mp3L').value, k=+$('mp3K').value; song.mp3L=l; $('dlgBack').hidden=true; stopIfPlaying(); nat('exportMp3',{start:rr.start,end,lufs:l,kbps:k}); }; };
   $('bMaster').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB);
     dialog('Mastering asistent',`<p>Asistent si vypočuje celý mix a na Master vloží <b>EQ, kompresor a limiter</b> s nastavením pre tvoju pieseň. Doterajšie efekty na Masteri sa nahradia. Potom ich môžeš ručne doladiť.</p>
       <div class="frow"><label>Hlasitosť</label><select id="msL" style="flex:1"><option value="-9">Hlasno (TikTok, Reels) −9 LUFS</option><option value="-14">Štandard (Spotify, YouTube) −14 LUFS</option><option value="-16">Jemne, dynamicky −16 LUFS</option></select></div>
@@ -1320,9 +1330,21 @@ function recPos(){
   if(s>=song.bars*SPB) s=0; return s;
 }
 function partAt(tr,s){return tr.parts.find(x=>s>=x.start*SPB&&s<(x.start+x.len)*SPB);}
+let recTake=0;
+// nahravanie: ak hrac pokracuje za koniec casti nahravanej v tomto zabere, cast sa predlzi (ziadna nova cast cez seba)
+function recPartFor(tr,s,mk){ let part=partAt(tr,s); if(part) return part;
+  const b=Math.floor(s/SPB), prev=tr.parts.filter(x=>x._take===recTake&&x.start+x.len<=b+.001).sort((x,y)=>y.start-x.start)[0];
+  if(prev&&b-(prev.start+prev.len)<=1){ prev.len=Math.min(song.bars-prev.start,b+1-prev.start); if(prev.grid){ const L=prev.len*SPB; if(prev.plen<L){} } return prev; }
+  const next=tr.parts.filter(x=>x.start>b).sort((x,y)=>x.start-y.start)[0], len=Math.max(1,Math.min(4,song.bars-b,next?next.start-b:4));
+  part=mk(b,len); part._take=recTake; tr.parts.push(part); return part; }
+// po nahravani: casti tej istej stopy, ktore sa prekryvaju, sa zlepia do jednej
+function recMergeOverlaps(){ song.tracks.forEach(tr=>{ if(tr.type==='audio') return; const ps=tr.parts.filter(p=>p.notes).sort((a,b)=>a.start-b.start);
+    for(let i=0;i<ps.length-1;i++){ const a=ps[i], b=ps[i+1]; if(a.start+a.len>b.start+.001&&(a._take||b._take)){
+        const off=(b.start-a.start)*SPB; b.notes.forEach(n=>a.notes.push({...n,s:n.s+off})); a.len=Math.max(a.start+a.len,b.start+b.len)-a.start;
+        tr.parts=tr.parts.filter(x=>x!==b); ps.splice(i+1,1); i--; } }
+    tr.parts.forEach(p=>{ delete p._take; }); }); }
 function recStart(tr,p,vel){
-  const s=recPos(); let part=partAt(tr,s);
-  if(!part){const b=Math.floor(s/SPB); part={id:uid(),start:b,len:Math.min(4,song.bars-b),notes:[]}; tr.parts.push(part);}
+  const s=recPos(); const part=recPartFor(tr,s,(b,len)=>({id:uid(),start:b,len,notes:[]}));
   const n={s:s-part.start*SPB,p,l:1,v:Math.round(vel*127)}; part.notes.push(n); drawArrange(); edRefresh(part);
   return {n,part,abs:s};
 }
@@ -1332,8 +1354,7 @@ function recEnd(r){
   drawArrange(); edRefresh(r.part); save();
 }
 function recDrum(tr,l,vel){
-  const s=recPos(); let part=partAt(tr,s);
-  if(!part){const b=Math.floor(s/SPB); part={id:uid(),start:b,len:Math.min(4,song.bars-b),plen:16,grid:emptyGrid(16)}; tr.parts.push(part);}
+  const s=recPos(); const part=recPartFor(tr,s,(b,len)=>({id:uid(),start:b,len,plen:16,grid:emptyGrid(16)}));
   part.grid[l][(s-part.start*SPB)%part.plen]=vel>.85?2:1; drawArrange(); edRefresh(part); save();
 }
 function edRefresh(part){ if(ed&&ed.pId===part.id){ const r=edGet(); if(r&&r.tr.type==='drum') renderEditor(); else drawKey(); } }
@@ -3998,9 +4019,9 @@ function sbPick(){
 }
 function sbAfterPick(tr,lane){
   if(!sbCur||sbCur.tr!==tr||!$('sbLane')||$('dlgBack').hidden) return;
-  const next=Math.min(DRUMS.length-1,lane+1);
-  $('sbInfo').textContent='Použité: '+DRUMS[lane][0]+' ← '+String((sbCur.picked||{}).name||'')+'. Teraz vyber zvuk pre riadok '+DRUMS[next][0]+'.';
-  sbCur.lane=next; $('sbLane').innerHTML=sbLaneOpts(tr,next); $('sbList').focus();
+  // ostava na tom istom riadku (riadok sa meni len rucne v zozname riadkov)
+  $('sbInfo').textContent='Použité: '+DRUMS[lane][0]+' ← '+String((sbCur.picked||{}).name||'')+'. Môžeš skúsiť iný zvuk pre ten istý riadok alebo zmeniť riadok hore.';
+  sbCur.lane=lane; $('sbLane').innerHTML=sbLaneOpts(tr,lane); $('sbList').focus(); previewDrum(tr,lane,1);
 }
 /* ---------------- automaticke prelinanie prekryvajucich sa audio klipov ---------------- */
 function autoXfades(){
@@ -4809,11 +4830,42 @@ document.addEventListener('keyup',e=>noteOff(e.code));
   window.addEventListener('focus',()=>{ if(NATIVE){ nat('kbdState',{text:isTxt(document.activeElement)}); kbdSync(true); } }); }
 document.addEventListener('change',e=>{if(e.target.type==='range') e.target.blur();});
 window.addEventListener('blur',()=>Object.keys(held).forEach(noteOff));
+// klik do okna programu ho prenesie pred okna pluginov
+document.addEventListener('mousedown',()=>{ if(NATIVE) nat('raiseMain'); },true);
 document.addEventListener('dragover',e=>e.preventDefault());
 document.addEventListener('drop',e=>e.preventDefault());
+/* MIDI subor (aj pretiahnuty z pluginu, napr. Stylus RMX) -> noty */
+function parseMidiBytes(u){
+  let i=0; const rd=n=>{ let v=0; for(let k=0;k<n;k++) v=v*256+u[i++]; return v; }, vlq=()=>{ let v=0,b; do{ b=u[i++]; v=v*128+(b&127); }while(b&128); return v; };
+  if(String.fromCharCode(u[0],u[1],u[2],u[3])!=='MThd') return null; i=8; const fmt=rd(2), ntr=rd(2), div=rd(2), tpq=div&0x8000?96:div; i=14;
+  const notes=[]; let tempo=0;
+  for(let t=0;t<ntr&&i<u.length;t++){ if(String.fromCharCode(u[i],u[i+1],u[i+2],u[i+3])!=='MTrk') break; i+=4; const len=rd(4), end=i+len; let tick=0, run=0; const on={};
+    while(i<end){ tick+=vlq(); let st=u[i]; if(st&0x80){ i++; if(st<0xF0) run=st; } else st=run;
+      if(st===0xFF){ const ty=u[i++], l=vlq(); if(ty===0x51&&!tempo) tempo=60000000/((u[i]<<16)|(u[i+1]<<8)|u[i+2]); i+=l; continue; }
+      if(st===0xF0||st===0xF7){ i+=vlq(); continue; }
+      const hi=st&0xF0, ch=st&15, d1=u[i++], d2=(hi===0xC0||hi===0xD0)?0:u[i++];
+      if(hi===0x90&&d2>0) on[ch*128+d1]=[tick,d2];
+      else if(hi===0x80||(hi===0x90&&d2===0)){ const o=on[ch*128+d1]; if(o){ delete on[ch*128+d1]; notes.push([o[0]/tpq*4,d1,Math.max(.25,(tick-o[0])/tpq*4),o[1],ch]); } } }
+    for(const k in on){ const o=on[k]; notes.push([o[0]/tpq*4,k%128,1,o[1],Math.floor(k/128)]); } i=end; }
+  return {notes:notes.sort((a,b)=>a[0]-b[0]),tempo};
+}
+function dropMidi(f,tr,bar){
+  const rd=new FileReader(); rd.onload=()=>{ const r=parseMidiBytes(new Uint8Array(rd.result)); if(!r||!r.notes.length){ toast('V MIDI súbore nie sú žiadne noty.'); return; }
+    pushUndo(); const ns=r.notes, s0=Math.floor(Math.min(...ns.map(n=>n[0]))/SPB)*SPB, endS=Math.max(...ns.map(n=>n[0]+n[2]))-s0, bars=Math.max(1,Math.ceil(endS/SPB));
+    const isDrum=ns.every(n=>n[4]===9)||(tr&&tr.type==='drum');
+    if(!tr||tr.type==='audio'){ tr=mkTrack(isDrum?'drum':'synth'); tr.name=String(f.name||'MIDI').replace(/\.midi?$/i,'').slice(0,24); song.tracks.push(tr); if(!isDrum) natDefaultInst(tr); }
+    const name=String(f.name||'MIDI').replace(/\.midi?$/i,'').slice(0,30);
+    if(tr.type==='drum'){ const plen=bars*SPB, grid=DRUMS.map(()=>new Array(plen).fill(0));
+      ns.forEach(([st,pt,l,v])=>{ const lane=GM_LANE[pt]; const k=Math.round(st-s0); if(lane==null||k<0||k>=plen) return; grid[lane][k]=Math.max(grid[lane][k],v>=100?2:1); });
+      tr.parts.push({id:uid(),start:bar,len:bars,plen,grid,name,rhythm:name}); }
+    else tr.parts.push({id:uid(),start:bar,len:bars,notes:ns.map(([st,pt,l,v])=>({s:st-s0,p:pt,l,v})),name});
+    if(bar+bars>song.bars) song.bars=Math.min(256,bar+bars);
+    selT=song.tracks.indexOf(tr); renderAll(); save(); if(NATIVE) natSel(); toast('MIDI <b>'+esc(name)+'</b> vložené na stopu <b>'+esc(tr.name)+'</b> (takt '+(bar+1)+'). Ctrl+Z vráti späť.'); };
+  rd.readAsArrayBuffer(f); }
 $('arrScroll').addEventListener('drop',e=>{
   e.preventDefault(); const f=e.dataTransfer&&e.dataTransfer.files[0]; if(!f) return;
   const {x,y}=arrXY(e); const ti=Math.floor((y-RULH)/ROWH), tr=song.tracks[ti];
+  if(/\.midi?$/i.test(f.name||'')){ dropMidi(f,tr,Math.max(0,Math.floor(x/zoomA))); return; }
   importAudioFile(f,tr&&tr.type==='audio'?tr.id:null,Math.max(0,Math.floor(x/zoomA)));
 });
 window.addEventListener('beforeunload',()=>{try{localStorage.setItem(LS,JSON.stringify(song));}catch(e){}});

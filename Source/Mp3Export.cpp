@@ -92,6 +92,14 @@ double normaliseLoudness (juce::AudioBuffer<float>& b, double sr, double targetL
     {
         const double now = measureLufs (b, sr);
         if (now > -69.0) gainDb = juce::jlimit (-30.0, 30.0, targetLufs - now);
+        // zosilnenie len tolko, aby limiter stlacal najviac ~2 dB - inak sa mix (najma s kompresorom) skresli a znie inak
+        float pk = 0;
+        for (int c = 0; c < ch; ++c) pk = juce::jmax (pk, b.getMagnitude (c, 0, n));
+        if (pk > 1.0e-6f && gainDb > 0)
+        {
+            const double room = ceilingDb - juce::Decibels::gainToDecibels ((double) pk) + 2.0;
+            gainDb = juce::jmin (gainDb, juce::jmax (0.0, room));
+        }
         b.applyGain ((float) juce::Decibels::decibelsToGain (gainDb));
     }
 

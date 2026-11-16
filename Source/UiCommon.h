@@ -18,6 +18,10 @@ public:
     KorgusLookAndFeel();
     void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour& bg, bool over, bool down) override;
     void drawComboBox (juce::Graphics&, int w, int h, bool down, int bx, int by, int bw, int bh, juce::ComboBox&) override;
+    // preloadery: plochy pruh s minimalnym zaoblenim a dobre citatelnym textom
+    void drawProgressBar (juce::Graphics&, juce::ProgressBar&, int w, int h, double progress, const juce::String& text) override;
+    bool isProgressBarOpaque (juce::ProgressBar&) override { return false; }
+    void drawAlertBox (juce::Graphics&, juce::AlertWindow&, const juce::Rectangle<int>& textArea, juce::TextLayout&) override;
 };
 
 // Okno s GUI pluginu - vzdy cele na obrazovke, ak je plugin vacsi, da sa posuvat

@@ -272,6 +272,11 @@ KorgusLookAndFeel::KorgusLookAndFeel()
     setColour (juce::Slider::trackColourId, Col::border);
     setColour (juce::Slider::backgroundColourId, Col::panelLo);
     setColour (juce::ScrollBar::thumbColourId, Col::border);
+    setColour (juce::AlertWindow::backgroundColourId, juce::Colour (0xffe9ecf0));
+    setColour (juce::AlertWindow::textColourId, Col::text);
+    setColour (juce::AlertWindow::outlineColourId, Col::border);
+    setColour (juce::ProgressBar::foregroundColourId, Col::steel);
+    setColour (juce::ProgressBar::backgroundColourId, juce::Colour (0xffd9dde3));
 }
 
 void KorgusLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour& bg, bool over, bool down)
@@ -284,6 +289,47 @@ void KorgusLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b
     g.fillRoundedRectangle (r, 3.0f);
     g.setColour (b.getToggleState() ? Col::steel.darker (0.3f) : Col::border);
     g.drawRoundedRectangle (r, 3.0f, 1.0f);
+}
+
+void KorgusLookAndFeel::drawProgressBar (juce::Graphics& g, juce::ProgressBar&, int w, int h, double progress, const juce::String& text)
+{
+    juce::Rectangle<float> r (0.5f, 0.5f, (float) w - 1.0f, (float) h - 1.0f);
+    g.setColour (juce::Colour (0xffd9dde3));
+    g.fillRoundedRectangle (r, 3.0f);
+    if (progress >= 0.0 && progress <= 1.0)
+    {
+        g.setColour (Col::steel);
+        g.fillRoundedRectangle (r.withWidth (juce::jmax (0.0f, r.getWidth() * (float) progress)), 3.0f);
+    }
+    else   // neurcity priebeh: posuvajuci sa pruh
+    {
+        const float t = (float) std::fmod (juce::Time::getMillisecondCounterHiRes() / 1400.0, 1.0), bw = r.getWidth() * 0.3f;
+        g.setColour (Col::steel);
+        g.fillRoundedRectangle (juce::Rectangle<float> (r.getX() + (r.getWidth() + bw) * t - bw, r.getY(), bw, r.getHeight()).getIntersection (r), 3.0f);
+    }
+    g.setColour (Col::border);
+    g.drawRoundedRectangle (r, 3.0f, 1.0f);
+    if (text.isNotEmpty())
+    {
+        // text citatelny na oboch castiach pruhu: biely s tmavym obrysom
+        g.setFont (juce::FontOptions ((float) juce::jmin (15, h - 4), juce::Font::bold));
+        const auto tr = r.toNearestInt();
+        g.setColour (juce::Colour (0xcc111821));
+        for (auto d : { juce::Point<int> (1, 1), juce::Point<int> (-1, 1), juce::Point<int> (1, -1), juce::Point<int> (-1, -1) })
+            g.drawText (text, tr.translated (d.x, d.y), juce::Justification::centred, false);
+        g.setColour (juce::Colours::white);
+        g.drawText (text, tr, juce::Justification::centred, false);
+    }
+}
+
+void KorgusLookAndFeel::drawAlertBox (juce::Graphics& g, juce::AlertWindow& a, const juce::Rectangle<int>& textArea, juce::TextLayout& layout)
+{
+    g.fillAll (juce::Colour (0xffe9ecf0));
+    g.setColour (Col::steel);
+    g.fillRect (0, 0, a.getWidth(), 4);
+    g.setColour (Col::border);
+    g.drawRect (a.getLocalBounds(), 1);
+    layout.draw (g, textArea.toFloat());
 }
 
 void KorgusLookAndFeel::drawComboBox (juce::Graphics& g, int w, int h, bool, int, int, int, int, juce::ComboBox& box)

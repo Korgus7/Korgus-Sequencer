@@ -217,6 +217,7 @@ public:
     void   drainRecording (int index, std::vector<float>& left, std::vector<float>& right);
 
     // export do WAV (zvukovka musi byt odpojena)
+    std::atomic<double> exportStart { 0.0 };   // zaciatok exportu (krok) - lokator L, ak sa exportuje len usek
     bool renderOffline (const SongData&, double endStep, double tailSec, juce::AudioFormatWriter&,
                         const std::function<bool (double)>& progress);
     double getSampleRate() const     { return sampleRate; }
@@ -337,6 +338,7 @@ private:
 
     std::atomic<int> state { stopped }, selectedSlot { -1 }, countBeat { 0 }, countTotal { 0 };
     std::atomic<double> publicPos { 0 };
+    std::atomic<double> publicMs { 0 }, publicSps { 8.0 }, outLatSec { 0.01 };   // pre presny cas MIDI noty pri nahravani
     double pos = 0, sampleRate = 44100, startAfterCount = 0;
 
     // poloha a tempo pre pluginy (synchronizacia s tempom)
@@ -377,6 +379,7 @@ private:
     float* const* curOut = nullptr;
     int curNumOut = 0;
     std::atomic<bool> offline { false };
+    std::atomic<int> postFade { 0 };   // po exporte plynuly nabeh vystupu (vzorky)
     int masterSlot = -1;
     std::array<int, 8> extraSlots {}; int numExtra = 0;
     int auxSlot[2] { -1, -1 };

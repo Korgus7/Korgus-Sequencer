@@ -390,7 +390,10 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
         const int pitch = m.isController() ? -64 : m.getNoteNumber();
         const float vel = m.isController() ? (float) m.getControllerValue() / 127.0f : m.getFloatVelocity();
         const bool on = m.isController() ? m.getControllerValue() >= 64 : m.isNoteOn();
-        const double p = publicPos.load();
+        // pozicia, ktoru hrac prave POCUJE: koniec posledneho bloku + uplynuty cas - oneskorenie vystupu zvukovky
+        double p = publicPos.load();
+        if (state == playing)
+            p = juce::jmax (0.0, p + ((juce::Time::getMillisecondCounterHiRes() - publicMs.load()) * 0.001 - outLatSec.load()) * publicSps.load());
         juce::MessageManager::callAsync ([this, pitch, vel, on, p] { if (onMidiIn) onMidiIn (pitch, vel, on, p); });
     }
 }
@@ -401,6 +404,7 @@ void Engine::audioDeviceAboutToStart (juce::AudioIODevice* dev)
     const juce::ScopedLock sl (slotLock);
     sampleRate = dev->getCurrentSampleRate();
     blockSize = dev->getCurrentBufferSizeSamples();
+    outLatSec = (dev->getOutputLatencyInSamples() + blockSize) / juce::jmax (1.0, sampleRate);
     for (auto& s : slots) s->prepare (sampleRate, blockSize);
 }
 
@@ -803,7 +807,12 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 s = n;
             }
         }
-        if (! offline) publicPos = pos;
+        if (! offline)
+        {
+            publicPos = pos;
+            publicMs = juce::Time::getMillisecondCounterHiRes();
+            publicSps = 4.0 * sd->tempoAt (pos) / 60.0;   // krokov (16-tin) za sekundu
+        }
     }
 
     // master: stopy sa scitaju sem, potom efekty mastra
@@ -1076,6 +1085,20 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     }
 
     renderClicks (out, curNumOut, n);
+
+    // po exporte: plynuly nabeh vystupu (ziadna rana zo stavov pluginov)
+    if (forced == nullptr)
+        if (int left = postFade.load (std::memory_order_relaxed); left > 0)
+        {
+            const int tot = juce::jmax (1, (int) (sampleRate * 0.4));
+            for (int i = 0; i < n; ++i)
+            {
+                const float g = left > 0 ? 1.0f - (float) left / (float) tot : 1.0f;
+                for (int c = 0; c < curNumOut; ++c) if (out[c] != nullptr) out[c][i] *= g * g;
+                if (left > 0) --left;
+            }
+            postFade.store (left, std::memory_order_relaxed);
+        }
 }
 
 //==============================================================================
@@ -1106,7 +1129,7 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
         forEachPlugin ([] (juce::AudioPluginInstance& p) { p.setNonRealtime (true); p.reset(); });
         clickLeft = clickDelay = 0;
         state = playing;
-        pos = 0;
+        pos = juce::jlimit (0.0, juce::jmax (0.0, endStep - 1.0), exportStart.load());
         forMasterFx (true, [&] (juce::AudioPluginInstance& p)
         {
             prepass = prepass || BuiltinFx::wantsExportPrepass (&p);
@@ -1116,7 +1139,8 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
 
     const int bs = juce::jmax (64, blockSize);
     juce::AudioBuffer<float> buf (2, bs);
-    const juce::int64 total = (juce::int64) ((sd.secondsBetween (0, endStep) + tailSec) * sampleRate) + latency;
+    const double startStep = pos;
+    const juce::int64 total = (juce::int64) ((sd.secondsBetween (startStep, endStep) + tailSec) * sampleRate) + latency;
     bool ok = true;
 
     // jeden prechod celou piesnou; write = false: zvuk sa zahodi (ucenie hlasitosti)
@@ -1161,7 +1185,7 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
             forEachPlugin ([] (juce::AudioPluginInstance& p) { p.reset(); });
             clickLeft = clickDelay = 0;
             state = playing;
-            pos = 0;
+            pos = startStep;
             forMasterFx (true, [] (juce::AudioPluginInstance& p) { BuiltinFx::setExportPhase (&p, 2); });
         }
         if (ok) ok = runPass (true, 0.5, 1.0);
@@ -1173,9 +1197,19 @@ bool Engine::renderOffline (const SongData& sd, double endStep, double tailSec, 
         forMasterFx (false, [] (juce::AudioPluginInstance& p) { BuiltinFx::setExportPhase (&p, 0); });
         state = stopped;
         pos = savedPos;
-        for (auto& s : slots) s->active.clear();
-        forEachPlugin ([] (juce::AudioPluginInstance& p) { p.setNonRealtime (false); p.reset(); });
+        for (auto& s : slots) { s->active.clear(); s->voices.clear(); }
+        // vsetky noty vypnut (CC 123/120), aby po exporte nic nedoznievalo
+        forEachPlugin ([] (juce::AudioPluginInstance& p)
+        {
+            juce::MidiBuffer mb;
+            for (int ch = 1; ch <= 16; ++ch) { mb.addEvent (juce::MidiMessage::allNotesOff (ch), 0); mb.addEvent (juce::MidiMessage::allSoundOff (ch), 0); }
+            juce::AudioBuffer<float> tmp (juce::jmax (2, juce::jmax (p.getTotalNumInputChannels(), p.getTotalNumOutputChannels())), 64);
+            tmp.clear(); p.processBlock (tmp, mb);
+            p.setNonRealtime (false); p.reset();
+        });
         offline = false;
+        exportStart = 0.0;
+        postFade = (int) (sampleRate * 0.4);
     }
     return ok;
 }

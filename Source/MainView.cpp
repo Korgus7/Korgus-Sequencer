@@ -812,6 +812,12 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 if (id.isEmpty()) put (o, "error", true); else put (o, "id", id);
                                 emit ("sampleImported", o);
                             })
+        .withEventListener ("raiseMain",   [this] (const juce::var&)
+                            {
+                                // klik do hlavneho okna: dopredu pred okna pluginov (napr. editor bicich nad Inspiriou)
+                                if (auto* t = dynamic_cast<juce::TopLevelWindow*> (getTopLevelComponent()))
+                                    if (! t->isActiveWindow()) t->toFront (true);
+                            })
         .withEventListener ("patLib",      [this] (const juce::var& v)
                             {
                                 // kniznica MIDI patternov: Hudba\Korgus Patterny\{Bicie, Melódie, Hity}
@@ -2507,14 +2513,16 @@ void MainView::onExportWav (const juce::var& v)
 {
     if (exporting.load() || lastSong.isVoid()) return;
     const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
+    const double start = juce::jlimit (0.0, juce::jmax (0.0, end - 1.0), (double) v.getProperty ("start", 0.0));
     chooser = std::make_unique<juce::FileChooser> (sk ("Export WAV"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("piesen.wav"), "*.wav");
     juce::Component::SafePointer<MainView> sp (this);
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [sp, end] (const juce::FileChooser& fc)
+                          [sp, end, start] (const juce::FileChooser& fc)
                           {
                               auto f = fc.getResult();
                               if (sp == nullptr || f == juce::File()) return;
                               f = f.withFileExtension ("wav");
+                              sp->engine.exportStart = start;
                               auto sd = sp->parseCurrent (sp->lastSong);
                               if (sd == nullptr) return;
                               f.deleteFile();
@@ -2612,14 +2620,16 @@ void MainView::onExportMp3 (const juce::var& v)
     // volitelne: vlastna pieseň na export (napr. "Inspiracia" – len jedna stopa/cast), inak aktualna
     const juce::var songOverride = v["song"].toString().isNotEmpty() ? juce::JSON::parse (v["song"].toString()) : juce::var();
     const auto defName = v["name"].toString().isNotEmpty() ? juce::File::createLegalFileName (v["name"].toString()) : juce::String ("piesen");
+    const double start = juce::jmax (0.0, (double) v.getProperty ("start", 0.0));
     chooser = std::make_unique<juce::FileChooser> (sk ("Export MP3"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (defName + ".mp3"), "*.mp3");
     juce::Component::SafePointer<MainView> sp (this);
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [sp, end, lufs, kbps, songOverride] (const juce::FileChooser& fc)
+                          [sp, end, lufs, kbps, songOverride, start] (const juce::FileChooser& fc)
                           {
                               auto f = fc.getResult();
                               if (sp == nullptr || f == juce::File()) return;
                               f = f.withFileExtension ("mp3");
+                              sp->engine.exportStart = start;
                               auto sd = sp->parseCurrent (songOverride.isVoid() ? sp->lastSong : songOverride);
                               if (sd == nullptr) return;
                               sp->engine.stop();
