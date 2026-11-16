@@ -2913,34 +2913,37 @@ const KEY_LINES=(()=>{
     st.prev=best.m; return best.v; };
   const lh=c=>{ const b=c.bass; return 36+b-(b>7?12:0); };
   // melodia: kroky v stupnici od korena akordu (0 = koren, 2 = tercia, 4 = kvinta, 7 = oktava)
-  const mel=(c,tonic,st)=>{ let ri=S.findIndex(x=>(tonic+x)%12===c.root); if(ri<0) ri=S.findIndex(x=>(tonic+x)%12===(c.root+11)%12);
-    if(ri<0) ri=0; const rootP=(()=>{ let n=60+c.root; while(n<64) n+=12; while(n>75) n-=12; return n; })();
+  const mel=(c,tonic,st,lo=64)=>{ let ri=S.findIndex(x=>(tonic+x)%12===c.root); if(ri<0) ri=S.findIndex(x=>(tonic+x)%12===(c.root+11)%12);
+    if(ri<0) ri=0; const rootP=(()=>{ let n=60+c.root; while(n<lo) n+=12; while(n>lo+11) n-=12; return n; })();
     return k=>{ const i=ri+k, o=Math.floor(i/7), m=((i%7)+7)%7; return rootP+(S[m]+12*o)-S[ri]; }; };
-  const H=[
-    {A:[[0,2,4],[2,2,4],[4,2,2],[6,4,4],[10,2,5],[12,4,4]],B:[[0,3,2],[3,3,1],[6,2,0],[8,6,2],[14,2,1]]},
-    {A:[[0,1,0],[2,1,2],[3,3,4],[6,2,5],[8,1,4],[10,3,2],[13,3,4]],B:[[0,2,7],[2,2,5],[4,4,4],[10,2,2],[12,4,1]]},
-    {A:[[0,6,4],[6,2,2],[8,8,1]],B:[[0,4,2],[4,2,1],[6,2,0],[8,8,-1]]},
-    {A:[[2,2,7],[4,2,7],[6,2,6],[8,2,4],[11,3,4],[14,2,2]],B:[[0,4,4],[4,2,2],[6,2,4],[8,4,5],[12,4,4]]}];
-  const hook=h=>(c,o,n,st,ctx)=>{ const f=mel(c,ctx.tonic,st), ph=(ctx.b%2)?h.B:h.A; ph.forEach(([s,l,k],i)=>n.push({s:o+s,p:f(k),l,v:i===0?100:84+((s*7)%9)})); };
-  const chordAt=(c,o,n,steps,v,st,ext,len)=>{ const vs=voice(st,c,ext); steps.forEach(([s,l,vel])=>vs.forEach(pp=>n.push({s:o+s,p:pp,l:l||len,v:vel||v}))); return vs; };
+  const rootIn=(c,lo)=>{ let n=c.root; while(n<lo) n+=12; while(n>=lo+12) n-=12; return n; };
+  // 4-taktove frazy v krokoch stupnice od korena akordu (0 koren, 2 tercia, 4 kvinta, 7 oktava, 9 tercia hore)
+  const hook=(bars,lo,acc)=>(c,o,n,st,ctx)=>{ const f=mel(c,ctx.tonic,st,lo); bars[ctx.b%bars.length].forEach(([s,l,k],i)=>n.push({s:o+s,p:f(k),l,v:(acc&&s%4===0)||i===0?104:88})); };
+  const LEAD={
+    trance:[[[0,3,7],[3,3,4],[6,2,2],[8,6,4],[14,2,5]],[[0,3,4],[3,3,2],[6,2,1],[8,8,2]],[[0,3,7],[3,3,9],[6,2,7],[8,4,4],[12,4,5]],[[0,6,4],[6,2,2],[8,8,1]]],
+    folk:[[[0,2,4],[2,1,4],[3,2,2],[6,2,4],[8,2,7],[10,2,5],[12,4,4]],[[0,2,4],[2,1,4],[3,2,2],[6,2,0],[8,8,2]],[[0,2,4],[2,1,4],[3,2,2],[6,2,4],[8,2,7],[10,2,9],[12,4,7]],[[0,2,4],[2,1,5],[3,3,4],[6,2,2],[8,8,0]]],
+    bigroom:[[[0,2,7],[3,2,7],[6,1,4],[8,2,5],[11,2,4],[14,1,2]],[[0,2,4],[3,2,4],[6,1,2],[8,2,4],[11,2,2],[14,1,0]],[[0,2,7],[3,2,7],[6,1,4],[8,2,5],[11,2,4],[14,1,2]],[[0,2,7],[3,2,9],[6,1,7],[8,6,4],[14,2,2]]],
+    epic:[[[0,8,0],[8,4,4],[12,4,3]],[[0,6,2],[6,2,1],[8,8,0]],[[0,4,4],[4,4,5],[8,8,7]],[[0,6,5],[6,2,4],[8,8,2]]],
+    synth80:[[[0,3,7],[3,3,7],[6,2,9],[8,1,7],[9,1,6],[10,2,4],[12,4,2]],[[0,2,4],[2,2,2],[4,4,0],[10,2,2],[12,2,4],[14,2,5]],[[0,3,7],[3,3,7],[6,2,9],[8,1,7],[9,1,6],[10,2,4],[12,4,2]],[[0,3,4],[3,3,2],[6,2,1],[8,8,0]]]};
+  const chordHits=(c,o,n,steps,v,st,ext)=>{ const vs=voice(st,c,ext); steps.forEach(([s,l,vel])=>vs.forEach(pp=>n.push({s:o+s,p:pp,l,v:vel||v}))); };
+  const seq16=(c,o,n,lo,pat,len,acc)=>{ const R=rootIn(c,lo), t=c.iv[1]; pat.forEach((x,i)=>{ if(x==null) return; const iv=x==='t'?t:x==='T'?t+12:x; n.push({s:o+i,p:R+iv,l:len||1,v:acc.includes(i)?104:80}); }); };
   return [
-    ['Pop klavír','Akord a rozložené tóny, bas v ľavej ruke',(c,o,n,st)=>{ const v=voice(st,c,'add9'), t=v[v.length-1], m=v[1];
-      n.push({s:o,p:lh(c),l:7,v:92},{s:o+8,p:lh(c)+12,l:6,v:80});
-      v.forEach(pp=>n.push({s:o,p:pp,l:3,v:96})); [[3,t],[6,m],[11,t],[14,m]].forEach(([s,pp])=>n.push({s:o+s,p:pp,l:2,v:78}));
-      v.forEach(pp=>n.push({s:o+8,p:pp,l:3,v:88})); }],
-    ['Moderné akordy','Synkopické údery s add9 (pop, rádio)',(c,o,n,st)=>{ n.push({s:o,p:lh(c),l:14,v:84}); chordAt(c,o,n,[[0,3,100],[3,3,82],[6,4,92],[10,2,80],[12,2,88],[14,2,78]],90,st,'add9'); }],
-    ['House plucks','Krátke akordy medzi dobami',(c,o,n,st)=>chordAt(c,o,n,[[2,1,100],[6,1,96],[10,1,100],[14,1,94]],96,st,'lofi')],
-    ['Gitara – brnkanie','Dole, dole-hore, hore-dole-hore',(c,o,n,st)=>{ const v=voice(st,c,'tri'); const g=[lh(c)+12,...v,v[0]+12];
-      [[0,4,104],[4,2,86],[6,2,74],[10,2,72],[12,2,92],[14,2,74]].forEach(([s,l,vel])=>g.forEach((pp,i)=>n.push({s:o+s,p:pp,l,v:Math.max(40,vel-i*3)}))); }],
-    ['Lo-fi akordy','Mäkké septakordy, uvoľnený rytmus',(c,o,n,st)=>{ n.push({s:o,p:lh(c),l:10,v:78}); chordAt(c,o,n,[[0,6,82],[7,2,66],[10,6,76]],76,st,'lofi'); }],
+    ['Trance arpeggio','Valiace šestnástiny – uplifting trance (Armin, Tiësto)',(c,o,n)=>seq16(c,o,n,57,[0,7,12,7,'T',7,12,7,0,7,12,7,14,7,12,7],1,[0,4,8,12])],
+    ['Trance gate akordy','Sekané akordy v šestnástinách – eufória',(c,o,n,st)=>{ const v=voice(st,c,'add9',67); [0,2,3,5,6,8,10,11,13,14].forEach((s,i)=>v.forEach(pp=>n.push({s:o+s,p:pp,l:1,v:s%4===0?104:84}))); }],
+    ['Trance lead','Dlhé tóny a oktávové skoky – emotívna melódia',hook(LEAD.trance,69)],
+    ['Folk house akordy','Synkopický klavír – radostný folk-house (Avicii)',(c,o,n,st)=>{ const v=voice(st,c,'add9'); n.push({s:o,p:rootIn(c,36),l:6,v:96},{s:o+8,p:rootIn(c,36)+12,l:6,v:84});
+      [[0,2,104],[3,2,90],[6,3,98],[10,2,88],[12,3,96]].forEach(([s,l,vel])=>v.forEach(pp=>n.push({s:o+s,p:pp,l,v:vel}))); }],
+    ['Folk house hook','Chytľavá pentatonická fráza – na pískanie',hook(LEAD.folk,67,1)],
+    ['Big room plucks','Krátke údery 3-3-2 – festivalový drop (Guetta)',(c,o,n,st)=>{ const v=voice(st,c,'tri',72); [0,3,6,8,11,14].forEach(s=>v.forEach(pp=>n.push({s:o+s,p:pp,l:1,v:s%8===0?110:94}))); }],
+    ['Big room lead','Úderný motív, ktorý sa opakuje',hook(LEAD.bigroom,69,1)],
+    ['Epické ostinato','Hnací rytmus sláčikov – filmová hudba (Zimmer)',(c,o,n)=>seq16(c,o,n,45,[0,0,12,0,7,0,12,0,0,0,12,0,7,12,7,12],1,[0,3,6,8,11,14])],
+    ['Epické akordy','Mohutné široké akordy cez celý takt',(c,o,n)=>{ const R=rootIn(c,36), t=c.iv[1]; [0,7,12,12+t,19,24].forEach(iv=>n.push({s:o,p:R+iv,l:16,v:96})); }],
+    ['Epická téma','Pomalá hrdinská melódia',hook(LEAD.epic,57)],
+    ['Synth 80s – sekvencia','Pulzujúci bas v šestnástinách (Jan Hammer)',(c,o,n)=>seq16(c,o,n,36,[0,12,7,12,0,12,7,12,0,12,7,12,0,12,10,12],1,[0,4,8,12])],
+    ['Synth 80s – lead','Synkopická synťáková melódia',hook(LEAD.synth80,69)],
     ['Pad – široký','Dlhé otvorené akordy cez celý takt',(c,o,n,st)=>{ const v=voice(st,c,'add9'); n.push({s:o,p:lh(c),l:16,v:72}); [v[0],v[2]||v[1],...v.slice(1)].forEach((pp,i)=>n.push({s:o,p:pp+(i>=2?12:0),l:16,v:70})); }],
-    ['Arpeggio – pulzujúce','Osminy cez dve oktávy (EDM, pop)',(c,o,n,st)=>{ const v=voice(st,c,'add9'), seq=[v[0],v[2]||v[1],v[0]+12,v[1]+12,(v[2]||v[1])+12,v[0]+12,v[2]||v[1],v[1]];
-      for(let s=0;s<16;s+=2) n.push({s:o+s,p:seq[s/2],l:2,v:s%4?78:98}); }],
-    ['Arpeggio – hore a dole','Šestnástiny nahor a nadol',(c,o,n,st)=>{ const v=voice(st,c,'add9'), seq=[...v,v[0]+12,...v.slice(1).reverse()]; for(let s=0;s<16;s++) n.push({s:o+s,p:seq[s%seq.length],l:1,v:s%4?72:92}); }],
-    ['Melódia – hook 1','Spevná fráza, otázka a odpoveď',hook(H[0])],
-    ['Melódia – hook 2','Synkopická popová fráza',hook(H[1])],
-    ['Melódia – hook 3','Dlhé emotívne tóny (balada)',hook(H[2])],
-    ['Melódia – hook 4','Skákavá tanečná fráza',hook(H[3])]];
+    ['Moderné akordy','Synkopické údery s add9',(c,o,n,st)=>{ n.push({s:o,p:lh(c),l:14,v:84}); chordHits(c,o,n,[[0,3,100],[3,3,82],[6,4,92],[10,2,80],[12,2,88],[14,2,78]],90,st,'add9'); }],
+    ['Arpeggio – hore a dole','Šestnástiny nahor a nadol',(c,o,n,st)=>{ const v=voice(st,c,'add9'), seq=[...v,v[0]+12,...v.slice(1).reverse()]; for(let s=0;s<16;s++) n.push({s:o+s,p:seq[s%seq.length],l:1,v:s%4?72:92}); }]];
 })();
 function keyLinesList(){ return [...KEY_LINES.map(x=>({n:x[0],d:x[1],gen:x[2]})),
   ...BASS_PATS.map(bp=>({n:'Bas – '+bp[0],d:bp[1],gen:(c,o,n)=>{ const base=36+c.bass-(c.bass>7?12:0); bp[2].forEach(([s,of,l,v])=>n.push({s:o+s,p:clamp(base+bassOff(of,c.iv),24,72),l,v})); }}))]; }
