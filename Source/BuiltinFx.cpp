@@ -2276,8 +2276,7 @@ namespace BuiltinFx
 juce::Array<juce::PluginDescription> descriptions()
 {
     juce::Array<juce::PluginDescription> a;
-    // "master": vstavana verzia sa uz neponuka (nahradil ju VST3 Korgus Master), stare piesne ju stale otvoria
-    for (const auto& e : entries()) if (juce::String (e.key) != "arp" && juce::String (e.key) != "master" && juce::String (e.key) != "vocoder") a.add (FxBase::describe (e.name, e.key, e.inst));
+    for (const auto& e : entries()) if (juce::String (e.key) != "arp" && juce::String (e.key) != "vocoder") a.add (FxBase::describe (e.name, e.key, e.inst));
     return a;
 }
 

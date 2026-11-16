@@ -296,8 +296,16 @@ void Engine::setMidiFilter (const juce::String& deviceId)
     midiFilter = deviceId;
 }
 
+void Engine::setDrumSetLive (int slot, int lane, const DrumSet& d)
+{
+    const juce::SpinLock::ScopedLockType l (liveLock);
+    for (auto& x : liveSets) if (x.slot == slot && x.lane == lane) { x.ds = d; return; }
+    if (liveSets.size() < 64) liveSets.push_back ({ slot, lane, d });
+}
+
 void Engine::setSong (std::unique_ptr<SongData> s)
 {
+    { const juce::SpinLock::ScopedLockType l (liveLock); liveSets.clear(); }   // nova pieseň uz obsahuje upravy
     song.store (s.get());
     songHistory.push_back (std::move (s));
     // posledne verzie nechame zit, aby ich audio vlakno nikdy nedrzalo zmazane
@@ -544,6 +552,11 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
         if (! juce::isPositiveAndBelow (td.slot, (int) slots.size())) continue;
         auto& s = *slots[(size_t) td.slot];
         s.dset = td.dset;   // upravy zvuku bicich pre nove udery
+        {
+            const juce::SpinLock::ScopedTryLockType tl (liveLock);
+            if (tl.isLocked())
+                for (const auto& x : liveSets) if (x.slot == td.slot && juce::isPositiveAndBelow (x.lane, 10)) s.dset[(size_t) x.lane] = x.ds;
+        }
 
         if (td.isAudio || td.frozen)
         {
@@ -650,7 +663,18 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         {
             for (auto& t : trigs)
                 if (juce::isPositiveAndBelow (t.slot, (int) slots.size()))
-                    slots[(size_t) t.slot]->addVoice (t.buf, 0, t.gain, t.lane);
+                {
+                    auto& sl = *slots[(size_t) t.slot];
+                    // aktualne upravy zvuku (aj ked sa neprehrava)
+                    if (auto* sd = song.load())
+                        for (const auto& td : sd->tracks) if (td.slot == t.slot) { sl.dset = td.dset; break; }
+                    {
+                        const juce::SpinLock::ScopedTryLockType tl (liveLock);
+                        if (tl.isLocked())
+                            for (const auto& x : liveSets) if (x.slot == t.slot && juce::isPositiveAndBelow (x.lane, 10)) sl.dset[(size_t) x.lane] = x.ds;
+                    }
+                    sl.addVoice (t.buf, 0, t.gain, t.lane);
+                }
             trigs.clear();
         }
     }

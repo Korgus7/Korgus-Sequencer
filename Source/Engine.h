@@ -177,6 +177,8 @@ public:
     //== volane z hlavneho vlakna
     int  getOrCreateSlot (const juce::String& trackId);
     void setSong (std::unique_ptr<SongData>);
+    // okamzita zmena zvuku nastroja bicich z editora (plati, kym nepride nova verzia piesne)
+    void setDrumSetLive (int slot, int lane, const DrumSet& d);
     void play (double fromStep, int countInBars);
     void stop();
     void setPosition (double step);
@@ -322,6 +324,8 @@ private:
     std::vector<std::unique_ptr<Slot>> slots;
 
     std::atomic<SongData*> song { nullptr };
+    struct LiveDrumSet { int slot, lane; DrumSet ds; };
+    juce::SpinLock liveLock; std::vector<LiveDrumSet> liveSets;
     std::vector<std::unique_ptr<SongData>> songHistory;   // stare verzie sa mazu neskor (nie v audio vlakne)
 
     juce::AbstractFifo liveFifo { 512 };

@@ -731,6 +731,18 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                     });
                                 });
                             })
+        .withEventListener ("drumSet",     [this] (const juce::var& v)   // editor zvuku bicich: okamzita zmena
+                            {
+                                const auto& o = v["ds"];
+                                auto f = [&o] (const char* k, float def) { return (float) (double) o.getProperty (k, def); };
+                                DrumSet d; d.on = (bool) v.getProperty ("on", true);
+                                d.tr = f ("tr", 0); d.tune = f ("tune", 0); d.pEnv = f ("pEnv", 0); d.pA = f ("pA", 0); d.pH = f ("pH", 0); d.pD = f ("pD", 0.3f); d.pVel = f ("pVel", 0);
+                                d.fOn = (bool) o.getProperty ("fOn", false); d.soft = (bool) o.getProperty ("soft", true); d.fType = (int) o.getProperty ("fType", 0);
+                                d.cut = f ("cut", 20000); d.res = f ("res", 0); d.fEnv = f ("fEnv", 0); d.fA = f ("fA", 0); d.fH = f ("fH", 0); d.fD = f ("fD", 0.3f);
+                                d.fVel = f ("fVel", 0); d.drive = f ("drive", 0); d.punch = f ("punch", 0);
+                                d.gain = f ("gain", 0); d.pan = f ("pan", 0); d.aA = f ("aA", 0); d.aH = f ("aH", 2); d.aD = f ("aD", 4); d.aVel = f ("aVel", 1);
+                                engine.setDrumSetLive (engine.getOrCreateSlot (v["track"].toString()), (int) v["lane"], d);
+                            })
         .withEventListener ("drumHit",     [this] (const juce::var& v)
                             {
                                 engine.triggerSample (engine.getOrCreateSlot (v["track"].toString()), store->get (v["id"].toString()),
@@ -3615,7 +3627,8 @@ void MainView::checkForUpdate()
     juce::Component::SafePointer<MainView> sp (this);
     juce::Thread::launch ([sp]
     {
-        juce::URL u (updApi);
+        // GitHub (raw) drzi subory v cache az 5 minut - parameter ?t= zaruci cerstvu verziu
+        juce::URL u (juce::String (updApi) + "?t=" + juce::String (juce::Time::currentTimeMillis()));
         auto opts = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
                         .withConnectionTimeoutMs (8000)
                         .withExtraHeaders ("User-Agent: KorgusSequencer\r\nCache-Control: no-cache");
@@ -3655,7 +3668,7 @@ void MainView::onUpdateNow()
         };
         const auto dest = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("KorgusSequencer-Setup-" + ver + ".exe");
         int status = 0;
-        auto in = juce::URL (url).createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+        auto in = juce::URL (url + (url.containsChar ('?') ? "&t=" : "?t=") + juce::String (juce::Time::currentTimeMillis())).createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
                         .withConnectionTimeoutMs (15000).withExtraHeaders ("User-Agent: KorgusSequencer").withNumRedirectsToFollow (8)
                         .withStatusCode (&status));
         if (in == nullptr || (status != 0 && status >= 400)) { fail (sk ("Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.")); return; }
