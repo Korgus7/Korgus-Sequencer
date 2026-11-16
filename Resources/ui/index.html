@@ -2770,15 +2770,19 @@ function renderDrum({tr,p}){
   $('dClr').onclick=()=>{pushUndo(); p.grid=emptyGrid(p.plen); renderEditor(); drawArrange(); save();};
   const putPat=pat=>{ pushUndo(); const g=emptyGrid(16); for(const k in pat[2]) [...pat[2][k]].forEach((ch,i)=>{ if(ch!=='.') g[+k][i]=ch==='X'?2:1; });
     if(pat[0]==='Prechod'){ const o=Math.max(0,p.plen-16); p.grid=p.grid.map((r,l)=>r.map((v,s)=>s>=o?g[l][s-o]:v)); }
-    else { p.grid=DRUMS.map((_,l)=>Array.from({length:p.plen},(_,s)=>g[l][s%16])); p.rhythm=pat[0]; const pi=DRUM_PATS.filter(x=>x[0]!=='Prechod').indexOf(pat); if(pi>=0) p.patI=pi; kitAuto(tr,pat[0]); }
+    else { p.grid=DRUMS.map((_,l)=>Array.from({length:p.plen},(_,s)=>g[l][s%16])); p.rhythm=pat[0]; p.name=pat[0]; const pi=DRUM_PATS.filter(x=>x[0]!=='Prechod').indexOf(pat); if(pi>=0) p.patI=pi; kitAuto(tr,pat[0]); }
     renderEditor(); drawArrange(); save(); toast('Rytmus: <b>'+esc(pat[0])+'</b>. ‹ › = ďalší · Ctrl+Z vráti späť.'); };
-  const pats=DRUM_PATS.filter(x=>x[0]!=='Prechod'), stepPat=d=>{ if(p.patI==null&&p.rhythm){ const k=pats.findIndex(x=>x[0]===p.rhythm); if(k>=0) p.patI=k; } const i=((p.patI==null?(d>0?-1:0):p.patI)+d+pats.length)%pats.length; putPat(pats[i]); p.patI=i; save(); };
+  const pats=DRUM_PATS.filter(x=>x[0]!=='Prechod'), stepPat=d=>{ if(p.patI==null&&p.rhythm){ const k=pats.findIndex(x=>x[0]===p.rhythm); if(k>=0) p.patI=k; } const N=pats.length+PATLIB.drum.length, i=((p.patI==null?(d>0?-1:0):p.patI)+d+N)%N;
+    if(i>=pats.length){ libDrumApply(tr,p,PATLIB.drum[i-pats.length],i); return; } putPat(pats[i]); p.patI=i; save(); };
   $('dPtP').onclick=()=>stepPat(-1); $('dPtN').onclick=()=>stepPat(1);
   const stepKit=d=>{ if(!NATIVE){ toast('Súpravy zvukov fungujú v programe.'); return; } const k=NKITS.findIndex(x=>x[0]===tr.nkit), n=NKITS.length, i=k<0?(d>0?0:n-1):(k+d+n)%n; kitReq[tr.id]=1; nat('drumKit',{track:tr.id,kit:i}); };
   $('dKtP').onclick=()=>stepKit(-1); $('dKtN').onclick=()=>stepKit(1);
   $('dPat').onclick=e=>{ const r=e.currentTarget.getBoundingClientRect();
-    ctxMenu(r.left,r.bottom+2,[['🎲 Náhodný vzor',()=>rnd()],null,...DRUM_PATS.map(pt=>[pt[0]+'  –  '+pt[1],()=>putPat(pt)])]); };
-  const rnd=()=>{pushUndo(); p.rhythm='Náhodný vzor'; const R=Math.random;
+    libRefresh();
+    ctxMenu(r.left,r.bottom+2,[['🎲 Náhodný vzor',()=>rnd()],null,...DRUM_PATS.map(pt=>[pt[0]+'  –  '+pt[1],()=>putPat(pt)]),null,
+      ...(NATIVE?[['📁 Moja knižnica rytmov ('+PATLIB.drum.length+') ▸',()=>setTimeout(()=>ctxMenu(r.left,r.bottom+2,PATLIB.drum.length?PATLIB.drum.map((it,k)=>['📁 '+it.n,()=>libDrumApply(tr,p,it,pats.length+k)]):[['(prázdne – vlož .mid súbory do priečinka Bicie)',()=>nat('patLib',{open:'Bicie'})]]),0)],
+        ['💾 Uložiť tento rytmus do knižnice',()=>libSaveDrum(p)],['📂 Otvoriť priečinok knižnice rytmov',()=>nat('patLib',{open:'Bicie'})]]:[])]); };
+  const rnd=()=>{pushUndo(); p.rhythm='Náhodný vzor'; p.name='Náhodný vzor'; const R=Math.random;
     p.grid=DRUMS.map((_,l)=>Array.from({length:p.plen},(_,s)=>{const m=s%16;
       switch(l){case 0:return m%8===0?2:(R()<.12?1:0); case 1:return (m===4||m===12)?1:(R()<.05?1:0); case 2:return m===12&&R()<.5?1:0;
         case 3:return m===14?0:(s%2===0?(m%4===2?2:1):(R()<.15?1:0)); case 4:return m===14&&R()<.7?1:0; case 5:case 6:return R()<.04?1:0;
@@ -2992,19 +2996,25 @@ function keyLineNotes(p,i){
   return notes.map(n=>({...n,p:clamp(n.p,0,127),v:clamp(Math.round(n.v),1,127)}));
 }
 function keyLineApply(tr,p,i){
-  const list=keyLinesList(); i=(i+list.length)%list.length; const it=list[i];
+  const list=keyLinesList(), lib=libMelList(), N=list.length+lib.length; i=(i+N)%N;
+  if(i>=list.length){ libMelApply(tr,p,lib[i-list.length],i); return; }
+  const it=list[i];
   const tonic=song.keyK!=null?(song.keyM?(song.keyK+3)%12:song.keyK):0, hasCh=(song.chords||[]).length;
   const chordAt=b=>{ const cs=chordsSorted();
     if(hasCh){ const st=(p.start+b)*SPB; let c=null; cs.forEach(q=>{ if(q.s<=st+8) c=q; }); const r=c?parseChord(c.c):null; return r?{root:r.root,bass:r.bass!=null?r.bass:r.root,iv:r.iv}:{root:tonic,bass:tonic,iv:[0,4,7]}; }
     const pr=PROGS[2], k=(p.start+b)%pr[1].length, root=(tonic+pr[1][k])%12; return {root,bass:root,iv:pr[2][k]?[0,3,7]:[0,4,7]}; };
-  pushUndo(); p.notes=keyLineNotes(p,i); p.lineI=i; selNotes.clear();
+  pushUndo(); p.notes=keyLineNotes(p,i); p.lineI=i; p.name=it.n; selNotes.clear();
   renderEditor(); drawArrange(); save();
   // zvuk k linke: Inspiria si sama nahodi vhodny tovarensky zvuk
   const snd=LINE_SOUND[it.n]||(it.n.startsWith('Bas')?'Teplý bas':null);
   if(snd&&NATIVE&&isInspire(tr)){ nat('instAction',{track:tr.id,what:'preset',name:snd,idx:INSP_FACTORY.indexOf(snd)}); setTimeout(()=>toast('Linka: <b>'+esc(it.n)+'</b> · zvuk Inspirie: <b>'+esc(snd)+'</b>. ‹ › = ďalšia · Ctrl+Z vráti noty.'),30); return; }
   toast('Linka: <b>'+esc(it.n)+'</b>'+(hasCh?' (podľa akordovej stopy)':' (Am – F – C – G, pridaj akordy pre vlastné)')+'. ‹ › = ďalšia · Ctrl+Z vráti späť.');
 }
-function keyLinesMenu(tr,p,x,y){ ctxMenu(x,y,[['🎼 Najprv postup akordov (Pop, Emotívny, Epický…) ▸',()=>setTimeout(()=>chordPresetMenu(x,y),0)],null,...keyLinesList().map((it,i)=>[(i===KEY_LINES.length?'':'')+it.n+'  –  '+it.d,()=>keyLineApply(tr,p,i)])]); }
+function keyLinesMenu(tr,p,x,y){ libRefresh(); const nB=keyLinesList().length;
+  const libItems=NATIVE?[null,['⭐ Hity – akordy a témy ('+PATLIB.hits.length+') ▸',()=>setTimeout(()=>ctxMenu(x,y,PATLIB.hits.map((it,k)=>['⭐ '+it.n,()=>libMelApply(tr,p,it,nB+k)])),0)],
+    ['📁 Moja knižnica melódií ('+PATLIB.mel.length+') ▸',()=>setTimeout(()=>ctxMenu(x,y,PATLIB.mel.length?PATLIB.mel.map((it,k)=>['📁 '+it.n,()=>libMelApply(tr,p,it,nB+PATLIB.hits.length+k)]):[['(prázdne – vlož .mid súbory do priečinka Melódie)',()=>nat('patLib',{open:'Melódie'})]]),0)],
+    ['💾 Uložiť túto časť do knižnice',()=>libSaveMel(p)],['📂 Otvoriť priečinok knižnice melódií',()=>nat('patLib',{open:'Melódie'})]]:[];
+  ctxMenu(x,y,[['🎼 Najprv postup akordov (Pop, Emotívny, Epický…) ▸',()=>setTimeout(()=>chordPresetMenu(x,y),0)],null,...keyLinesList().map((it,i)=>[(i===KEY_LINES.length?'':'')+it.n+'  –  '+it.d,()=>keyLineApply(tr,p,i)]),...libItems]); }
 function chordsSorted(){ return (song.chords||[]).slice().sort((a,b)=>a.s-b.s); }
 function chordNotesFor(p){
   const a=p.start*SPB, b=a+p.len*SPB, cs=chordsSorted(), out=[];
@@ -3055,6 +3065,51 @@ function chordMenu(x,cx,cy){
   if((song.chords||[]).length) items.push(['Zmazať všetky akordy',()=>{ pushUndo(); song.chords=[]; drawArrange(); save(); }]);
   ctxMenu(cx,cy,items);
 }
+/* kniznica MIDI patternov (Hudba\Korgus Patterny\Bicie, Melódie, Hity): menu Rytmy/Linky, sipky, ulozenie */
+let PATLIB={drum:[],mel:[],hits:[]}, patReq={}, patReqN=0;
+function libRefresh(){ if(NATIVE) nat('patLib',{}); }
+const HITS=(()=>{ const NI={C:0,'C#':1,Db:1,D:2,'D#':3,Eb:3,E:4,F:5,'F#':6,Gb:6,G:7,'G#':8,Ab:8,A:9,'A#':10,Bb:10,H:11,B:11};
+  const pn=x=>{ const m=/^([A-H][#b]?)(\d)$/.exec(x); return 12*(+m[2]+1)+NI[m[1]]; };
+  // akordy: kazdy akord na 1 takt - lava ruka koren, prava ruka akord v plynulom vedeni
+  const chords=list=>{ const n=[]; let prev=64; list.forEach((c,b)=>{ const r=parseChord(c); if(!r) return; const root=r.root, iv=r.iv.slice(0,3);
+      let best=null; for(let k=0;k<3;k++){ const ord=iv.map(i=>(root+i)%12).sort((x,y)=>((x-(root+iv[k])%12+12)%12)-((y-(root+iv[k])%12+12)%12)); const v=[]; let lo=ord[0]; while(lo<55) lo+=12; v.push(lo);
+        for(let j=1;j<3;j++){ let q=ord[j]; while(q<=v[v.length-1]) q+=12; v.push(q); } const m=(v[0]+v[1]+v[2])/3, d=Math.abs(m-prev); if(!best||d<best.d) best={v,d,m}; }
+      prev=best.m; const bass=36+root-(root>7?12:0);
+      n.push([b*16,bass,8,96],[b*16+8,bass+12,8,84]); best.v.forEach(p=>n.push([b*16,p,7,92],[b*16+8,p,7,80])); }); return n; };
+  // tema: [nota, doby] (R = pauza)
+  const theme=list=>{ const n=[]; let t=0; list.forEach(([x,beats])=>{ const st=Math.round(beats*4); if(x!=='R') n.push([t,pn(x),Math.max(1,st-1),t%16===0?104:90]); t+=st; }); return n; };
+  return [
+    ['Wake Me Up (Avicii) – akordy',chords(['Bm','G','D','A'])],
+    ['Levels (Avicii) – akordy',chords(['C#m','E','H','A'])],
+    ['Children (Robert Miles) – akordy',chords(['Fm','Db','Ab','Eb'])],
+    ['Kánon D dur (Pachelbel) – akordy',chords(['D','A','Hm','F#m','G','D','G','A'])],
+    ['Óda na radosť (Beethoven) – téma',theme([['E4',1],['E4',1],['F4',1],['G4',1],['G4',1],['F4',1],['E4',1],['D4',1],['C4',1],['C4',1],['D4',1],['E4',1],['E4',1.5],['D4',.5],['D4',2],
+      ['E4',1],['E4',1],['F4',1],['G4',1],['G4',1],['F4',1],['E4',1],['D4',1],['C4',1],['C4',1],['D4',1],['E4',1],['D4',1.5],['C4',.5],['C4',2]])],
+    ['Für Elise (Beethoven) – téma',theme([['E5',.5],['D#5',.5],['E5',.5],['D#5',.5],['E5',.5],['H4',.5],['D5',.5],['C5',.5],['A4',1],['R',.5],['C4',.5],['E4',.5],['A4',.5],['H4',1],['R',.5],['E4',.5],['G#4',.5],['H4',.5],['C5',1],['R',.5],['E4',.5],
+      ['E5',.5],['D#5',.5],['E5',.5],['D#5',.5],['E5',.5],['H4',.5],['D5',.5],['C5',.5],['A4',1],['R',.5],['C4',.5],['E4',.5],['A4',.5],['H4',1],['R',.5],['E4',.5],['C5',.5],['H4',.5],['A4',2]])],
+    ['Korobeiniki (ľudová) – téma',theme([['E5',1],['H4',.5],['C5',.5],['D5',1],['C5',.5],['H4',.5],['A4',1],['A4',.5],['C5',.5],['E5',1],['D5',.5],['C5',.5],['H4',1.5],['C5',.5],['D5',1],['E5',1],['C5',1],['A4',1],['A4',2],
+      ['R',.5],['D5',1],['F5',.5],['A5',1],['G5',.5],['F5',.5],['E5',1.5],['C5',.5],['E5',1],['D5',.5],['C5',.5],['H4',1],['H4',.5],['C5',.5],['D5',1],['E5',1],['C5',1],['A4',1],['A4',1],['R',1]])]];
+})();
+onNat('patLibList',e=>{ PATLIB={drum:e.drum||[],mel:e.mel||[],hits:e.hits||[]}; PATLIB.root=e.root;
+  if(e.fresh){ HITS.forEach(([n,notes])=>nat('patSave',{folder:'Hity',name:n,notes,drum:false,quiet:true})); setTimeout(libRefresh,400); } });
+onNat('patSaved',e=>{ if(!e.quiet) toast(e.ok?'Uložené do knižnice: <b>'+esc(String(e.path).split(/[\\/]/).slice(-2).join(' / '))+'</b>':'Uloženie sa nepodarilo.'); if(!e.quiet) libRefresh(); });
+onNat('patLoaded',e=>{ const cb=patReq[e.req]; delete patReq[e.req]; if(cb) cb(e); });
+function patLoad(path,cb){ const req=++patReqN; patReq[req]=cb; nat('patLoad',{path,req}); }
+const GM_LANE={35:0,36:0,38:1,40:1,39:2,42:3,44:3,69:3,70:3,46:4,54:4,41:5,43:5,45:5,63:5,64:5,47:6,48:6,50:6,60:6,61:6,62:6,37:7,75:7,76:7,77:7,49:8,51:8,52:8,55:8,57:8,59:8,53:8,56:9,67:9,68:9};
+function libDrumApply(tr,p,it,idx){ patLoad(it.p,e=>{ const notes=e.notes||[]; if(!notes.length){ toast('V súbore nie sú žiadne noty.'); return; }
+    const L=Math.max(16,Math.ceil((e.len||16)/16)*16); pushUndo(); const g=DRUMS.map(()=>new Array(p.plen).fill(0));
+    for(let s=0;s<p.plen;s++){ const ss=s%L; notes.forEach(([st,pt,l,v])=>{ if(st!==ss) return; const lane=GM_LANE[pt]; if(lane==null) return; g[lane][s]=Math.max(g[lane][s],v>=100?2:1); }); }
+    p.grid=g; p.rhythm=it.n; p.name=it.n; if(idx!=null) p.patI=idx; renderEditor(); drawArrange(); save(); toast('Rytmus z knižnice: <b>'+esc(it.n)+'</b>. ‹ › = ďalší · Ctrl+Z vráti späť.'); }); }
+function libMelApply(tr,p,it,idx){ patLoad(it.p,e=>{ const notes=e.notes||[]; if(!notes.length){ toast('V súbore nie sú žiadne noty.'); return; }
+    const L=Math.max(16,Math.ceil((e.len||16)/16)*16), total=p.len*SPB, out=[]; pushUndo();
+    for(let o=0;o<total;o+=L) notes.forEach(([st,pt,l,v])=>{ if(o+st<total) out.push({s:o+st,p:clamp(pt,0,127),l:Math.min(l,total-(o+st)),v:clamp(v,1,127)}); });
+    p.notes=out; p.name=it.n; if(idx!=null) p.lineI=idx; selNotes.clear(); renderEditor(); drawArrange(); save(); toast('Z knižnice: <b>'+esc(it.n)+'</b>. ‹ › = ďalšia · Ctrl+Z vráti späť.'); }); }
+function libMelList(){ return [...PATLIB.hits.map(x=>({...x,hit:1})),...PATLIB.mel]; }
+function askName(title,def,cb){ dialog(title,`<p><input id="anIn" style="width:100%;box-sizing:border-box" value="${esc(def)}"></p><p style="text-align:right"><button id="anOk">Uložiť</button></p>`);
+  const go=()=>{ const v=$('anIn').value.trim(); $('dlgBack').hidden=true; if(v) cb(v); }; $('anOk').onclick=go; $('anIn').onkeydown=e=>{ if(e.key==='Enter') go(); e.stopPropagation(); }; setTimeout(()=>{ $('anIn').focus(); $('anIn').select(); },30); }
+function libSaveDrum(p){ askName('Uložiť rytmus do knižnice',p.rhythm||p.name||'Môj rytmus',n=>{ const LN=[36,38,39,42,46,45,48,37,49,56], notes=[];
+  p.grid.forEach((row,l)=>row.forEach((v,s)=>{ if(v) notes.push([s,LN[l],1,v>1?112:84]); })); nat('patSave',{folder:'Bicie',name:n,notes,drum:true}); }); }
+function libSaveMel(p){ askName('Uložiť melódiu do knižnice',p.name||'Moja melódia',n=>nat('patSave',{folder:'Melódie',name:n,notes:(p.notes||[]).map(x=>[x.s,x.p,x.l,x.v||100]),drum:false})); }
 /* cela skladba jednym klikom: styl -> tempo, akordy, sekcie, bicie, linky, zvuky, pumpovanie a prechody */
 const SONG_STYLES=[
   {n:'Trance',d:'Uplifting trance (Armin, Tiësto) – arpeggio, gate akordy, emotívny lead',tempo:138,prog:3,kit:1,dr:{intro:'Trance',verse:'Trance',build:'Trance',drop:'Trance'},
@@ -3077,6 +3132,7 @@ const SONG_STYLES=[
    tr:[['Pad','Pad – široký',['intro','verse','build','drop','outro']],['Arpeggio','Trance arpeggio',['build','drop']],['Lead','Trance lead',['drop']],['Bas','Bas – Celé noty',['verse','build','drop']]]},
   {n:'Latino',d:'Latino – clave, konga, akordy a melódia',tempo:100,prog:4,kit:4,dr:{intro:'Latino',verse:'Latino',build:'Latino',drop:'Latino'},
    tr:[['Akordy','Moderné akordy',['verse','build','drop']],['Melódia','Folk house hook',['drop']],['Bas','Bas – Osminy',['verse','build','drop']]]}];
+setTimeout(libRefresh,1500);
 function songWizard(){
   dialog('Celá skladba jedným klikom',`<p>Vyber štýl. Program vytvorí <b>novú pieseň</b>: intro, sloha, nábeh, drop, sloha, nábeh, drop, outro – s bicími, akordmi, melódiou, basom, zvukmi Inspirie, pumpovaním a prechodmi. Potom to už len dolaďuješ.</p>
     <div id="tplList">${SONG_STYLES.map((t,i)=>`<button class="tplc" data-i="${i}"><b>${esc(t.n)}</b><span>${esc(t.d)}</span><i>${t.tempo} BPM</i></button>`).join('')}</div>`);

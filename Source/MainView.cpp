@@ -812,6 +812,92 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 if (id.isEmpty()) put (o, "error", true); else put (o, "id", id);
                                 emit ("sampleImported", o);
                             })
+        .withEventListener ("patLib",      [this] (const juce::var& v)
+                            {
+                                // kniznica MIDI patternov: Hudba\Korgus Patterny\{Bicie, Melódie, Hity}
+                                const auto root = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Korgus Patterny");
+                                const juce::String sub[3] = { "Bicie", juce::String::fromUTF8 ("Melódie"), "Hity" };
+                                for (auto& d : sub) root.getChildFile (d).createDirectory();
+                                if (v["open"].toString().isNotEmpty()) { root.getChildFile (v["open"].toString()).startAsProcess(); return; }
+                                auto o = obj();
+                                const char* keys[3] = { "drum", "mel", "hits" };
+                                bool hitsEmpty = true;
+                                for (int k = 0; k < 3; ++k)
+                                {
+                                    juce::Array<juce::var> arr;
+                                    auto fs = root.getChildFile (sub[k]).findChildFiles (juce::File::findFiles, true, "*.mid;*.midi");
+                                    fs.sort();
+                                    for (auto& f : fs)
+                                    {
+                                        auto e = obj(); put (e, "n", f.getFileNameWithoutExtension()); put (e, "p", f.getFullPathName());
+                                        arr.add (e);
+                                    }
+                                    if (k == 2) hitsEmpty = fs.isEmpty();
+                                    put (o, keys[k], arr);
+                                }
+                                put (o, "fresh", hitsEmpty && ! root.getChildFile (".hity_v1").existsAsFile());
+                                if (hitsEmpty) root.getChildFile (".hity_v1").replaceWithText ("1");
+                                put (o, "root", root.getFullPathName());
+                                emit ("patLibList", o);
+                            })
+        .withEventListener ("patLoad",     [this] (const juce::var& v)
+                            {
+                                const juce::File f (v["path"].toString());
+                                auto o = obj(); put (o, "req", v["req"]); put (o, "name", f.getFileNameWithoutExtension());
+                                juce::Array<juce::var> notes; int maxStep = 0;
+                                juce::MidiFile mf;
+                                if (juce::File::isAbsolutePath (v["path"].toString()) && f.existsAsFile())
+                                    if (juce::FileInputStream in (f); in.openedOk() && mf.readFrom (in))
+                                    {
+                                        const int tf = mf.getTimeFormat();
+                                        const double tps = tf > 0 ? tf / 4.0 : 24.0;   // tikov na sestnastinu
+                                        for (int t = 0; t < mf.getNumTracks(); ++t)
+                                        {
+                                            juce::MidiMessageSequence seq (*mf.getTrack (t));
+                                            seq.updateMatchedPairs();
+                                            for (int i = 0; i < seq.getNumEvents(); ++i)
+                                            {
+                                                const auto& m = seq.getEventPointer (i)->message;
+                                                if (! m.isNoteOn()) continue;
+                                                const double t0 = m.getTimeStamp();
+                                                const int off = seq.getIndexOfMatchingKeyUp (i);
+                                                const double t1 = off >= 0 ? seq.getEventPointer (off)->message.getTimeStamp() : t0 + tps;
+                                                const int s0 = juce::roundToInt (t0 / tps), len = juce::jmax (1, juce::roundToInt ((t1 - t0) / tps));
+                                                juce::Array<juce::var> nn { s0, m.getNoteNumber(), len, (int) m.getVelocity(), m.getChannel() };
+                                                notes.add (nn);
+                                                maxStep = juce::jmax (maxStep, s0 + len);
+                                            }
+                                        }
+                                    }
+                                put (o, "notes", notes); put (o, "len", maxStep);
+                                emit ("patLoaded", o);
+                            })
+        .withEventListener ("patSave",     [this] (const juce::var& v)
+                            {
+                                const auto root = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Korgus Patterny");
+                                const auto dir = root.getChildFile (juce::File::createLegalFileName (v["folder"].toString()));
+                                dir.createDirectory();
+                                const auto f = dir.getChildFile (juce::File::createLegalFileName (v["name"].toString()) + ".mid");
+                                const bool drum = (bool) v["drum"];
+                                juce::MidiMessageSequence seq;
+                                constexpr int tpq = 96, tps = tpq / 4;
+                                if (auto* arr = v["notes"].getArray())
+                                    for (auto& nv : *arr)
+                                        if (auto* n = nv.getArray(); n != nullptr && n->size() >= 4)
+                                        {
+                                            const int st = (int) (*n)[0], pitch = juce::jlimit (0, 127, (int) (*n)[1]), len = juce::jmax (1, (int) (*n)[2]);
+                                            const auto vel = (juce::uint8) juce::jlimit (1, 127, (int) (*n)[3]);
+                                            seq.addEvent (juce::MidiMessage::noteOn (drum ? 10 : 1, pitch, vel), st * tps);
+                                            seq.addEvent (juce::MidiMessage::noteOff (drum ? 10 : 1, pitch), (st + len) * tps - 1);
+                                        }
+                                seq.updateMatchedPairs();
+                                juce::MidiFile mf; mf.setTicksPerQuarterNote (tpq); mf.addTrack (seq);
+                                f.deleteFile();
+                                bool ok = false;
+                                if (juce::FileOutputStream out (f); out.openedOk()) ok = mf.writeTo (out);
+                                auto o = obj(); put (o, "ok", ok); put (o, "quiet", v["quiet"]); put (o, "path", f.getFullPathName());
+                                emit ("patSaved", o);
+                            })
         .withEventListener ("pickKit",     [this] (const juce::var& v)
                             {
                                 // natiahne celu supravu z priecinka do 10 riadkov: cislo na zaciatku nazvu, potom kluc. slova, potom poradie
