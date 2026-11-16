@@ -794,6 +794,50 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 if (id.isEmpty()) put (o, "error", true); else put (o, "id", id);
                                 emit ("sampleImported", o);
                             })
+        .withEventListener ("pickKit",     [this] (const juce::var& v)
+                            {
+                                // natiahne celu supravu z priecinka do 10 riadkov: cislo na zaciatku nazvu, potom kluc. slova, potom poradie
+                                const juce::File dir (v["path"].toString());
+                                auto o = obj(); put (o, "track", v["track"].toString()); put (o, "name", dir.getFileName());
+                                juce::Array<juce::File> fs;
+                                if (juce::File::isAbsolutePath (v["path"].toString()) && dir.isDirectory())
+                                    for (auto& f : dir.findChildFiles (juce::File::findFiles, false))
+                                        if (juce::StringArray { "wav", "mp3", "ogg", "flac", "aif", "aiff" }.contains (f.getFileExtension().substring (1).toLowerCase()) && ! f.isHidden()) fs.add (f);
+                                fs.sort();
+                                juce::File lane[10];
+                                juce::Array<juce::File> rest;
+                                for (auto& f : fs)
+                                {
+                                    const auto n = f.getFileNameWithoutExtension();
+                                    const int num = n.substring (0, 2).containsOnly ("0123456789") ? n.substring (0, 2).getIntValue() : 0;
+                                    if (num >= 1 && num <= 10 && lane[num - 1] == juce::File()) lane[num - 1] = f; else rest.add (f);
+                                }
+                                static const char* kw[10] = { "kick|bd|bassdrum|bass drum|kopak", "snare|sd|virbel", "clap|tlesk", "closed|chh|hh|hat",
+                                                              "open|ohh", "low tom|tom low|floor|lt|tom1", "tom|ht|mt", "rim|stick|side", "crash|ride|cymbal|cym|cinel", "cowbell|bell|perc|shaker|tamb" };
+                                static const int order[10] = { 4, 0, 1, 2, 5, 6, 7, 8, 9, 3 };   // otvoreny hi-hat a nizky tom skor nez vseobecne slova
+                                for (int oi = 0; oi < 10; ++oi)
+                                {
+                                    const int l = order[oi];
+                                    if (lane[l] != juce::File()) continue;
+                                    juce::StringArray words; words.addTokens (kw[l], "|", "");
+                                    for (int i = 0; i < rest.size(); ++i)
+                                    {
+                                        const auto low = " " + rest[i].getFileNameWithoutExtension().toLowerCase().replaceCharacters ("_-.", "   ") + " ";
+                                        bool hit = false;
+                                        for (auto& w : words) if (w.length() <= 3 ? low.contains (" " + w + " ") || low.contains (" " + w) : low.contains (w)) { hit = true; break; }
+                                        if (hit) { lane[l] = rest[i]; rest.remove (i); break; }
+                                    }
+                                }
+                                for (int l = 0; l < 10 && ! rest.isEmpty(); ++l) if (lane[l] == juce::File()) { lane[l] = rest[0]; rest.remove (0); }
+                                juce::Array<juce::var> ids, names;
+                                for (int l = 0; l < 10; ++l)
+                                {
+                                    const auto id = lane[l].existsAsFile() ? store->importFile (lane[l]) : juce::String();
+                                    ids.add (id); names.add (id.isEmpty() ? juce::String() : lane[l].getFileNameWithoutExtension());
+                                }
+                                put (o, "ids", ids); put (o, "names", names);
+                                emit ("kitImported", o);
+                            })
         .withEventListener ("importSample",[this] (const juce::var& v)
                             {
                                 const auto track = v["track"].toString();
