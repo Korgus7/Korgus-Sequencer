@@ -151,6 +151,7 @@ juce::String skTranslate (const char* utf8)
         { "Sila", "Velocity" },
         { "Smer", "Direction" },
         { "Stiahnuté", "Downloads" },
+        { "Bicie Korgus", "Korgus drums" },
         { "Stopa ", "Track " },
         { "Stopa sa nenašla.", "Track not found." },
         { "Stredy", "Mid" },

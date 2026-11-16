@@ -3444,8 +3444,42 @@ namespace
 }
 
 // prehliadac zvukov: obsah priecinka alebo vyhladavanie v nom (aj v podpriecinkoch)
+// predvolena kniznica zvukov bicich: supravy z DrumKits ulozene ako WAV (Hudba\Korgus Bicie\<suprava>\NN nazov.wav)
+static juce::File korgusDrumLib()
+{
+    const auto root = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Korgus Bicie");
+    const auto mark = root.getChildFile (".korgus_v1");
+    if (mark.existsAsFile()) return root;
+    if (! root.createDirectory()) return {};
+    constexpr double sr = 44100.0;
+    for (int k = 0; k < DrumKits::numKits; ++k)
+    {
+        const auto kd = root.getChildFile (juce::File::createLegalFileName (DrumKits::kitName (k)));
+        kd.createDirectory();
+        for (int l = 0; l < DrumKits::numLanes; ++l)
+        {
+            juce::AudioBuffer<float> b;
+            if (! DrumKits::make (k, l, sr, b)) continue;
+            const auto f = kd.getChildFile (juce::String (l + 1).paddedLeft ('0', 2) + " " + juce::File::createLegalFileName (DrumKits::laneName (k, l)) + ".wav");
+            f.deleteFile();
+            std::unique_ptr<juce::OutputStream> os (f.createOutputStream().release());
+            if (os == nullptr) continue;
+            juce::WavAudioFormat wav;
+            auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (1).withBitsPerSample (24));
+            if (w == nullptr) continue;
+            const float* ch[] = { b.getReadPointer (0) };
+            w->writeFromFloatArrays (ch, 1, b.getNumSamples());
+        }
+    }
+    mark.replaceWithText ("1");
+    return root;
+}
+
 void MainView::onFsList (const juce::var& v)
 {
+    const auto* extArr = v["ext"].getArray();
+    const bool drumKind = v["kind"].toString().isEmpty() && (extArr == nullptr || extArr->isEmpty());
+    const auto drumLib = drumKind ? korgusDrumLib() : juce::File();
     juce::StringArray exts { "wav", "mp3", "ogg", "flac", "aif", "aiff" };
     if (const auto* ea = v["ext"].getArray(); ea != nullptr && ! ea->isEmpty())
     {
@@ -3463,7 +3497,8 @@ void MainView::onFsList (const juce::var& v)
         return juce::File();
     };
     if (! juce::File::isAbsolutePath (v["path"].toString()) || ! dir.isDirectory())
-        dir = (v["kind"].toString() == "loop" && spliceDir().isDirectory()) ? spliceDir() : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+        dir = (v["kind"].toString() == "loop" && spliceDir().isDirectory()) ? spliceDir()
+            : (drumLib.isDirectory() ? drumLib : juce::File::getSpecialLocation (juce::File::userMusicDirectory));
     const auto q = v["q"].toString().trim();
     auto o = obj();
     put (o, "req", v["req"]); put (o, "path", dir.getFullPathName()); put (o, "q", q);
@@ -3511,6 +3546,7 @@ void MainView::onFsList (const juce::var& v)
     // jednotky a bezne miesta
     juce::Array<juce::var> places;
     auto place = [&] (const juce::String& n, const juce::File& f) { if (f.isDirectory()) { auto e = obj(); put (e, "n", n); put (e, "p", f.getFullPathName()); places.add (e); } };
+    if (drumLib.isDirectory()) place (sk ("Bicie Korgus"), drumLib);
     place (sk ("Hudba"), juce::File::getSpecialLocation (juce::File::userMusicDirectory));
     place (sk ("Dokumenty"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
     place (sk ("Plocha"), juce::File::getSpecialLocation (juce::File::userDesktopDirectory));
