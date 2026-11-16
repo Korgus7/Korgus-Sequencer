@@ -837,6 +837,8 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 }
                                 put (o, "fresh", hitsEmpty && ! root.getChildFile (".hity_v1").existsAsFile());
                                 if (hitsEmpty) root.getChildFile (".hity_v1").replaceWithText ("1");
+                                put (o, "fresh2", ! root.getChildFile (".hity_v2").existsAsFile());   // vlastne temy v style hitov
+                                root.getChildFile (".hity_v2").replaceWithText ("1");
                                 put (o, "root", root.getFullPathName());
                                 emit ("patLibList", o);
                             })
