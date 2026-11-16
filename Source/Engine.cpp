@@ -914,7 +914,21 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                         }
                 CrashGuard::Busy cg (slot.plugin.get()); slot.plugin->processBlock (view, slot.midi); any = true;
             }
-            if (! slot.voices.empty()) { slot.renderVoices (view, n); any = true; }
+            if (! slot.voices.empty())
+            {
+                slot.renderVoices (view, n); any = true;
+                // bicie: mekke obmedzenie spicky, aby sa viac sucasnych uderov (alebo hlasne vlastne samply) neskreslilo
+                if (slot.plugin == nullptr)
+                    for (int c = 0; c < juce::jmin (2, view.getNumChannels()); ++c)
+                    {
+                        float* d = view.getWritePointer (c);
+                        for (int i = 0; i < n; ++i)
+                        {
+                            const float a = std::abs (d[i]);
+                            if (a > 0.7f) d[i] = std::copysign (0.7f + 0.3f * std::tanh ((a - 0.7f) / 0.3f), d[i]);
+                        }
+                    }
+            }
             for (int k = 0; k < numFx; ++k)
                 if (auto& f = slot.fx[(size_t) k]; f != nullptr && ! (td.fxOff & (1u << k)))
                 {

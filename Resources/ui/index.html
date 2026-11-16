@@ -2770,7 +2770,7 @@ function renderDrum({tr,p}){
   $('dClr').onclick=()=>{pushUndo(); p.grid=emptyGrid(p.plen); renderEditor(); drawArrange(); save();};
   const putPat=pat=>{ pushUndo(); const g=emptyGrid(16); for(const k in pat[2]) [...pat[2][k]].forEach((ch,i)=>{ if(ch!=='.') g[+k][i]=ch==='X'?2:1; });
     if(pat[0]==='Prechod'){ const o=Math.max(0,p.plen-16); p.grid=p.grid.map((r,l)=>r.map((v,s)=>s>=o?g[l][s-o]:v)); }
-    else { p.grid=DRUMS.map((_,l)=>Array.from({length:p.plen},(_,s)=>g[l][s%16])); p.rhythm=pat[0]; const pi=DRUM_PATS.filter(x=>x[0]!=='Prechod').indexOf(pat); if(pi>=0) p.patI=pi; }
+    else { p.grid=DRUMS.map((_,l)=>Array.from({length:p.plen},(_,s)=>g[l][s%16])); p.rhythm=pat[0]; const pi=DRUM_PATS.filter(x=>x[0]!=='Prechod').indexOf(pat); if(pi>=0) p.patI=pi; kitAuto(tr,pat[0]); }
     renderEditor(); drawArrange(); save(); toast('Rytmus: <b>'+esc(pat[0])+'</b>. ‹ › = ďalší · Ctrl+Z vráti späť.'); };
   const pats=DRUM_PATS.filter(x=>x[0]!=='Prechod'), stepPat=d=>{ if(p.patI==null&&p.rhythm){ const k=pats.findIndex(x=>x[0]===p.rhythm); if(k>=0) p.patI=k; } const i=((p.patI==null?(d>0?-1:0):p.patI)+d+pats.length)%pats.length; putPat(pats[i]); p.patI=i; save(); };
   $('dPtP').onclick=()=>stepPat(-1); $('dPtN').onclick=()=>stepPat(1);
@@ -2863,6 +2863,9 @@ const DRUM_PATS=[
   ['Balada','Pokojný rytmus s rimshotom',{0:'X.......X.......',7:'....X.......X...',3:'x...x...x...x...'}],
   ['Polka','Ľudová dvojdoba – bas a „ča“',{0:'X...X...X...X...',1:'..X...X...X...X.',3:'..x...x...x...x.'}],
   ['Shuffle','Blues / shuffle (zapni Swing)',{0:'X.....X.X.......',1:'....X.......X...',3:'X..xX..xX..xX..x'}],
+  ['Trance','Rovný kopák, clap na 2 a 4, otvorený hi-hat medzi dobami',{0:'X...X...X...X...',2:'....X.......X...',4:'..X...X...X...X.',3:'x...x...x...x...'}],
+  ['Afro','Afrobeat – kopák, rimshot, shaker a kongy',{0:'X.....X...X.....',1:'....x.......x..x',3:'x.xxx.xxx.xxx.xx',5:'..x....x..x....x',6:'.x...x.....x.x..',9:'X..x..X...X..x..'}],
+  ['Afro house','Rovný kopák s afro perkusiami',{0:'X...X...X...X...',2:'....X.......X...',3:'xxXxxxXxxxXxxxXx',5:'..x.....x.x.....',6:'.....x.x.....x.x',7:'x..x..x...x.x...'}],
   ['House','Kopák na každú dobu, clap na 2 a 4, otvorený hi-hat medzi',{0:'X...X...X...X...',2:'....X.......X...',3:'x.x.x.x.x.x.x.x.',4:'..X...X...X...X.',7:'...x......x.....'}],
   ['Dance','Energický tanečný rytmus so šestnástinami',{0:'X...X...X...X...',1:'....X.......X...',2:'....X.......X...',3:'xxXxxxXxxxXxxxXx',8:'X...............'}],
   ['Chillout','Pomalý uvoľnený rytmus s rimshotom',{0:'X.....x...X.....',7:'....X.......X...',3:'x...x.x.x...x.x.',4:'..............X.'}],
@@ -3054,21 +3057,25 @@ function chordMenu(x,cx,cy){
 }
 /* cela skladba jednym klikom: styl -> tempo, akordy, sekcie, bicie, linky, zvuky, pumpovanie a prechody */
 const SONG_STYLES=[
-  {n:'Trance',d:'Uplifting trance (Armin, Tiësto) – arpeggio, gate akordy, emotívny lead',tempo:138,prog:3,dr:{intro:'Techno',verse:'Techno',build:'Dance',drop:'Dance'},
+  {n:'Trance',d:'Uplifting trance (Armin, Tiësto) – arpeggio, gate akordy, emotívny lead',tempo:138,prog:3,kit:1,dr:{intro:'Trance',verse:'Trance',build:'Trance',drop:'Trance'},
    tr:[['Arpeggio','Trance arpeggio',['verse','build','drop']],['Akordy','Trance gate akordy',['build','drop'],1],['Lead','Trance lead',['drop']],['Bas','Bas – Offbeat (EDM)',['verse','build','drop']],['Pad','Pad – široký',['intro','verse','outro']]]},
-  {n:'Folk house',d:'Radostný folk-house (Avicii) – synkopický klavír a pískaná melódia',tempo:124,prog:0,dr:{intro:'House',verse:'House',build:'Dance',drop:'House'},
+  {n:'Folk house',d:'Radostný folk-house (Avicii) – synkopický klavír a pískaná melódia',tempo:124,prog:0,kit:1,dr:{intro:'House',verse:'House',build:'House',drop:'House'},
    tr:[['Klavír','Folk house akordy',['verse','build','drop']],['Hook','Folk house hook',['drop']],['Bas','Bas – Pop pumpa',['verse','drop']],['Pad','Pad – široký',['intro','build','outro'],1]]},
-  {n:'Big room',d:'Festivalový drop (Guetta) – plucky a úderný lead',tempo:128,prog:0,dr:{intro:'House',verse:'House',build:'Dance',drop:'Dance'},
+  {n:'Big room',d:'Festivalový drop (Guetta) – plucky a úderný lead',tempo:128,prog:0,kit:1,dr:{intro:'House',verse:'House',build:'Dance',drop:'Dance'},
    tr:[['Plucky','Big room plucks',['build','drop'],1],['Lead','Big room lead',['drop']],['Bas','Bas – Offbeat (EDM)',['verse','drop']],['Pad','Pad – široký',['intro','verse','outro'],1]]},
-  {n:'Filmová hudba',d:'Epická (Zimmer) – ostinato sláčikov, mohutné akordy, hrdinská téma',tempo:100,prog:2,dr:{intro:null,verse:'Balada',build:'Rock',drop:'Rock'},
+  {n:'Filmová hudba',d:'Epická (Zimmer) – ostinato sláčikov, mohutné akordy, hrdinská téma',tempo:100,prog:2,kit:0,dr:{intro:null,verse:'Balada',build:'Rock',drop:'Rock'},
    tr:[['Ostinato','Epické ostinato',['verse','build','drop']],['Akordy','Epické akordy',['intro','verse','build','drop','outro']],['Téma','Epická téma',['drop']],['Bas','Bas – Celé noty',['build','drop']]]},
-  {n:'Synth 80s',d:'Retro synth (Jan Hammer) – pulzujúca sekvencia a synťákový lead',tempo:118,prog:6,dr:{intro:'Pop',verse:'Pop',build:'Rock',drop:'Rock'},
+  {n:'Synth 80s',d:'Retro synth (Jan Hammer) – pulzujúca sekvencia a synťákový lead',tempo:118,prog:6,kit:0,dr:{intro:'Pop',verse:'Pop',build:'Rock',drop:'Rock'},
    tr:[['Sekvencia','Synth 80s – sekvencia',['verse','build','drop']],['Lead','Synth 80s – lead',['drop']],['Pad','Pad – široký',['intro','verse','build','drop','outro']]]},
-  {n:'Pop',d:'Moderný pop – akordy s add9, melódia, bas',tempo:110,prog:1,dr:{intro:'Pop',verse:'Pop',build:'Pop',drop:'Dance'},
+  {n:'Pop',d:'Moderný pop – akordy s add9, melódia, bas',tempo:110,prog:1,kit:0,dr:{intro:'Pop',verse:'Pop',build:'Pop',drop:'Pop'},
    tr:[['Akordy','Moderné akordy',['verse','build','drop']],['Melódia','Folk house hook',['drop']],['Bas','Bas – Pop pumpa',['verse','build','drop']],['Pad','Pad – široký',['intro','outro']]]},
-  {n:'Chillout',d:'Pokojný chillout – mäkké akordy a arpeggio',tempo:90,prog:8,dr:{intro:null,verse:'Chillout',build:'Chillout',drop:'Chillout'},
+  {n:'Chillout',d:'Pokojný chillout – mäkké akordy a arpeggio',tempo:90,prog:8,kit:0,dr:{intro:null,verse:'Chillout',build:'Chillout',drop:'Chillout'},
    tr:[['Pad','Pad – široký',['intro','verse','build','drop','outro']],['Arpeggio','Arpeggio – hore a dole',['build','drop']],['Bas','Bas – Celé noty',['verse','build','drop']]]},
-  {n:'Latino',d:'Latino – clave, konga, akordy a melódia',tempo:100,prog:4,dr:{intro:'Latino',verse:'Latino',build:'Latino',drop:'Latino'},
+  {n:'Afro house',d:'Afro house – rovný kopák, kongy, shaker, plucky a melódia',tempo:122,prog:0,kit:3,dr:{intro:'Afro house',verse:'Afro house',build:'Afro',drop:'Afro house'},
+   tr:[['Plucky','Big room plucks',['verse','build','drop'],1],['Melódia','Folk house hook',['drop']],['Bas','Bas – Offbeat (EDM)',['verse','build','drop']],['Pad','Pad – široký',['intro','outro']]]},
+  {n:'Drum & Bass',d:'Rýchly drum & bass – breakbeat, pad, arpeggio a lead',tempo:174,prog:3,kit:2,dr:{intro:'Drum & Bass',verse:'Drum & Bass',build:'Drum & Bass',drop:'Drum & Bass'},
+   tr:[['Pad','Pad – široký',['intro','verse','build','drop','outro']],['Arpeggio','Trance arpeggio',['build','drop']],['Lead','Trance lead',['drop']],['Bas','Bas – Celé noty',['verse','build','drop']]]},
+  {n:'Latino',d:'Latino – clave, konga, akordy a melódia',tempo:100,prog:4,kit:4,dr:{intro:'Latino',verse:'Latino',build:'Latino',drop:'Latino'},
    tr:[['Akordy','Moderné akordy',['verse','build','drop']],['Melódia','Folk house hook',['drop']],['Bas','Bas – Osminy',['verse','build','drop']]]}];
 function songWizard(){
   dialog('Celá skladba jedným klikom',`<p>Vyber štýl. Program vytvorí <b>novú pieseň</b>: intro, sloha, nábeh, drop, sloha, nábeh, drop, outro – s bicími, akordmi, melódiou, basom, zvukmi Inspirie, pumpovaním a prechodmi. Potom to už len dolaďuješ.</p>
@@ -3106,6 +3113,7 @@ function songFromStyle(st){
     [['__aux1',FXRE.reverb,'FX 1'],['__aux2',FXRE.delay,'FX 2'],['__master',FXRE.limiter,'Master']].forEach(([id,re,nm])=>{ const p=fxp(re); if(p) nat('trackFx',{track:id,idx:0,uid:p.uid,name:nm,quiet:true}); });
     loads.forEach(({t,snd,pump})=>{ natDefaultInst(t); if(snd) nat('instAction',{track:t.id,what:'preset',name:snd,idx:INSP_FACTORY.indexOf(snd)});
       if(pump){ const p=fxp(FXRE.pulse); if(p) nat('trackFx',{track:t.id,idx:0,uid:p.uid,name:t.name,quiet:true,params:{rate:1,shape:1,mix:70,mode:0,active:1}}); } });
+    if(st.kit!=null){ kitReq[dt.id]=1; nat('drumKit',{track:dt.id,kit:st.kit}); }
     secList.filter(sc=>sc.k==='drop').forEach(sc=>{ nat('importAudio',{track:fxT.id,bar:Math.max(0,sc.start-2),transition:'riser',bpm:st.tempo}); nat('importAudio',{track:fxT.id,bar:sc.start,transition:'impact',bpm:st.tempo}); });
   }
   toast('Nová skladba: <b>'+esc(st.n)+'</b> – '+at+' taktov, '+st.tempo+' BPM. Stlač Play.');
@@ -3539,8 +3547,14 @@ const VOXP=[
     ['comp',{threshold:-24,ratio:6,attack:3,release:80,makeup:8}],['delay',{sync:3,feedback:20,tone:6000,mix:10,pingpong:0}]]},
   {n:'Telefón',d:'Úzky zvuk ako z telefónu alebo starého rádia – efekt na časť skladby.',fx:[
     ['eq',{lowcut:500,midgain:6,midfreq:1500,midq:1.5,highgain:-15,highfreq:3500}],['comp',{threshold:-25,ratio:8,attack:2,release:60,makeup:9}]]}];
-const NKITS=[['Akustické','Klasická bicia súprava – kopák, malý bubon, prechody, činely.'],['808 / Trap','Dlhý dunivý kopák 808, ostré hi-haty – hip-hop, trap.'],
-  ['Elektronické (909)','Úderný kopák a tlieskanie 909 – house, techno, pop.'],['Perkusie','Djembe, konga, bongo, shaker, tamburína, claves, triangel.'],['Ľudová','Veľký bubon, bubienok, tlieskanie, lyžice, rolničky, drievko.']];
+const NKITS=[['Pop','Úderná bicia súprava – pop, rock, balada, hip-hop.'],['House','Kopák, clap a hi-haty 909 – house, dance, trance, techno.'],
+  ['Drum & Bass','Tvrdý krátky kopák, ostrý virbel, rýchle hi-haty a ride.'],['Afro','Hlboký kopák, rimshot, shaker, kongy a agogo – afro house, afrobeat.'],['Latino','Timbales, shaker, güiro, konga, bongo, clave a zvonec.']];
+// ku ktorej sade patri rytmus (pri prepnuti rytmu sa sada prepne sama, ak na stope nie su vlastne zvuky)
+const RHYTHM_KIT={'Pop':0,'Rock':0,'Hip-hop':0,'Trap':0,'Funk':0,'Balada':0,'Polka':0,'Shuffle':0,'Chillout':0,'Dubstep':2,'Breakbeat':2,'Drum & Bass':2,
+  'Disco / House':1,'House':1,'Dance':1,'Techno':1,'Trance':1,'Afro':3,'Afro house':3,'Latino':4,'Samba':4,'Bossa nova':4,'Cha-cha':4,'Karibik':4,'Reggaeton':4};
+function kitAuto(tr,rhythm){ const k=RHYTHM_KIT[rhythm]; if(k==null||!NATIVE) return;
+  const own=tr.smp&&Object.keys(tr.smp).length&&!NKITS.some(x=>x[0]===tr.nkit); if(own||tr.nkit===NKITS[k][0]) return;
+  kitReq[tr.id]=1; nat('drumKit',{track:tr.id,kit:k}); }
 let kitReq={};
 function drumKitDialog(tr){
   dialog('Súprava zvukov bicích – '+esc(tr.name),`<p>Nahradí zvuky všetkých 10 riadkov krokového sekvencera. Jednotlivý riadok môžeš potom zmeniť tlačidlom ♪ / ×.</p><div id="tplList">${NKITS.map((k,i)=>`<button class="tplc" data-i="${i}"><b>${esc(k[0])}</b><span>${esc(k[1])}</span><i>${tr.nkit===k[0]?'✓ použitá':'10 zvukov'}</i></button>`).join('')}<button class="tplc" data-i="-1"><b>Bez súpravy</b><span>Bicie hrá nástroj stopy (VST, GM noty).</span><i></i></button></div>`);
