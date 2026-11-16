@@ -80,6 +80,13 @@ namespace nova
             dlTimeSm = -1; compEnv = 0; grDb = 0; pf = ps = 0; mfL.reset(); mfR.reset(); mf2L.reset(); mf2R.reset();
             eq.reset(); rvEq.reset(); dlEq.reset();
         }
+        // vymaze dozvuk a ozvenu (pri prepnuti zvuku, aby nedozvukoval predosly)
+        void clearTails() noexcept
+        {
+            reverb.reset();
+            std::fill (dlL.begin(), dlL.end(), 0.0f); std::fill (dlR.begin(), dlR.end(), 0.0f);
+            compEnv = 0; pf = ps = 0; mfL.reset(); mfR.reset(); mf2L.reset(); mf2R.reset(); eq.reset(); rvEq.reset(); dlEq.reset();
+        }
         std::atomic<float> gainReduction { 0 };   // pre zobrazenie (dB)
         Analyzer* an = nullptr;                    // spektrum (nastavi Synth)
 

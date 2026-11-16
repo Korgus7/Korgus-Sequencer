@@ -372,6 +372,10 @@ public:
         key->choices = StringArray { sk ("Vlastný"), String ("Sidechain") };
     }
 
+    std::unique_ptr<Component> makeDisplay() override;
+    int displayHeight() const override { return 74; }
+    std::atomic<float> grNow { 0 }, inNow { -60 }, outNow { -60 };   // pre ukazovatel (dB)
+
 private:
     void prepare() override { env = 0; dry.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize); }
 
@@ -391,18 +395,26 @@ private:
         const float aR = (float) std::exp (-1.0 / (rel->get() * 0.001 * rate));
         const float t = thr->get(), slope = 1.0f - 1.0f / rat->get(), knee = 6.0f;
         const float mg0 = lastG, mg1 = Decibels::decibelsToGain (mak->get());
+        float grMax = 0, inPk = 0, outPk = 0;
         for (int i = 0; i < n; ++i)
         {
             const float x = jmax (std::abs (dL[i]), std::abs (dR[i]));
+            inPk = jmax (inPk, jmax (std::abs (b.getSample (0, i)), std::abs (b.getSample (ch > 1 ? 1 : 0, i))));
             env = x > env ? x + (env - x) * aA : x + (env - x) * aR;
             const float lev = Decibels::gainToDecibels (env, -120.0f), over = lev - t;
             float gr = 0;
             if (over > knee * 0.5f) gr = over * slope;
             else if (over > -knee * 0.5f) { const float k = over + knee * 0.5f; gr = slope * k * k / (2.0f * knee); }
             const float g = Decibels::decibelsToGain (-gr) * (mg0 + (mg1 - mg0) * (float) i / (float) n);
-            for (int c = 0; c < ch; ++c) b.getWritePointer (c)[i] *= g;
+            grMax = jmax (grMax, gr);
+            for (int c = 0; c < ch; ++c) { b.getWritePointer (c)[i] *= g; outPk = jmax (outPk, std::abs (b.getSample (c, i))); }
         }
         lastG = mg1;
+        // ukazovatel: rychly nabeh, pomaly navrat
+        const float dec = (float) std::exp (-(double) n / (0.35 * rate));
+        grNow = jmax (grMax, grNow.load() * dec);
+        inNow = jmax (Decibels::gainToDecibels (inPk, -60.0f), -60.0f + (inNow.load() + 60.0f) * dec);
+        outNow = jmax (Decibels::gainToDecibels (outPk, -60.0f), -60.0f + (outNow.load() + 60.0f) * dec);
         if (m < 0.999f)
             for (int c = 0; c < ch; ++c)
             {
@@ -415,6 +427,41 @@ private:
     AudioBuffer<float> dry;
     float env = 0, lastG = 1.0f;
 };
+
+// ukazovatel kompresora: vstup, stlacenie (dB) a vystup
+class CompMeter final : public Component, private Timer
+{
+public:
+    explicit CompMeter (CompFx& f) : fx (f) { startTimerHz (30); }
+    ~CompMeter() override { stopTimer(); }
+    void paint (Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        g.setColour (Colour (0xff161c24)); g.fillRoundedRectangle (r, 3.0f);
+        r = r.reduced (10, 6);
+        const float lw = 74.0f;
+        auto row = [&] (const String& name, float frac, Colour c, const String& val, bool fromRight)
+        {
+            auto line = r.removeFromTop (18.0f); r.removeFromTop (3.0f);
+            g.setColour (Colour (0xffc9d2dc)); g.setFont (FontOptions (12.0f));
+            g.drawText (name, line.removeFromLeft (lw), Justification::centredLeft);
+            g.drawText (val, line.removeFromRight (64.0f), Justification::centredRight);
+            line.removeFromRight (6.0f);
+            g.setColour (Colour (0xff0e131b)); g.fillRoundedRectangle (line, 3.0f);
+            const float w = line.getWidth() * jlimit (0.0f, 1.0f, frac);
+            g.setColour (c);
+            g.fillRoundedRectangle (fromRight ? line.withLeft (line.getRight() - w) : line.withWidth (w), 3.0f);
+        };
+        const float in = fx.inNow.load(), out = fx.outNow.load(), gr = fx.grNow.load();
+        row (sk ("Vstup"), (in + 60.0f) / 60.0f, Colour (0xff4d6f96), String (in, 1) + " dB", false);
+        row (sk ("Stlačenie"), gr / 24.0f, Colour (0xffc9a35a), (gr > 0.05f ? "-" : "") + String (gr, 1) + " dB", true);
+        row (sk ("Výstup"), (out + 60.0f) / 60.0f, Colour (0xff6f8fb3), String (out, 1) + " dB", false);
+    }
+private:
+    void timerCallback() override { repaint(); }
+    CompFx& fx;
+};
+std::unique_ptr<Component> CompFx::makeDisplay() { return std::make_unique<CompMeter> (*this); }
 
 //==============================================================================
 class ReverbFx final : public FxBase
@@ -696,6 +743,8 @@ public:
     ~PulseDisplay() override { stopTimer(); }
     void paint (Graphics& g) override;
     void mouseDown (const MouseEvent& e) override;
+    void mouseDrag (const MouseEvent& e) override;
+    void mouseUp (const MouseEvent& e) override;
     void mouseMove (const MouseEvent& e) override { const int h = cellAt (e.position); if (h != hover) { hover = h; repaint(); } }
     void mouseExit (const MouseEvent&) override { hover = -1; repaint(); }
 private:
@@ -706,10 +755,13 @@ private:
         const float w = g.getWidth() / 8.0f, h = g.getHeight() / 2.0f;
         return { g.getX() + (float) (i % 8) * w + 2, g.getY() + (float) (i / 8) * h + 2, w - 4, h - 4 };
     }
-    int cellAt (Point<float> p) const { for (int i = 0; i < 16; ++i) if (cellRect (i).contains (p)) return i; return -1; }
+    int cellAt (Point<float> p) const;
+    // rezim Kroky: 16 stlpcov cez cely graf
+    Rectangle<float> stepArea() const { return getLocalBounds().toFloat().reduced (10, 0).withTrimmedTop (24).withTrimmedBottom (10); }
+    void setStepAt (Point<float> p);
     void timerCallback() override { repaint(); }
     PulseFx& fx;
-    int hover = -1;
+    int hover = -1, dragStep = -1;
 };
 
 class PulseFx final : public FxBase
@@ -717,9 +769,9 @@ class PulseFx final : public FxBase
 public:
     PulseFx() : FxBase ("Korgus PulseDip", "pulse")
     {
-        rateP = add ("rate", "Rytmus", 0, 3, 1, "", 1.0f, 0);
+        rateP = add ("rate", "Rytmus", 0, 7, 1, "", 1.0f, 0);
         rateP->range.interval = 1.0f;
-        rateP->choices = StringArray { "1/8", "1/4", "1/2", "1/1" };
+        rateP->choices = StringArray { "1/8", "1/4", "1/2", "1/1", "1/16", "1/8 T", "1/4 T", "1/16 T" };   // T = trioly (poradie kvoli starym piesnam)
         shp = add ("shape", "Tvar", 0, 15, 1, "", 1.0f, 0);
         shp->range.interval = 1.0f;
         shp->inEditor = false;
@@ -727,12 +779,24 @@ public:
                                                                  "Vrchol|Dlhé podržanie|Plynulý nábeh|Tvrdá pumpa|Brána|Plató|Svah|Údolie|Dvojitá"), "|", "");
         mix = add ("mix", "Hĺbka", 0, 100, 100, "%", 1.0f, 0);
         out = add ("output", "Výstup", -12, 12, 0, "dB");
-        mode = add ("mode", "Riadenie", 0, 1, 0, "", 1.0f, 0);
+        mode = add ("mode", "Riadenie", 0, 2, 0, "", 1.0f, 0);
         mode->range.interval = 1.0f;
-        mode->choices = StringArray { String ("Tempo"), String ("Sidechain") };
+        mode->choices = StringArray { String ("Tempo"), String ("Sidechain"), sk ("Kroky") };
         on  = add ("active", "Zapnuté", 0, 1, 1, "", 1.0f, 0);
         on->toggle = true;
+        // 16 krokov s vlastnou hlasitostou (rezim Kroky) - kreslia sa mysou v grafe
+        static const float defStep[16] = { 1, .15f, 1, 1, .15f, 1, 1, .15f, 1, .15f, 1, 1, .15f, 1, .6f, .15f };
+        for (int i = 0; i < 16; ++i)
+        {
+            static const char* nm[16] = { "Krok 1", "Krok 2", "Krok 3", "Krok 4", "Krok 5", "Krok 6", "Krok 7", "Krok 8",
+                                          "Krok 9", "Krok 10", "Krok 11", "Krok 12", "Krok 13", "Krok 14", "Krok 15", "Krok 16" };
+            steps[i] = add ("step" + String (i + 1), nm[i], 0, 1, defStep[i], "", 1.0f, 2);
+            steps[i]->inEditor = false;
+        }
     }
+    FxParam* steps[16] {};
+    std::atomic<int> stepNow { -1 };
+    bool stepMode() const { return roundToInt (mode->get()) == 2; }
 
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<PulseDisplay> (*this); }
     int displayHeight() const override { return 236; }
@@ -756,15 +820,18 @@ private:
                 playing = pos->getIsPlaying();
                 if (playing) if (auto q = pos->getPpqPosition()) ppq = *q;
             }
-        static const double beats[4] = { 0.5, 1.0, 2.0, 4.0 };
-        const double per = beats[jlimit (0, 3, roundToInt (rateP->get()))];
+        static const double beats[8] = { 0.5, 1.0, 2.0, 4.0, 0.25, 1.0 / 3.0, 2.0 / 3.0, 1.0 / 6.0 };
+        const double per = beats[jlimit (0, 7, roundToInt (rateP->get()))];
+        const bool stepM = stepMode();
+        float stv[16];
+        for (int k = 0; k < 16; ++k) stv[k] = steps[k]->get();
         const int s = roundToInt (shp->get());
         const float depth = on->get() > 0.5f ? mix->get() * 0.01f : 0.0f;
         const float og = Decibels::decibelsToGain (out->get());
         const double dq = bpm / 60.0 / rate;
         const float a = (float) std::exp (-1.0 / (0.002 * rate));   // 2 ms proti lupancom
-        const bool useKey = mode->get() > 0.5f && scL != nullptr && scN >= n;
-        keyMode = mode->get() > 0.5f;
+        const bool useKey = roundToInt (mode->get()) == 1 && scL != nullptr && scN >= n;
+        keyMode = roundToInt (mode->get()) == 1;
         const float kA = (float) std::exp (-1.0 / (0.002 * rate)), kR = (float) std::exp (-1.0 / (0.180 * rate));
         for (int i = 0; i < n; ++i)
         {
@@ -777,6 +844,7 @@ private:
                 kEnv = x > kEnv ? x + (kEnv - x) * kA : x + (kEnv - x) * kR;
                 shapeG = 1.0f - jlimit (0.0f, 1.0f, (Decibels::gainToDecibels (kEnv, -120.0f) + 36.0f) / 30.0f);
             }
+            else if (stepM) { const auto si = (int) (((long long) std::floor (q / per)) & 15); shapeG = stv[si]; }
             else shapeG = Pulse::shape (s, f);
             const float target = (1.0f - depth * (1.0f - shapeG)) * og;
             gSm = target + (gSm - target) * a;
@@ -785,6 +853,7 @@ private:
         freePpq = ppq + n * dq;
         if (freePpq > 1.0e6) freePpq = 0;
         phaseNow = (float) (ppq / per - std::floor (ppq / per));
+        stepNow = stepM ? (int) (((long long) std::floor (ppq / per)) & 15) : -1;
         bpmNow = (float) bpm;
     }
 
@@ -793,8 +862,42 @@ private:
     float gSm = 1, kEnv = 0;
 };
 
+int PulseDisplay::cellAt (Point<float> p) const
+{
+    if (fx.stepMode()) return -1;
+    for (int i = 0; i < 16; ++i) if (cellRect (i).contains (p)) return i;
+    return -1;
+}
+
+void PulseDisplay::setStepAt (Point<float> p)
+{
+    const auto a = stepArea();
+    const int i = jlimit (0, 15, (int) ((p.x - a.getX()) / a.getWidth() * 16.0f));
+    const float v = jlimit (0.0f, 1.0f, (a.getBottom() - p.y) / a.getHeight());
+    auto* prm = fx.steps[i];
+    if (dragStep != i) { if (dragStep >= 0) fx.steps[dragStep]->endChangeGesture(); prm->beginChangeGesture(); dragStep = i; }
+    prm->setValueNotifyingHost (prm->range.convertTo0to1 (v));
+    repaint();
+}
+
+void PulseDisplay::mouseDrag (const MouseEvent& e) { if (fx.stepMode()) setStepAt (e.position); }
+void PulseDisplay::mouseUp (const MouseEvent&) { if (dragStep >= 0) { fx.steps[dragStep]->endChangeGesture(); dragStep = -1; } }
+
 void PulseDisplay::mouseDown (const MouseEvent& e)
 {
+    if (fx.stepMode())
+    {
+        if (e.mods.isRightButtonDown() || e.getNumberOfClicks() > 1)   // pravy klik / dvojklik = krok naplno alebo potichu
+        {
+            const auto a = stepArea();
+            const int i = jlimit (0, 15, (int) ((e.position.x - a.getX()) / a.getWidth() * 16.0f));
+            auto* prm = fx.steps[i];
+            prm->beginChangeGesture(); prm->setValueNotifyingHost (prm->get() > 0.5f ? 0.0f : 1.0f); prm->endChangeGesture();
+            repaint(); return;
+        }
+        setStepAt (e.position);
+        return;
+    }
     const int i = cellAt (e.position);
     if (i < 0) return;
     fx.shp->beginChangeGesture();
@@ -808,6 +911,29 @@ void PulseDisplay::paint (Graphics& g)
     auto r = getLocalBounds().toFloat();
     g.setColour (Colour (0xff161c24));
     g.fillRoundedRectangle (r, 3.0f);
+    if (fx.stepMode())
+    {
+        const auto a = stepArea();
+        const float w = a.getWidth() / 16.0f, depth = fx.on->get() > 0.5f ? fx.mix->get() * 0.01f : 0.0f;
+        const int cur = fx.stepNow.load();
+        for (int i = 0; i < 16; ++i)
+        {
+            auto col = Rectangle<float> (a.getX() + (float) i * w + 2, a.getY(), w - 4, a.getHeight());
+            g.setColour (i % 4 == 0 ? Colour (0xff222b36) : Colour (0xff1c232c));
+            g.fillRoundedRectangle (col, 3.0f);
+            const float v = fx.steps[i]->get(), gv = 1.0f - depth * (1.0f - v);
+            auto bar = col.withTrimmedTop (col.getHeight() * (1.0f - gv));
+            g.setColour (i == cur ? Colour (0xffc9a35a) : Colour (0xff4d6f96));
+            g.fillRoundedRectangle (bar, 3.0f);
+            g.setColour (Colour (0xff8fb0d0));
+            g.fillRect (bar.withHeight (2.0f));
+        }
+        g.setFont (FontOptions (12.0f));
+        g.setColour (Colour (0xff8a96a3));
+        g.drawText (sk ("PULSEDIP – KROKY  (ťahaj myšou, pravý klik = zap/vyp)"), r.reduced (10, 4).removeFromTop (14), Justification::centredLeft);
+        g.drawText (String (fx.bpmNow.load(), 1) + " BPM  /  " + fx.rateP->choices[roundToInt (fx.rateP->get())], r.reduced (10, 4).removeFromTop (14), Justification::centredRight);
+        return;
+    }
     // ikony tvarov
     {
         const int cur = roundToInt (fx.shp->get());
@@ -2276,7 +2402,8 @@ namespace BuiltinFx
 juce::Array<juce::PluginDescription> descriptions()
 {
     juce::Array<juce::PluginDescription> a;
-    for (const auto& e : entries()) if (juce::String (e.key) != "arp" && juce::String (e.key) != "vocoder") a.add (FxBase::describe (e.name, e.key, e.inst));
+    // arp a vocoder maju vlastne miesto; gater nahradil PulseDip (Kroky) - ostava len kvoli starym piesnam
+    for (const auto& e : entries()) if (juce::String (e.key) != "arp" && juce::String (e.key) != "vocoder" && juce::String (e.key) != "gater") a.add (FxBase::describe (e.name, e.key, e.inst));
     return a;
 }
 

@@ -643,7 +643,25 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                         if (prm->getName (64).trim() == "Vocoder") { prm->setValueNotifyingHost (1.0f); break; }
                                     return;
                                 }
-                                const auto key = v["what"].toString() == "mut" ? juce::String ("Obmena") : juce::String ("Prekvap ma");
+                                if (v["what"].toString() == "preset")   // vybrat tovarensky zvuk Inspirie podla nazvu (parameter "Zvuk")
+                {
+                    const auto want = v["name"].toString();
+                    const int idx = (int) v.getProperty ("idx", -1);
+                    for (auto* prm : p->getParameters())
+                    {
+                        const auto nm = prm->getName (64).trim();
+                        if (nm != juce::String::fromUTF8 ("Zvuk") && nm != "Sound") continue;
+                        const int n = juce::jmax (2, prm->getNumSteps());
+                        int hit = -1;
+                        for (int i = 0; i < n && hit < 0; ++i)
+                            if (prm->getText ((float) i / (float) (n - 1), 64).trim() == want) hit = i;
+                        if (hit < 0 && idx >= 0 && idx < n) hit = idx;   // nazov v inom jazyku: podla poradia
+                        if (hit >= 0) prm->setValueNotifyingHost ((float) hit / (float) (n - 1));
+                        break;
+                    }
+                    return;
+                }
+                const auto key = v["what"].toString() == "mut" ? juce::String ("Obmena") : juce::String ("Prekvap ma");
                                 for (auto* prm : p->getParameters())
                                     if (prm->getName (64).contains (key))
                                     {
@@ -2138,8 +2156,83 @@ void MainView::timerCallback()
 //==============================================================================
 // audio stopy: import, nahravanie, export
 
+// prechodove efekty (riser, reverse cinel, whoosh, impact, downlifter) - syntetizovane v tempe piesne
+static juce::File makeTransitionFile (const juce::String& kind, double bpm)
+{
+    const auto dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Korgus Efekty");
+    dir.createDirectory();
+    const int bp = juce::jlimit (40, 240, juce::roundToInt (bpm));
+    const auto f = dir.getChildFile (kind + "_" + juce::String (bp) + "bpm.wav");
+    if (f.existsAsFile()) return f;
+    constexpr double sr = 44100.0;
+    const double beat = 60.0 / bp;
+    double secs = kind == "riser" || kind == "down" ? 8 * beat : kind == "impact" ? 3.0 : 4 * beat;
+    const int n = (int) (secs * sr);
+    juce::AudioBuffer<float> b (2, n);
+    juce::Random rnd (1234 + kind.hashCode());
+    struct Svf { float ic1 = 0, ic2 = 0; float bp (float x, float hz, float q) { const float g = std::tan (juce::MathConstants<float>::pi * juce::jlimit (20.0f, 18000.0f, hz) / (float) sr), k = 1.0f / q;
+        const float a1 = 1.0f / (1.0f + g * (g + k)), a2 = g * a1, a3 = g * a2, v3 = x - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3; ic1 = 2 * v1 - ic1; ic2 = 2 * v2 - ic2; hp = x - k * v1 - v2; return v1; } float hp = 0; };
+    Svf fl, fr;
+    double ph = 0;
+    for (int i = 0; i < n; ++i)
+    {
+        const float t = (float) i / (float) n;
+        const float nl = rnd.nextFloat() * 2 - 1, nr = rnd.nextFloat() * 2 - 1;
+        float l = 0, r = 0;
+        if (kind == "riser" || kind == "down")
+        {
+            const float u = kind == "riser" ? t : 1.0f - t;                // 0 -> 1 nahor
+            const float hz = 250.0f * std::pow (40.0f, u), amp = std::pow (u, 1.6f) * (kind == "down" ? std::pow (1.0f - t, 0.3f) : 1.0f);
+            l = fl.bp (nl, hz, 2.5f) * 1.6f; r = fr.bp (nr, hz * 1.03f, 2.5f) * 1.6f;
+            ph += (180.0 + 1400.0 * u * u) / sr; const float tone = 0.18f * (float) std::sin (juce::MathConstants<double>::twoPi * ph);
+            l = (l + tone) * amp; r = (r + tone) * amp;
+        }
+        else if (kind == "revcym")
+        {
+            const float amp = std::pow (t, 3.0f);
+            fl.bp (nl, 9000, 0.7f); fr.bp (nr, 9000, 0.7f);
+            l = fl.hp * amp; r = fr.hp * amp;
+            if (i > n - 200) { const float e = (float) (n - i) / 200.0f; l *= e; r *= e; }
+        }
+        else if (kind == "whoosh")
+        {
+            const float env = std::sin (juce::MathConstants<float>::pi * std::pow (t, 0.8f)), hz = 400.0f * std::pow (20.0f, std::sin (juce::MathConstants<float>::pi * t));
+            l = fl.bp (nl, hz, 1.5f) * env * 1.4f; r = fr.bp (nr, hz * 1.05f, 1.5f) * env * 1.4f;
+            const float pan = t;   // prelet zlava doprava
+            l *= 1.2f - pan; r *= 0.2f + pan;
+        }
+        else   // impact: hlboky uder + sum + dlhy chvost
+        {
+            const float ts = (float) i / (float) sr;
+            ph += (34.0 + 50.0 * std::exp (-ts * 9.0)) / sr;
+            const float boom = (float) std::sin (juce::MathConstants<double>::twoPi * ph) * std::exp (-ts * 1.6f);
+            const float click = (nl * 0.8f) * std::exp (-ts * 40.0f);
+            const float tail = fl.bp (nl, 700.0f * std::exp (-ts * 0.6f) + 120.0f, 0.6f) * 0.5f * std::exp (-ts * 1.3f);
+            const float tailR = fr.bp (nr, 700.0f * std::exp (-ts * 0.6f) + 120.0f, 0.6f) * 0.5f * std::exp (-ts * 1.3f);
+            l = boom + click + tail; r = boom + click * 0.9f + tailR;
+        }
+        b.setSample (0, i, l); b.setSample (1, i, r);
+    }
+    const float pk = juce::jmax (b.getMagnitude (0, 0, n), b.getMagnitude (1, 0, n));
+    if (pk > 1.0e-6f) b.applyGain (0.85f / pk);
+    std::unique_ptr<juce::OutputStream> os (f.createOutputStream().release());
+    if (os == nullptr) return {};
+    juce::WavAudioFormat wav;
+    auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (24));
+    if (w == nullptr) return {};
+    w->writeFromAudioSampleBuffer (b, 0, n);
+    w.reset();
+    return f;
+}
+
 void MainView::onImportAudio (const juce::var& v)
 {
+    if (v.hasProperty ("transition"))
+    {
+        const auto f = makeTransitionFile (v["transition"].toString(), (double) v.getProperty ("bpm", 120.0));
+        if (f.existsAsFile()) finishImport (f, v["track"].toString(), (double) v.getProperty ("bar", 0), false);
+        return;
+    }
     const auto track = v["track"].toString();
     const double bar = (double) v.getProperty ("bar", 0);
     if (const auto path = v["path"].toString(); juce::File::isAbsolutePath (path))

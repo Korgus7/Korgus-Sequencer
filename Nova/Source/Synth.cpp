@@ -683,6 +683,7 @@ namespace nova
         if (fadeRequest)
         {
             fadeRequest = false;
+            tailState = 1;   // stlmit aj dozvuk/ozvenu predosleho zvuku, potom ich vymazat
             arpPlaying.clear(); arpHeld.clear(); monoStack.clear();
             for (auto& v : voices)
                 if (v.note >= 0)
@@ -808,6 +809,18 @@ namespace nova
         fx.process (bufL.data(), bufR.data(), total, f);
         if (s.gtOn)   // gater az za efektmi: seka aj dozvuk a delay (typicky "trance gate")
             for (int i = 0; i < total; ++i) { bufL[(size_t) i] *= gateBuf[(size_t) i]; bufR[(size_t) i] *= gateBuf[(size_t) i]; }
+        // prepnutie zvuku: 25 ms stlmit vsetko (aj dozvuk), vymazat chvosty efektov, 5 ms nabeh
+        if (tailState != 0)
+        {
+            const float dn = 1.0f / (0.025f * (float) sr), up = 1.0f / (0.005f * (float) sr);
+            for (int i = 0; i < total; ++i)
+            {
+                if (tailState == 1) { tailG -= dn; if (tailG <= 0.0f) { tailG = 0.0f; tailState = 2; fx.clearTails(); vocoder.reset(); deEss.reset(); vcEq.reset();
+                                                                        for (auto& v : voices) if (v.note >= 0) { v.lv[0].active = v.lv[1].active = false; v.note = -1; } } }
+                else if (tailState == 2) { tailG += up; if (tailG >= 1.0f) { tailG = 1.0f; tailState = 0; } }
+                bufL[(size_t) i] *= tailG; bufR[(size_t) i] *= tailG;
+            }
+        }
         float* oL = out.getWritePointer (0);
         float* oR = out.getNumChannels() > 1 ? out.getWritePointer (1) : nullptr;
         if (oR != nullptr) { std::copy (bufL.begin(), bufL.begin() + total, oL); std::copy (bufR.begin(), bufR.begin() + total, oR); }
