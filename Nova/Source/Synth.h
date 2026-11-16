@@ -116,7 +116,7 @@ namespace nova
         double sr = 48000;
         uint64_t ageCounter = 0;
         bool sustain = false, fadeRequest = false;
-        int tailState = 0; float tailG = 1.0f;   // prepnutie zvuku: 1 = stlmovanie, 2 = nabeh
+        int tailState = 0; float tailG = 1.0f; uint64_t fadeAge = 0;   // prepnutie zvuku: 1 = stlmovanie, 2 = nabeh
         float bend = 0, modWheel = 0;
         int lastNote = -1;
         std::vector<int> monoStack;

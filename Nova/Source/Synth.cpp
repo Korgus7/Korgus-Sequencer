@@ -683,7 +683,7 @@ namespace nova
         if (fadeRequest)
         {
             fadeRequest = false;
-            tailState = 1;   // stlmit aj dozvuk/ozvenu predosleho zvuku, potom ich vymazat
+            tailState = 1; fadeAge = ageCounter;   // stlmit aj dozvuk/ozvenu predosleho zvuku, potom ich vymazat (nove tony ostanu)
             arpPlaying.clear(); arpHeld.clear(); monoStack.clear();
             for (auto& v : voices)
                 if (v.note >= 0)
@@ -816,7 +816,7 @@ namespace nova
             for (int i = 0; i < total; ++i)
             {
                 if (tailState == 1) { tailG -= dn; if (tailG <= 0.0f) { tailG = 0.0f; tailState = 2; fx.clearTails(); vocoder.reset(); deEss.reset(); vcEq.reset();
-                                                                        for (auto& v : voices) if (v.note >= 0) { v.lv[0].active = v.lv[1].active = false; v.note = -1; } } }
+                                                                        for (auto& v : voices) if (v.note >= 0 && v.age <= fadeAge) { v.lv[0].active = v.lv[1].active = false; v.note = -1; } } }
                 else if (tailState == 2) { tailG += up; if (tailG >= 1.0f) { tailG = 1.0f; tailState = 0; } }
                 bufL[(size_t) i] *= tailG; bufR[(size_t) i] *= tailG;
             }
