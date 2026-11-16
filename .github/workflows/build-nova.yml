@@ -29,10 +29,6 @@ jobs:
           echo "DLL: $DLL"
           test -n "$DLL"
           cp "$DLL" "out/Korgus Inspiria.vst3"
-          MDLL=$(find "build/KorgusMasterFx_artefacts/Release/VST3" -path "*x86_64-win*" -name "*.vst3" -type f | head -1)
-          echo "Master: $MDLL"
-          test -n "$MDLL"
-          cp "$MDLL" "out/Korgus Master.vst3"
           ls -la out
 
       - name: Test plugin (zahra tony)

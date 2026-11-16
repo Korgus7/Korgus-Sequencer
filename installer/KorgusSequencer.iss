@@ -43,12 +43,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [InstallDelete]
 ; syntezator premenovany: Korgus Inspire -> Korgus Inspiria
 Type: files; Name: "{app}\Korgus Inspire.vst3"
+; VST3 verzia Korgus Master sa uz nedodava (ostava vstavany efekt)
+Type: files; Name: "{app}\Korgus Master.vst3"
 
 [Files]
 Source: "{#Src}\Korgus Sequencer.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Src}\AI\*"; DestDir: "{app}\AI"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
 Source: "{#Src}\Korgus Inspiria.vst3"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#Src}\Korgus Master.vst3"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#Src}\Korgus.vst3"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]

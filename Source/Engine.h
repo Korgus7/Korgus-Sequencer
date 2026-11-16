@@ -179,6 +179,7 @@ public:
     void setSong (std::unique_ptr<SongData>);
     // okamzita zmena zvuku nastroja bicich z editora (plati, kym nepride nova verzia piesne)
     void setDrumSetLive (int slot, int lane, const DrumSet& d);
+    void killSlotVoices (int slot) { if (juce::isPositiveAndBelow (slot, (int) slots.size())) slots[(size_t) slot]->killVoices.store (true); }
     void play (double fromStep, int countInBars);
     void stop();
     void setPosition (double step);
@@ -292,6 +293,7 @@ private:
         struct Voice { AudioBufPtr buf; juce::int64 pos = 0; float gain = 1; int lane = 0; int fade = -1; int fadeLen = 64;
                        DrumSet ds; double rpos = 0; float t = 0, fc = 0, s1[4] {}, s2[4] {}; float g = 0, k = 2; int cnt = 0; };
         std::array<DrumSet, 10> dset {};   // aktualne upravy nastrojov (z piesne)
+        std::atomic<bool> killVoices { false };   // "Vsetky noty vyp." z editora zvuku
         double sr = 48000;
         std::vector<Voice> voices;
         void addVoice (AudioBufPtr b, juce::int64 pos, float gain, int lane);

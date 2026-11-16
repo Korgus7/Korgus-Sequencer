@@ -731,6 +731,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                     });
                                 });
                             })
+        .withEventListener ("drumKill",    [this] (const juce::var& v) { engine.killSlotVoices (engine.getOrCreateSlot (v["track"].toString())); })
         .withEventListener ("drumSet",     [this] (const juce::var& v)   // editor zvuku bicich: okamzita zmena
                             {
                                 const auto& o = v["ds"];
@@ -1276,11 +1277,15 @@ void MainView::onReady()
             if (! juce::File::isAbsolutePath (d.fileOrIdentifier)) return false;
             const auto fn = juce::File (d.fileOrIdentifier).getFileName();
             if (hasInspiria && fn.equalsIgnoreCase ("Korgus Inspire.vst3")) return true;   // stare meno - nahradene Inspiriou
+            if (fn.equalsIgnoreCase ("Korgus Master.vst3")) return true;                     // VST3 Master - nahradeny vstavanym
             return fn.startsWithIgnoreCase ("Korgus") && exeDir.getChildFile (fn).exists();
         };
         for (const auto& d : knownPlugins.getTypes())
             if ((! inExeDir (d) || (hasInspiria && juce::File (d.fileOrIdentifier).getFileName().equalsIgnoreCase ("Korgus Inspire.vst3"))) && bundled (d))
                 knownPlugins.removeType (d);   // stara kopia v priecinku VST3 / stare meno
+        for (const auto& d : knownPlugins.getTypes())
+            if (juce::File::isAbsolutePath (d.fileOrIdentifier) && juce::File (d.fileOrIdentifier).getFileName().equalsIgnoreCase ("Korgus Master.vst3"))
+                knownPlugins.removeType (d);   // VST3 Master sa nepouziva
         for (const auto& d : knownPlugins.getTypes())
             if (inExeDir (d) && (elsewhere (d) || ! juce::File (d.fileOrIdentifier).exists())) knownPlugins.removeType (d);   // aj zmazane/premenovane
 
@@ -1291,6 +1296,7 @@ void MainView::onReady()
             for (const auto& f : files)
             {
                 if (hasInspiria && f.getFileName().equalsIgnoreCase ("Korgus Inspire.vst3")) continue;   // stara verzia so starym menom
+                if (f.getFileName().equalsIgnoreCase ("Korgus Master.vst3")) continue;   // VST3 Master sa nepouziva (je vstavany efekt)
                 bool sameName = false;   // rovnaky subor uz je v priecinku VST - netreba ho ani otvarat
                 for (const auto& k : knownPlugins.getTypes())
                     if (! inExeDir (k) && juce::File::isAbsolutePath (k.fileOrIdentifier)

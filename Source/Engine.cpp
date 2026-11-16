@@ -74,20 +74,29 @@ bool Engine::Slot::renderEdited (Voice& v, float* oL, float* oR, int n, double s
                 v.g = std::tan (juce::MathConstants<float>::pi * fc / (float) sr);
                 v.k = 2.0f - 1.94f * juce::jlimit (0.0f, 1.0f, d.res);
             }
-            const int stages = d.soft ? 1 : 2;
+            // typy: 0 LP24 Ladder, 1 LP24 Zero, 2 LP12 Ladder, 3 BP12 Ladder, 4 HP12 Ladder, 5 LP12 State, 6 BP12 State, 7 HP12 State
+            const int ft = juce::jlimit (0, 7, d.fType);
+            const int stages = ft <= 1 ? 2 : 1;
+            const int mode = (ft == 3 || ft == 6) ? 2 : ((ft == 4 || ft == 7) ? 1 : 0);   // 0 LP, 1 HP, 2 BP
+            const bool ladder = ft == 0 || ft == 2 || ft == 3 || ft == 4;                  // ladder = mierne skreslenie v spatnej vazbe
             float* xs[2] = { &xl, &xr };
             for (int c = 0; c < 2; ++c)
                 for (int sg = 0; sg < stages; ++sg)
                 {
                     const int z = c * 2 + sg;
-                    const float x = *xs[c];
-                    const float hp = (x - (v.k + v.g) * v.s1[z] - v.s2[z]) / (1.0f + v.g * (v.k + v.g));
-                    const float bp = v.g * hp + v.s1[z]; v.s1[z] = v.g * hp + bp;
+                    float x = *xs[c];
+                    const float s1 = ladder ? std::tanh (v.s1[z]) : v.s1[z];
+                    const float hp = (x - (v.k + v.g) * s1 - v.s2[z]) / (1.0f + v.g * (v.k + v.g));
+                    const float bp = v.g * hp + s1; v.s1[z] = v.g * hp + bp;
                     const float lp = v.g * bp + v.s2[z]; v.s2[z] = v.g * bp + lp;
-                    *xs[c] = d.fType == 1 ? hp : (d.fType == 2 ? bp : lp);
+                    *xs[c] = mode == 1 ? hp : (mode == 2 ? bp : lp);
                 }
         }
-        if (d.drive > 0.001f) { xl = std::tanh (xl * drv) * drvN; xr = std::tanh (xr * drv) * drvN; }
+        if (d.drive > 0.001f)
+        {
+            if (d.soft) { xl = std::tanh (xl * drv) * drvN; xr = std::tanh (xr * drv) * drvN; }   // Soft = makke skreslenie
+            else { xl = juce::jlimit (-1.0f, 1.0f, xl * drv); xr = juce::jlimit (-1.0f, 1.0f, xr * drv); }
+        }
         const float ae = ahd (v.t, d.aA, d.aH, d.aD, infH, infD);
         if (v.t > d.aA && ae <= 0.0f) return true;
         float g = ampG * ae * (1.0f + d.punch * 1.5f * std::exp (-v.t / 0.012f));
@@ -101,6 +110,7 @@ bool Engine::Slot::renderEdited (Voice& v, float* oL, float* oR, int n, double s
 
 void Engine::Slot::renderVoices (juce::AudioBuffer<float>& dst, int n)
 {
+    if (killVoices.exchange (false)) for (auto& v : voices) if (v.fade < 0) { v.fade = 256; v.fadeLen = 256; }
     for (size_t k = 0; k < voices.size();)
     {
         auto& v = voices[k];
