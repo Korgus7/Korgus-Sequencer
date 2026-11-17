@@ -33,6 +33,8 @@ juce::String skTranslate (const char* utf8)
         { "Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.", "Couldn't download the update. Check your internet connection." },
         { "Aktualizáciu sa nepodarilo uložiť.", "Couldn't save the update." },
         { "Inštalátor sa nepodarilo spustiť.", "Couldn't start the installer." },
+        { "Windows (Inteligentná kontrola aplikácií) nepustil novú verziu. Ostáva ti doterajšia verzia.", "Windows (Smart App Control) blocked the new version. You keep the current version." },
+        { "Novú verziu sa nepodarilo spustiť. Spusti Korgus Sequencer znova.", "Couldn't start the new version. Start Korgus Sequencer again." },
         { "Učenie zvuku už prebieha.", "Sound learning is already running." },
         { "Stopa nemá nástroj.", "The track has no instrument." },
         { "Nástroj sa nepodarilo pripraviť.", "Couldn't prepare the instrument." },

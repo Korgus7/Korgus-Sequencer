@@ -183,6 +183,7 @@ private:
     int tunerTick = 0;                                           // ladicka (posiela vysku tonu 15x za sekundu)
     void sendTuner();
     void checkForUpdate();
+    void updateByFiles();
     void onLearnSound (const juce::var&);
     struct LearnJob;
     std::unique_ptr<LearnJob> learnJob;
@@ -201,6 +202,7 @@ private:
     juce::var held;                            // pluginy, ktore sa po pade nenacitali (stav zostava ulozeny)
     void onUpdateNow();
     juce::String updUrl, updVer;
+    juce::var updFiles;   // subory na vymenu bez instalatora (latest.json "files")
     std::atomic<bool> updBusy { false };
     bool sessionApplied = false;
     bool booting = true, booted = false;

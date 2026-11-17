@@ -3930,10 +3930,11 @@ void MainView::checkForUpdate()
         const auto url = j["url"].toString();
         if (! url.startsWith ("https://")) return;
         const auto notes = j["notes"].toString();
-        juce::MessageManager::callAsync ([sp, tag, url, notes]
+        const auto files = j["files"];
+        juce::MessageManager::callAsync ([sp, tag, url, notes, files]
         {
             if (sp == nullptr) return;
-            sp->updUrl = url; sp->updVer = tag.trimCharactersAtStart ("vV");
+            sp->updUrl = url; sp->updVer = tag.trimCharactersAtStart ("vV"); sp->updFiles = files;
             auto o = obj();
             put (o, "ver", sp->updVer);
             put (o, "cur", juce::String (JUCE_APPLICATION_VERSION_STRING));
@@ -3948,6 +3949,7 @@ void MainView::onUpdateNow()
 {
    #if JUCE_WINDOWS
     if (updUrl.isEmpty() || updBusy.exchange (true)) return;
+    if (updFiles.isArray() && updFiles.size() > 0) { updateByFiles(); return; }
     juce::Component::SafePointer<MainView> sp (this);
     const auto url = updUrl, ver = updVer;
     juce::Thread::launch ([sp, url, ver]
@@ -3994,6 +3996,122 @@ void MainView::onUpdateNow()
             if (dest.startAsProcess ("/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS"))
                 juce::Timer::callAfterDelay (600, [] { if (auto* app = juce::JUCEApplication::getInstance()) app->systemRequestedQuit(); });
             else { sp->updBusy = false; auto e = obj(); put (e, "error", sk ("Inštalátor sa nepodarilo spustiť.")); sp->emit ("updateProgress", e); }
+        });
+    });
+   #endif
+}
+
+// aktualizacia bez instalatora: stiahne len zmenene subory (exe, vst3), overi ich
+// (velkost, SHA-256, ci ich Windows pusti) a az potom ich vymeni; stare ostanu ako *.old
+void MainView::updateByFiles()
+{
+   #if JUCE_WINDOWS
+    juce::Component::SafePointer<MainView> sp (this);
+    const auto files = updFiles;
+    juce::Thread::launch ([sp, files]
+    {
+        auto fail = [sp] (const juce::String& msg)
+        {
+            juce::MessageManager::callAsync ([sp, msg] { if (sp == nullptr) return; sp->updBusy = false; auto o = obj(); put (o, "error", msg); sp->emit ("updateProgress", o); });
+        };
+        auto progress = [sp] (int pct)
+        {
+            juce::MessageManager::callAsync ([sp, pct] { if (sp == nullptr) return; auto o = obj(); put (o, "pct", pct); sp->emit ("updateProgress", o); });
+        };
+        const auto exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
+        const auto dir = exe.getParentDirectory();
+        const auto stage = dir.getChildFile ("_update");
+        stage.deleteRecursively();
+        if (! stage.createDirectory()) { fail (sk ("Aktualizáciu sa nepodarilo uložiť.")); return; }
+
+        struct Item { juce::String name, url, sha; juce::int64 size; };
+        std::vector<Item> items;
+        juce::int64 total = 0;
+        for (int i = 0; i < files.size(); ++i)
+        {
+            const auto& f = files[i];
+            Item it { f["name"].toString(), f["url"].toString(), f["sha256"].toString().toLowerCase(), (juce::int64) f["size"] };
+            // len obycajne nazvy suborov v priecinku programu
+            if (it.name.isEmpty() || it.name.containsAnyOf ("\\/:*?\"<>|") || it.name.startsWith (".")
+                || ! it.url.startsWith ("https://") || it.sha.length() != 64 || it.size <= 0) { fail (sk ("Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.")); return; }
+            items.push_back (it); total += it.size;
+        }
+
+        // 1) stiahnutie a kontrola
+        juce::int64 doneAll = 0; int lastPct = -1;
+        for (const auto& it : items)
+        {
+            const auto dest = stage.getChildFile (it.name);
+            int status = 0;
+            auto in = juce::URL (it.url + (it.url.containsChar ('?') ? "&t=" : "?t=") + juce::String (juce::Time::currentTimeMillis()))
+                          .createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                              .withConnectionTimeoutMs (15000).withExtraHeaders ("User-Agent: KorgusSequencer").withNumRedirectsToFollow (8).withStatusCode (&status));
+            if (in == nullptr || (status != 0 && status >= 400)) { stage.deleteRecursively(); fail (sk ("Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.")); return; }
+            {
+                juce::FileOutputStream out (dest);
+                if (! out.openedOk()) { stage.deleteRecursively(); fail (sk ("Aktualizáciu sa nepodarilo uložiť.")); return; }
+                juce::HeapBlock<char> buf (1 << 16);
+                for (;;)
+                {
+                    const int n = in->read (buf, 1 << 16);
+                    if (n <= 0) break;
+                    out.write (buf, (size_t) n); doneAll += n;
+                    const int pct = (int) juce::jlimit<juce::int64> (0, 95, doneAll * 95 / juce::jmax<juce::int64> (1, total));
+                    if (pct != lastPct) { lastPct = pct; progress (pct); }
+                }
+                out.flush();
+            }
+            if (dest.getSize() != it.size || juce::SHA256 (dest).toHexString().toLowerCase() != it.sha)
+            { stage.deleteRecursively(); fail (sk ("Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.")); return; }
+        }
+
+        // 2) pusti ich Windows? (Inteligentna kontrola aplikacii) - skusi ich este pred vymenou
+        for (const auto& it : items)
+        {
+            const auto f = stage.getChildFile (it.name);
+            if (it.name.endsWithIgnoreCase (".exe"))
+            {
+                juce::ChildProcess cp;
+                if (! cp.start (juce::StringArray { f.getFullPathName(), "--selftest" }, 0) || ! cp.waitForProcessToFinish (20000) || cp.getExitCode() != 0)
+                { stage.deleteRecursively(); fail (sk ("Windows (Inteligentná kontrola aplikácií) nepustil novú verziu. Ostáva ti doterajšia verzia.")); return; }
+            }
+            else if (it.name.endsWithIgnoreCase (".vst3") || it.name.endsWithIgnoreCase (".dll"))
+            {
+                juce::DynamicLibrary lib;
+                if (! lib.open (f.getFullPathName()))
+                { stage.deleteRecursively(); fail (sk ("Windows (Inteligentná kontrola aplikácií) nepustil novú verziu. Ostáva ti doterajšia verzia.")); return; }
+                lib.close();
+            }
+        }
+        progress (97);
+
+        // 3) vymena: povodne subory premenovat na *.old (ide aj pri beziacom programe), nove presunut na ich miesto
+        std::vector<std::pair<juce::File, juce::File>> moved;   // (cielovy subor, jeho .old)
+        auto rollback = [&moved, &stage]
+        {
+            for (auto it = moved.rbegin(); it != moved.rend(); ++it)
+            {
+                if (it->first.existsAsFile()) it->first.moveFileTo (stage.getChildFile (it->first.getFileName() + ".new"));
+                if (it->second.existsAsFile()) it->second.moveFileTo (it->first);
+            }
+        };
+        for (const auto& it : items)
+        {
+            const auto target = dir.getChildFile (it.name), old = dir.getChildFile (it.name + ".old");
+            old.deleteFile();
+            if (target.existsAsFile() && ! target.moveFileTo (old)) { rollback(); stage.deleteRecursively(); fail (sk ("Aktualizáciu sa nepodarilo uložiť.")); return; }
+            moved.push_back ({ target, old });
+            if (! stage.getChildFile (it.name).moveFileTo (target)) { rollback(); stage.deleteRecursively(); fail (sk ("Aktualizáciu sa nepodarilo uložiť.")); return; }
+        }
+
+        juce::MessageManager::callAsync ([sp, exe]
+        {
+            if (sp == nullptr) return;
+            auto o = obj(); put (o, "pct", 100); put (o, "done", true); sp->emit ("updateProgress", o);
+            juce::ChildProcess cp;
+            if (cp.start (juce::StringArray { exe.getFullPathName(), "--updated" }, 0))
+                juce::Timer::callAfterDelay (300, [] { if (auto* app = juce::JUCEApplication::getInstance()) app->systemRequestedQuit(); });
+            else { sp->updBusy = false; auto e = obj(); put (e, "error", sk ("Novú verziu sa nepodarilo spustiť. Spusti Korgus Sequencer znova.")); sp->emit ("updateProgress", e); }
         });
     });
    #endif

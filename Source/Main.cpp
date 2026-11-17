@@ -8,10 +8,21 @@ class KorgusApp : public juce::JUCEApplication
 public:
     const juce::String getApplicationName() override    { return JUCE_APPLICATION_NAME_STRING; }
     const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
-    bool moreThanOneInstanceAllowed() override          { return false; }
+    // --selftest: skuska novej verzie pri aktualizacii (len sa spusti a skonci)
+    // --updated: nova verzia spustena po aktualizacii (pocka, kym sa stara zavrie)
+    static bool hasArg (const char* a) { return getCommandLineParameterArray().contains (a); }
+    bool moreThanOneInstanceAllowed() override          { return hasArg ("--selftest") || hasArg ("--updated"); }
 
     void initialise (const juce::String&) override
     {
+        if (hasArg ("--selftest")) { setApplicationReturnValue (0); quit(); return; }
+        if (hasArg ("--updated")) juce::Thread::sleep (2500);
+        // zvysky po aktualizacii (*.old, priecinok _update)
+        {
+            const auto dir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
+            for (const auto& f : dir.findChildFiles (juce::File::findFiles, false, "*.old")) f.deleteFile();
+            dir.getChildFile ("_update").deleteRecursively();
+        }
         juce::PropertiesFile::Options o;
         o.applicationName     = "Korgus Sequencer";
         o.filenameSuffix      = ".settings";
@@ -79,7 +90,7 @@ public:
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), properties);
     }
 
-    void shutdown() override { mainWindow = nullptr; CrashGuard::cleanExit(); }
+    void shutdown() override { if (hasArg ("--selftest")) return; mainWindow = nullptr; CrashGuard::cleanExit(); }
     void systemRequestedQuit() override { quit(); }
 
     class MainWindow : public juce::DocumentWindow
