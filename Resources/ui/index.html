@@ -2343,7 +2343,11 @@ arrCv.addEventListener('mousedown',e=>{
     if(p0){ if(arrTool==='cut') splitPart(tr0,p0,x); else if(arrTool==='erase') deletePart(tr0,p0); else gluePart(tr0,p0); } return; }
   if(SECH&&y<SECH){ secMouseDown(e,x); return; }
   if(CHH&&y<SECH+CHH){ chordMouseDown(e,x); return; }
-  if(y<RULH){drag={src:'arr',type:'ruler',x0:x,moved:false,ctrl:e.ctrlKey,alt:e.altKey}; return;}
+  if(y<RULH){
+    // chytenie vlajocky L / R: presun len toho lokatora
+    if(y>=RULH-14&&song.locR>song.locL){ const lx=song.locL/SPB*bw, rx=song.locR/SPB*bw, onL=x>=lx-3&&x<=lx+14, onR=x>=rx-14&&x<=rx+3;
+      if(onL||onR){ const w=onL&&onR?(Math.abs(x-lx)<=Math.abs(x-rx)?'L':'R'):onL?'L':'R'; drag={src:'arr',type:'loc'+w,x0:x,moved:false}; return; } }
+    drag={src:'arr',type:'ruler',x0:x,moved:false,ctrl:e.ctrlKey,alt:e.altKey}; return;}
   const ti=Math.floor((y-RULH)/ROWH);
   if((ti<0||ti>=song.tracks.length)&&!e.ctrlKey){selParts.clear(); drawArrange(); return;}
   const tr=song.tracks[ti], bf=x/bw, p=tr&&tr.parts.find(p=>bf>=p.start&&bf<p.start+p.len);
@@ -2372,6 +2376,7 @@ arrCv.addEventListener('mousedown',e=>{
 });
 arrCv.addEventListener('mousemove',e=>{ if(drag) return; const {x,y}=arrXY(e), ti=Math.floor((y-RULH)/ROWH), tr=song.tracks[ti];
   let h=null, cur=''; if(tr&&y>=RULH&&arrTool==='arrow'){ const p=tr.parts.find(q=>x/zoomA>=q.start&&x/zoomA<q.start+q.len); if(p){ h=p.id; if(p.len*zoomA>20&&(x<p.start*zoomA+7||x>(p.start+p.len)*zoomA-7)) cur='ew-resize'; } }
+  if(y<RULH&&y>=RULH-14&&song.locR>song.locL){ const lx=song.locL/SPB*zoomA, rx=song.locR/SPB*zoomA; if((x>=lx-3&&x<=lx+14)||(x>=rx-14&&x<=rx+3)) cur='ew-resize'; }
   arrCv.style.cursor=cur;
   if(h!==clipHover){ clipHover=h; drawArrange(); } });
 arrCv.addEventListener('dblclick',e=>{
@@ -2691,6 +2696,12 @@ function deletePart(tr,p){
 }
 function arrMove(e){
   const {x,y}=arrXY(e), bw=zoomA, d=drag;
+  if(d.type==='locL'||d.type==='locR'){
+    if(Math.abs(x-d.x0)>2) d.moved=true; if(!d.moved) return;
+    const st=rulerSnap(x), mx=song.bars*SPB;
+    if(d.type==='locL') song.locL=clamp(st,0,song.locR-1); else song.locR=clamp(st,song.locL+1,mx);
+    updTransport(); drawArrange(); return;
+  }
   if(d.type==='ruler'){
     if(Math.abs(x-d.x0)>5) d.moved=true; if(!d.moved) return;
     const u=rulerUnit(), a=clamp(Math.floor(Math.min(d.x0,x)/bw*SPB/u)*u,0,song.bars*SPB-u), b=clamp(Math.ceil(Math.max(d.x0,x)/bw*SPB/u)*u,a+u,song.bars*SPB);
