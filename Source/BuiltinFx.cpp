@@ -51,8 +51,71 @@ struct FxParam final : public AudioPluginInstance::HostedParameter
     bool transient = false;                  // neuklada sa do stavu piesne (napr. A/B porovnanie)
     bool wide = false;                       // dlhsie texty vo vyberovom zozname: siroky stlpec v okne
     std::function<String (float)> textFn;    // vlastny text hodnoty
+    String tip;                              // popis pri prejdeni mysou
     std::atomic<float> value { 0 };
+
+    // zmena z grafu (ako tahanie gombika)
+    void setFromUi (float v) { setValueNotifyingHost (range.convertTo0to1 (jlimit (range.start, range.end, v))); }
 };
+
+//==============================================================================
+// kruhovy zasobnik zvuku pre grafy (spektrum); zapisuje audio vlakno, cita okno grafu
+struct ScopeFifo
+{
+    static constexpr int N = 8192;
+    std::array<float, N> buf {};
+    std::atomic<int> w { 0 };
+    std::atomic<int> users { 0 };
+    void push (const float* l, const float* r, int n)
+    {
+        if (users.load() <= 0 || l == nullptr) return;
+        int p = w.load();
+        for (int i = 0; i < n; ++i) { buf[(size_t) p] = r != nullptr ? 0.5f * (l[i] + r[i]) : l[i]; p = (p + 1) & (N - 1); }
+        w.store (p);
+    }
+    void read (float* out, int n) const
+    {
+        const int p = w.load();
+        for (int i = 0; i < n; ++i) out[i] = buf[(size_t) ((p - n + i) & (N - 1))];
+    }
+};
+
+// spektrum z ScopeFifo (FFT 2048, vyhladene), v dB
+struct Spectrum
+{
+    static constexpr int order = 11, size = 1 << order;
+    dsp::FFT fft { order };
+    dsp::WindowingFunction<float> win { (size_t) size, dsp::WindowingFunction<float>::hann, false };
+    std::vector<float> data = std::vector<float> ((size_t) size * 2, 0.0f);
+    std::vector<float> db = std::vector<float> ((size_t) size / 2, -100.0f);
+    void update (const ScopeFifo& f, float smooth = 0.7f)
+    {
+        f.read (data.data(), size);
+        std::fill (data.begin() + size, data.end(), 0.0f);
+        win.multiplyWithWindowingTable (data.data(), (size_t) size);
+        fft.performFrequencyOnlyForwardTransform (data.data());
+        const float norm = 4.0f / (float) size;
+        for (int i = 0; i < size / 2; ++i)
+        {
+            const float v = Decibels::gainToDecibels (data[(size_t) i] * norm, -100.0f);
+            db[(size_t) i] = v > db[(size_t) i] ? v : db[(size_t) i] * smooth + v * (1.0f - smooth);
+        }
+    }
+    float at (float hz, double sr) const
+    {
+        const float bin = hz / (float) sr * (float) size;
+        const int i = jlimit (1, size / 2 - 2, (int) bin);
+        const float fr = jlimit (0.0f, 1.0f, bin - (float) i);
+        return db[(size_t) i] + (db[(size_t) i + 1] - db[(size_t) i]) * fr;
+    }
+};
+
+// spolocne farby grafov (tlmene ocelove tony)
+namespace GCol
+{
+    const Colour bg (0xff0e131b), panel (0xff151c27), grid (0xff1e2938), steel (0xff2d4362), text (0xffc9d2dc),
+                 dim (0xff8a96a6), gold (0xffc9a35a), line (0xff8fb3d9), green (0xff7fb38a);
+}
 
 //==============================================================================
 class FxBase;
@@ -65,7 +128,10 @@ public:
 
     void paint (Graphics& g) override
     {
-        g.fillAll (Colour (0xff1f2630));
+        g.fillAll (Colour (0xff151c27));
+        g.setColour (Colour (0xff1c2532));
+        g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (4.0f).withTrimmedTop ((float) top + 2.0f), 3.0f);
+        if (head > 0) paintHeader (g);
         g.setColour (Colour (0xffc9d2dc));
         g.setFont (FontOptions (13.0f));
         for (size_t i = 0; i < labels.size(); ++i)
@@ -75,7 +141,8 @@ public:
 
     void resized() override
     {
-        if (display != nullptr) display->setBounds (8, 8, getWidth() - 16, top - 12);
+        layoutHeader();
+        if (display != nullptr) display->setBounds (8, head + 8, getWidth() - 16, top - head - 12);
         auto r = getLocalBounds().reduced (8, 0).withTrimmedTop (top + 28).withTrimmedBottom (8);
         int tot = 0;
         for (size_t i = 0; i < comps.size(); ++i) tot += colWidth (i);
@@ -91,8 +158,12 @@ public:
 
 private:
     int colWidth (size_t i) const { return params[i]->wide ? 128 : 92; }
+    void buildHeader();
+    void layoutHeader();
+    void paintHeader (Graphics& g);
     void timerCallback() override
     {
+        if (head > 0) { updateHeader(); repaint (meterArea); }
         for (size_t i = 0; i < comps.size(); ++i)
         {
             auto* p = params[i];
@@ -108,9 +179,15 @@ private:
         }
     }
 
+    void updateHeader();
+    FxBase& fx;
     std::vector<FxParam*> params;
     std::unique_ptr<Component> display;   // graf (napr. krivka PulseDip)
-    int top = 0;
+    int top = 0, head = 0;
+    TooltipWindow tips { this, 500 };
+    ComboBox presetBox;
+    TextButton abA { "A" }, abB { "B" }, byp;
+    Rectangle<int> meterArea;
     std::vector<std::unique_ptr<Component>> comps;
     std::vector<String> labels;
 };
@@ -160,6 +237,30 @@ public:
         return (out == AudioChannelSet::mono() || out == AudioChannelSet::stereo()) && l.getMainInputChannelSet() == out;
     }
 
+    // --- spolocne pre vsetky efekty: vypnutie, merace, predvolby, A/B, spektrum
+    std::atomic<bool> bypass { false };
+    std::atomic<float> meterIn { -60.0f }, meterOut { -60.0f };
+    ScopeFifo scope;                                          // vystup efektu pre grafy
+    struct Preset { const char* name; std::vector<std::pair<const char*, float>> v; };
+    virtual std::vector<Preset> presets() const { return {}; }
+    virtual bool presetsInHeader() const { return true; }     // false = predvolby su tlacidla v grafe
+    virtual bool showHeader() const { return ! isInst; }
+    double sampleRate() const { return rate; }
+    FxParam* find (const String& id) const { for (auto* p : knobs) if (p->id == id) return p; return nullptr; }
+    void applyPreset (const Preset& pr) { for (auto& [id, v] : pr.v) if (auto* q = find (id)) q->setFromUi (v); }
+    int abSlot = 0;
+    void switchAB (int to)
+    {
+        if (to == abSlot) return;
+        auto& cur = ab[(size_t) abSlot];
+        cur.clear();
+        for (auto* p : knobs) cur.push_back (p->getValue());
+        abSlot = to;
+        auto& nx = ab[(size_t) to];
+        if (nx.size() != knobs.size()) { nx = cur; return; }
+        for (size_t i = 0; i < knobs.size(); ++i) if (! knobs[i]->transient) knobs[i]->setValueNotifyingHost (nx[i]);
+    }
+
     void prepareToPlay (double sr, int bs) override
     {
         rate = sr;
@@ -175,8 +276,15 @@ public:
         if (ch <= 0 || buf.getNumSamples() == 0) return;
         AudioBuffer<float> view (buf.getArrayOfWritePointers(), ch, buf.getNumSamples());
         curMidi = acceptsMidi() ? &midi : nullptr;
-        process (view);
+        const int n = buf.getNumSamples();
+        const float dec = (float) std::exp (-(double) n / (0.3 * rate));
+        auto peakDb = [&] { float pk = 0; for (int c = 0; c < ch; ++c) pk = jmax (pk, view.getMagnitude (c, 0, n)); return Decibels::gainToDecibels (pk, -60.0f); };
+        const float in = isInst ? -60.0f : peakDb();
+        meterIn = jmax (in, -60.0f + (meterIn.load() + 60.0f) * dec);
+        if (! bypass.load() || isInst || acceptsMidi()) process (view);
         curMidi = nullptr;
+        meterOut = jmax (peakDb(), -60.0f + (meterOut.load() + 60.0f) * dec);
+        scope.push (view.getReadPointer (0), ch > 1 ? view.getReadPointer (1) : nullptr, n);
     }
 
     double getTailLengthSeconds() const override { return tail; }
@@ -198,15 +306,19 @@ public:
         XmlElement x ("KORGUSFX");
         x.setAttribute ("type", fxKey);
         for (auto* p : knobs) if (! p->transient) x.setAttribute (p->id, (double) p->get());
+        if (bypass.load()) x.setAttribute ("bypass", 1);
         copyXmlToBinary (x, mb);
     }
 
     void setStateInformation (const void* data, int size) override
     {
         if (auto x = getXmlFromBinary (data, size))
+        {
+            bypass = x->getIntAttribute ("bypass", 0) != 0;
             for (auto* p : knobs)
                 if (! p->transient && x->hasAttribute (p->id))
                     p->setValueNotifyingHost (p->range.convertTo0to1 ((float) x->getDoubleAttribute (p->id)));
+        }
     }
 
     void setKey (const float* l, const float* r, int n) { scL = l; scR = r != nullptr ? r : l; scN = l != nullptr ? n : 0; }
@@ -231,9 +343,10 @@ protected:
 private:
     String fxName, fxKey;
     bool isInst = false;
+    std::array<std::vector<float>, 2> ab;
 };
 
-KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProcessorEditor (p)
+KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProcessorEditor (p), fx (p)
 {
     for (auto* q : ps) if (q->inEditor) params.push_back (q);
     const Colour text (0xffc9d2dc), steel (0xff2d4362), fill (0xff6f8fb3);
@@ -284,16 +397,94 @@ KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProce
             k->updateText();
             comp = std::move (k);
         }
+        if (prm->tip.isNotEmpty()) if (auto* tc = dynamic_cast<SettableTooltipClient*> (comp.get())) tc->setTooltip (prm->tip);
         addAndMakeVisible (*comp);
         labels.push_back (prm->name);
         comps.push_back (std::move (comp));
     }
+    if (p.showHeader()) { head = 34; buildHeader(); }
     display = p.makeDisplay();
-    if (display != nullptr) { top = p.displayHeight(); addAndMakeVisible (*display); }
+    top = head;
+    if (display != nullptr) { top += p.displayHeight(); addAndMakeVisible (*display); }
     int totW = 16;
     for (size_t i = 0; i < comps.size(); ++i) totW += colWidth (i);
-    setSize (jmax (display != nullptr ? 460 : 260, totW), 150 + top);
+    setSize (jmax (display != nullptr ? 460 : (head > 0 ? 420 : 260), totW), 150 + top);
     startTimerHz (20);
+}
+
+void KnobEditor::buildHeader()
+{
+    const Colour text (0xffc9d2dc), steel (0xff2d4362);
+    const auto pr = fx.presets();
+    if (! pr.empty() && fx.presetsInHeader())
+    {
+        presetBox.setTextWhenNothingSelected (sk ("Predvoľba…"));
+        for (int i = 0; i < (int) pr.size(); ++i) presetBox.addItem (sk (pr[(size_t) i].name), i + 1);
+        presetBox.setColour (ComboBox::backgroundColourId, steel);
+        presetBox.setColour (ComboBox::textColourId, text);
+        presetBox.setColour (ComboBox::outlineColourId, Colours::transparentBlack);
+        presetBox.setTooltip (sk ("Hotové nastavenia – vyber a dolaď gombíkmi"));
+        presetBox.onChange = [this]
+        {
+            const auto all = fx.presets();
+            const int i = presetBox.getSelectedId() - 1;
+            if (juce::isPositiveAndBelow (i, (int) all.size())) fx.applyPreset (all[(size_t) i]);
+        };
+        addAndMakeVisible (presetBox);
+    }
+    for (auto* b : { &abA, &abB, &byp })
+    {
+        b->setColour (TextButton::buttonColourId, Colour (0xff1c2532));
+        b->setColour (TextButton::buttonOnColourId, steel);
+        b->setColour (TextButton::textColourOffId, text);
+        b->setColour (TextButton::textColourOnId, Colours::white);
+        b->setClickingTogglesState (false);
+        addAndMakeVisible (*b);
+    }
+    abA.setTooltip (sk ("A/B: dve nastavenia na porovnanie – prepni a počúvaj rozdiel"));
+    abB.setTooltip (sk ("A/B: dve nastavenia na porovnanie – prepni a počúvaj rozdiel"));
+    abA.onClick = [this] { fx.switchAB (0); updateHeader(); };
+    abB.onClick = [this] { fx.switchAB (1); updateHeader(); };
+    byp.setTooltip (sk ("Vypnúť efekt – zvuk ide bez úprav (na porovnanie)"));
+    byp.onClick = [this] { fx.bypass = ! fx.bypass.load(); updateHeader(); };
+    updateHeader();
+}
+
+void KnobEditor::updateHeader()
+{
+    abA.setToggleState (fx.abSlot == 0, dontSendNotification);
+    abB.setToggleState (fx.abSlot == 1, dontSendNotification);
+    const bool off = fx.bypass.load();
+    byp.setButtonText (off ? sk ("Vypnuté") : sk ("Zapnuté"));
+    byp.setColour (TextButton::buttonColourId, off ? Colour (0xff8a5a4a) : Colour (0xff1c2532));
+}
+
+void KnobEditor::layoutHeader()
+{
+    if (head <= 0) return;
+    auto r = Rectangle<int> (8, 6, getWidth() - 16, 24);
+    if (presetBox.isVisible()) presetBox.setBounds (r.removeFromLeft (170)), r.removeFromLeft (8);
+    abA.setBounds (r.removeFromLeft (28)); r.removeFromLeft (2);
+    abB.setBounds (r.removeFromLeft (28)); r.removeFromLeft (8);
+    byp.setBounds (r.removeFromLeft (78)); r.removeFromLeft (10);
+    meterArea = r.removeFromRight (jmin (190, r.getWidth()));
+}
+
+void KnobEditor::paintHeader (Graphics& g)
+{
+    auto r = meterArea.toFloat();
+    auto row = [&] (const String& name, float db, float y)
+    {
+        auto line = Rectangle<float> (r.getX(), y, r.getWidth(), 10.0f);
+        g.setColour (Colour (0xff8a96a6)); g.setFont (FontOptions (11.0f));
+        g.drawText (name, line.removeFromLeft (34.0f).expanded (0, 2), Justification::centredLeft);
+        g.setColour (Colour (0xff0e131b)); g.fillRoundedRectangle (line, 2.0f);
+        const float f = jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f);
+        g.setColour (db > -0.5f ? Colour (0xffb5654f) : Colour (0xff4d6f96));
+        g.fillRoundedRectangle (line.withWidth (line.getWidth() * f), 2.0f);
+    };
+    row (sk ("Vstup"), fx.meterIn.load(), r.getY() + 1.0f);
+    row (sk ("Výstup"), fx.meterOut.load(), r.getY() + 13.0f);
 }
 
 //==============================================================================
@@ -311,9 +502,33 @@ public:
         highG   = add ("highgain", "Výšky", -15, 15, 0, "dB");
         highF   = add ("highfreq", "Výšky Hz", 2000, 16000, 8000, "Hz", 0.5f, 0);
         outG    = add ("output", "Výstup", -18, 18, 0, "dB");
+        lowCut->tip = sk ("Odreže hlboké basy pod touto frekvenciou (hučanie, dunenie). V grafe: ľavý bod.");
+        lowG->tip   = sk ("Zosilní alebo stíši basy. V grafe ťahaj bod B hore / dole.");
+        lowF->tip   = sk ("Odkiaľ začínajú basy. V grafe ťahaj bod B do strany.");
+        midG->tip   = sk ("Zosilní alebo stíši stredy (hlas, gitara). V grafe ťahaj bod S.");
+        midF->tip   = sk ("Ktoré stredy sa menia. V grafe ťahaj bod S do strany.");
+        midQ->tip   = sk ("Šírka pásma stredov: malé číslo = široké, veľké = úzke. V grafe koliesko myši na bode S.");
+        highG->tip  = sk ("Zosilní alebo stíši výšky (jas, vzduch). V grafe ťahaj bod V.");
+        highF->tip  = sk ("Odkiaľ začínajú výšky. V grafe ťahaj bod V do strany.");
+        outG->tip   = sk ("Celková hlasitosť po ekvalizácii.");
+    }
+
+    std::unique_ptr<Component> makeDisplay() override;
+    int displayHeight() const override { return 190; }
+    std::vector<Preset> presets() const override
+    {
+        return { { "Bez úprav", { { "lowcut", 20 }, { "lowgain", 0 }, { "midgain", 0 }, { "highgain", 0 }, { "output", 0 } } },
+                 { "Spev – čistý", { { "lowcut", 100 }, { "lowgain", -2 }, { "lowfreq", 200 }, { "midgain", -2 }, { "midfreq", 400 }, { "midq", 1.2f }, { "highgain", 3 }, { "highfreq", 9000 } } },
+                 { "Spev – teplý", { { "lowcut", 80 }, { "lowgain", 2 }, { "lowfreq", 180 }, { "midgain", -1.5f }, { "midfreq", 2500 }, { "midq", 1.0f }, { "highgain", 1 }, { "highfreq", 10000 } } },
+                 { "Akustická gitara", { { "lowcut", 90 }, { "lowgain", -3 }, { "lowfreq", 180 }, { "midgain", 2 }, { "midfreq", 3000 }, { "midq", 1.0f }, { "highgain", 2 }, { "highfreq", 10000 } } },
+                 { "Basa – viac úderu", { { "lowcut", 30 }, { "lowgain", 3 }, { "lowfreq", 80 }, { "midgain", 3 }, { "midfreq", 900 }, { "midq", 1.5f }, { "highgain", 0 } } },
+                 { "Bicie – úder", { { "lowcut", 30 }, { "lowgain", 3 }, { "lowfreq", 70 }, { "midgain", -3 }, { "midfreq", 400 }, { "midq", 1.0f }, { "highgain", 3 }, { "highfreq", 8000 } } },
+                 { "Telefón", { { "lowcut", 500 }, { "lowgain", 0 }, { "midgain", 8 }, { "midfreq", 1500 }, { "midq", 1.0f }, { "highgain", -15 }, { "highfreq", 3500 } } },
+                 { "Menej hučania", { { "lowcut", 120 }, { "lowgain", 0 }, { "midgain", 0 }, { "highgain", 0 } } } };
     }
 
 private:
+    friend class EqDisplay;
     using Filter = dsp::ProcessorDuplicator<dsp::IIR::Filter<float>, dsp::IIR::Coefficients<float>>;
 
     void prepare() override
@@ -355,6 +570,146 @@ private:
     float lastOut = 1.0f;
 };
 
+// EQ: krivka so spektrom, body pasiem sa tahaju mysou
+class EqDisplay final : public Component, public SettableTooltipClient, private Timer
+{
+public:
+    explicit EqDisplay (EqFx& f) : fx (f) { ++fx.scope.users; startTimerHz (25); setTooltip (sk ("Ťahaj body: LC = odrezanie basov, B = basy, S = stredy (koliesko = šírka), V = výšky · dvojklik na bod = nula")); }
+    ~EqDisplay() override { stopTimer(); --fx.scope.users; }
+
+    void paint (Graphics& g) override
+    {
+        const auto a = area();
+        g.setColour (GCol::bg); g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+        g.setFont (FontOptions (10.0f));
+        for (float hz : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
+        {
+            const float x = xOf (hz);
+            g.setColour (GCol::grid); g.drawVerticalLine ((int) x, a.getY(), a.getBottom());
+            g.setColour (GCol::dim); g.drawText (hz >= 1000 ? String ((int) (hz / 1000)) + "k" : String ((int) hz), (int) x - 15, (int) a.getBottom() + 1, 30, 12, Justification::centred);
+        }
+        for (float db : { -12.0f, -6.0f, 0.0f, 6.0f, 12.0f })
+        {
+            g.setColour (db == 0 ? GCol::steel : GCol::grid); g.drawHorizontalLine ((int) yOf (db), a.getX(), a.getRight());
+            g.setColour (GCol::dim); g.drawText ((db > 0 ? "+" : "") + String ((int) db), 2, (int) yOf (db) - 6, 22, 12, Justification::centredRight);
+        }
+        // spektrum vystupu
+        const double sr = fx.sampleRate();
+        Path sp; bool first = true;
+        for (float x = a.getX(); x <= a.getRight(); x += 2.0f)
+        {
+            const float v = spec.at (hzOf (x), sr);
+            const float y = jmap (jlimit (-90.0f, 0.0f, v), -90.0f, 0.0f, a.getBottom(), a.getY());
+            if (first) { sp.startNewSubPath (x, a.getBottom()); first = false; }
+            sp.lineTo (x, y);
+        }
+        sp.lineTo (a.getRight(), a.getBottom()); sp.closeSubPath();
+        g.setColour (GCol::steel.withAlpha (0.55f)); g.fillPath (sp);
+        // krivka
+        Path cv;
+        for (float x = a.getX(); x <= a.getRight(); x += 1.5f)
+        {
+            const float y = yOf (Decibels::gainToDecibels (response (hzOf (x)), -40.0f));
+            if (x == a.getX()) cv.startNewSubPath (x, y); else cv.lineTo (x, y);
+        }
+        g.setColour (GCol::gold); g.strokePath (cv, PathStrokeType (2.0f));
+        // body
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto pt = pointPos (i);
+            const bool on = i == hover || i == dragging;
+            g.setColour (on ? GCol::gold : GCol::line); g.fillEllipse (pt.x - 7, pt.y - 7, 14, 14);
+            g.setColour (GCol::bg); g.setFont (FontOptions (9.0f, Font::bold));
+            g.drawText (i == 0 ? "LC" : i == 1 ? "B" : i == 2 ? "S" : "V", Rectangle<float> (pt.x - 7, pt.y - 7, 14, 14), Justification::centred);
+        }
+        if (hover >= 0 || dragging >= 0)
+        {
+            const int i = dragging >= 0 ? dragging : hover;
+            String t;
+            auto hzT = [] (float f) { return f >= 1000 ? String (f / 1000.0f, 1) + " kHz" : String (roundToInt (f)) + " Hz"; };
+            if (i == 0) t = sk ("Odrezanie basov") + ": " + (fx.lowCut->get() < 20.5f ? sk ("vyp.") : hzT (fx.lowCut->get()));
+            else if (i == 1) t = sk ("Basy") + ": " + hzT (fx.lowF->get()) + "  " + String (fx.lowG->get(), 1) + " dB";
+            else if (i == 2) t = sk ("Stredy") + ": " + hzT (fx.midF->get()) + "  " + String (fx.midG->get(), 1) + " dB  Q " + String (fx.midQ->get(), 2);
+            else t = sk ("Výšky") + ": " + hzT (fx.highF->get()) + "  " + String (fx.highG->get(), 1) + " dB";
+            g.setColour (GCol::text); g.setFont (FontOptions (12.0f));
+            g.drawText (t, a.toNearestInt().removeFromTop (16).reduced (6, 0), Justification::centredRight);
+        }
+    }
+    void mouseMove (const MouseEvent& e) override { const int h = hit (e.position); if (h != hover) { hover = h; repaint(); } }
+    void mouseExit (const MouseEvent&) override { hover = -1; repaint(); }
+    void mouseDown (const MouseEvent& e) override
+    {
+        dragging = hit (e.position);
+        for (auto* p : prm (dragging)) if (p != nullptr) p->beginChangeGesture();
+    }
+    void mouseDrag (const MouseEvent& e) override
+    {
+        if (dragging < 0) return;
+        const float hz = hzOf (e.position.x), db = dbOf (e.position.y);
+        auto [f, gn] = pair (dragging);
+        f->setFromUi (hz);
+        if (gn != nullptr) gn->setFromUi (std::round (db * 2.0f) / 2.0f);
+        repaint();
+    }
+    void mouseUp (const MouseEvent&) override { for (auto* p : prm (dragging)) if (p != nullptr) p->endChangeGesture(); dragging = -1; repaint(); }
+    void mouseDoubleClick (const MouseEvent& e) override
+    {
+        const int i = hit (e.position); if (i < 0) return;
+        auto [f, gn] = pair (i);
+        if (gn != nullptr) gn->setFromUi (0.0f); else f->setFromUi (20.0f);
+        repaint();
+    }
+    void mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& w) override
+    {
+        if (hit (e.position) != 2) return;
+        fx.midQ->setFromUi (fx.midQ->get() * (w.deltaY > 0 ? 1.15f : 1.0f / 1.15f));
+        repaint();
+    }
+
+private:
+    Rectangle<float> area() const { return getLocalBounds().toFloat().reduced (26, 8).withTrimmedBottom (8); }
+    float xOf (float hz) const { const auto a = area(); return a.getX() + a.getWidth() * std::log (hz / 20.0f) / std::log (1000.0f); }
+    float hzOf (float x) const { const auto a = area(); return 20.0f * std::pow (1000.0f, jlimit (0.0f, 1.0f, (x - a.getX()) / a.getWidth())); }
+    float yOf (float db) const { const auto a = area(); return jmap (jlimit (-18.0f, 18.0f, db), 18.0f, -18.0f, a.getY(), a.getBottom()); }
+    float dbOf (float y) const { const auto a = area(); return jlimit (-15.0f, 15.0f, jmap (y, a.getY(), a.getBottom(), 18.0f, -18.0f)); }
+    std::pair<FxParam*, FxParam*> pair (int i) const
+    {
+        if (i == 0) return { fx.lowCut, nullptr };
+        if (i == 1) return { fx.lowF, fx.lowG };
+        if (i == 2) return { fx.midF, fx.midG };
+        return { fx.highF, fx.highG };
+    }
+    std::array<FxParam*, 2> prm (int i) const { if (i < 0) return { nullptr, nullptr }; auto [a, b] = pair (i); return { a, b }; }
+    Point<float> pointPos (int i) const
+    {
+        auto [f, gn] = pair (i);
+        const float hz = f->get();
+        return { xOf (hz), gn != nullptr ? yOf (gn->get()) : yOf (Decibels::gainToDecibels (response (hz), -40.0f)) };
+    }
+    int hit (Point<float> p) const
+    {
+        int best = -1; float bd = 14.0f;
+        for (int i = 0; i < 4; ++i) { const float d = pointPos (i).getDistanceFrom (p); if (d < bd) { bd = d; best = i; } }
+        return best;
+    }
+    float response (float hz) const
+    {
+        const double sr = jmax (8000.0, fx.sampleRate()), ny = sr * 0.45;
+        using C = dsp::IIR::Coefficients<float>;
+        double m = 1.0;
+        if (fx.lowCut->get() > 20.5f) m *= C::makeHighPass (sr, jmin ((double) fx.lowCut->get(), ny), 0.707f)->getMagnitudeForFrequency (hz, sr);
+        if (std::abs (fx.lowG->get()) > 0.01f) m *= C::makeLowShelf (sr, jmin ((double) fx.lowF->get(), ny), 0.707f, Decibels::decibelsToGain (fx.lowG->get()))->getMagnitudeForFrequency (hz, sr);
+        if (std::abs (fx.midG->get()) > 0.01f) m *= C::makePeakFilter (sr, jmin ((double) fx.midF->get(), ny), fx.midQ->get(), Decibels::decibelsToGain (fx.midG->get()))->getMagnitudeForFrequency (hz, sr);
+        if (std::abs (fx.highG->get()) > 0.01f) m *= C::makeHighShelf (sr, jmin ((double) fx.highF->get(), ny), 0.707f, Decibels::decibelsToGain (fx.highG->get()))->getMagnitudeForFrequency (hz, sr);
+        return (float) m * Decibels::decibelsToGain (fx.outG->get());
+    }
+    void timerCallback() override { spec.update (fx.scope); repaint(); }
+    EqFx& fx;
+    Spectrum spec;
+    int hover = -1, dragging = -1;
+};
+std::unique_ptr<Component> EqFx::makeDisplay() { return std::make_unique<EqDisplay> (*this); }
+
 //==============================================================================
 class CompFx final : public FxBase
 {
@@ -370,10 +725,27 @@ public:
         key  = add ("key", "Riadenie", 0, 1, 0, "", 1.0f, 0);
         key->range.interval = 1.0f;
         key->choices = StringArray { sk ("Vlastný"), String ("Sidechain") };
+        thr->tip = sk ("Od akej hlasitosti začne kompresor stláčať. V grafe ťahaj zlatý bod do strany.");
+        rat->tip = sk ("Ako silno stláča nad prahom (4:1 = o 4 dB viac na vstupe dá len 1 dB na výstupe). V grafe ťahaj čiaru vpravo hore / dole.");
+        att->tip = sk ("Ako rýchlo začne stláčať. Pomalší nábeh nechá prejsť úder (bicie znejú údernejšie).");
+        rel->tip = sk ("Ako rýchlo sa po stlačení vráti späť.");
+        mak->tip = sk ("Zosilní výsledok, aby bol rovnako hlasný ako predtým.");
+        mix->tip = sk ("Pomer stlačeného a pôvodného zvuku (paralelná kompresia).");
+        key->tip = sk ("Sidechain: stláča podľa inej stopy (napr. basa uhne kopáku).");
     }
 
     std::unique_ptr<Component> makeDisplay() override;
-    int displayHeight() const override { return 74; }
+    int displayHeight() const override { return 160; }
+    std::vector<Preset> presets() const override
+    {
+        return { { "Spev – jemne", { { "threshold", -20 }, { "ratio", 2.5f }, { "attack", 10 }, { "release", 150 }, { "makeup", 3 }, { "mix", 100 } } },
+                 { "Spev – vyrovnaný", { { "threshold", -24 }, { "ratio", 4 }, { "attack", 5 }, { "release", 120 }, { "makeup", 6 }, { "mix", 100 } } },
+                 { "Bicie – úder", { { "threshold", -18 }, { "ratio", 4 }, { "attack", 25 }, { "release", 100 }, { "makeup", 3 }, { "mix", 100 } } },
+                 { "Bicie – paralelne", { { "threshold", -30 }, { "ratio", 8 }, { "attack", 2 }, { "release", 80 }, { "makeup", 8 }, { "mix", 40 } } },
+                 { "Basa – vyrovnaná", { { "threshold", -20 }, { "ratio", 5 }, { "attack", 15 }, { "release", 150 }, { "makeup", 4 }, { "mix", 100 } } },
+                 { "Mix – lepidlo", { { "threshold", -14 }, { "ratio", 2 }, { "attack", 30 }, { "release", 200 }, { "makeup", 1.5f }, { "mix", 100 } } },
+                 { "Pumpa (sidechain)", { { "threshold", -30 }, { "ratio", 10 }, { "attack", 1 }, { "release", 180 }, { "makeup", 0 }, { "mix", 100 }, { "key", 1 } } } };
+    }
     std::atomic<float> grNow { 0 }, inNow { -60 }, outNow { -60 };   // pre ukazovatel (dB)
 
 private:
@@ -423,43 +795,92 @@ private:
             }
     }
 
+    friend class CompMeter;
     FxParam *thr, *rat, *att, *rel, *mak, *mix, *key;
     AudioBuffer<float> dry;
     float env = 0, lastG = 1.0f;
 };
 
-// ukazovatel kompresora: vstup, stlacenie (dB) a vystup
-class CompMeter final : public Component, private Timer
+// kompresor: prenosova krivka (vstup -> vystup) s bodkou podla hlasitosti + ukazovatele
+class CompMeter final : public Component, public SettableTooltipClient, private Timer
 {
 public:
-    explicit CompMeter (CompFx& f) : fx (f) { startTimerHz (30); }
+    explicit CompMeter (CompFx& f) : fx (f) { startTimerHz (30); setTooltip (sk ("Krivka: ťahaj zlatý bod (prah) do strany, čiaru vpravo hore / dole (pomer). Bodka ukazuje aktuálnu hlasitosť.")); }
     ~CompMeter() override { stopTimer(); }
     void paint (Graphics& g) override
     {
-        auto r = getLocalBounds().toFloat();
-        g.setColour (Colour (0xff161c24)); g.fillRoundedRectangle (r, 3.0f);
-        r = r.reduced (10, 6);
-        const float lw = 74.0f;
+        g.setColour (GCol::bg); g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+        const auto a = sq();
+        g.setColour (GCol::panel); g.fillRect (a);
+        g.setFont (FontOptions (10.0f));
+        for (float d : { -48.0f, -36.0f, -24.0f, -12.0f })
+        {
+            g.setColour (GCol::grid); g.drawVerticalLine ((int) xOf (d), a.getY(), a.getBottom()); g.drawHorizontalLine ((int) yOf (d), a.getX(), a.getRight());
+        }
+        g.setColour (GCol::steel); g.drawLine (a.getX(), a.getBottom(), a.getRight(), a.getY(), 1.0f);
+        Path p;
+        for (float d = -60.0f; d <= 0.01f; d += 0.5f) { const float x = xOf (d), y = yOf (outFor (d)); if (d == -60.0f) p.startNewSubPath (x, y); else p.lineTo (x, y); }
+        g.setColour (GCol::gold); g.strokePath (p, PathStrokeType (2.0f));
+        const float t = fx.thr->get();
+        g.setColour (drag == 1 ? Colours::white : GCol::gold); g.fillEllipse (xOf (t) - 6, yOf (outFor (t)) - 6, 12, 12);
+        const float in = jlimit (-60.0f, 0.0f, fx.inNow.load());
+        g.setColour (GCol::line); g.fillEllipse (xOf (in) - 4, yOf (outFor (in)) - 4, 8, 8);
+        g.setColour (GCol::dim); g.drawText (sk ("vstup"), a.withTop (a.getBottom() - 12).toNearestInt(), Justification::centredRight);
+        g.drawText (sk ("prah") + " " + String (t, 1) + " dB  " + String (fx.rat->get(), 1) + ":1", a.withHeight (14).reduced (4, 0).toNearestInt(), Justification::centredLeft);
+        // ukazovatele vpravo
+        auto r = getLocalBounds().toFloat().withTrimmedLeft (a.getRight() + 14).reduced (8, 14);
         auto row = [&] (const String& name, float frac, Colour c, const String& val, bool fromRight)
         {
-            auto line = r.removeFromTop (18.0f); r.removeFromTop (3.0f);
-            g.setColour (Colour (0xffc9d2dc)); g.setFont (FontOptions (12.0f));
-            g.drawText (name, line.removeFromLeft (lw), Justification::centredLeft);
-            g.drawText (val, line.removeFromRight (64.0f), Justification::centredRight);
+            auto line = r.removeFromTop (18.0f); r.removeFromTop (14.0f);
+            g.setColour (GCol::text); g.setFont (FontOptions (12.0f));
+            g.drawText (name, line.removeFromLeft (70.0f), Justification::centredLeft);
+            g.drawText (val, line.removeFromRight (60.0f), Justification::centredRight);
             line.removeFromRight (6.0f);
-            g.setColour (Colour (0xff0e131b)); g.fillRoundedRectangle (line, 3.0f);
+            g.setColour (GCol::bg.brighter (0.05f)); g.fillRoundedRectangle (line, 3.0f);
             const float w = line.getWidth() * jlimit (0.0f, 1.0f, frac);
             g.setColour (c);
             g.fillRoundedRectangle (fromRight ? line.withLeft (line.getRight() - w) : line.withWidth (w), 3.0f);
         };
-        const float in = fx.inNow.load(), out = fx.outNow.load(), gr = fx.grNow.load();
-        row (sk ("Vstup"), (in + 60.0f) / 60.0f, Colour (0xff4d6f96), String (in, 1) + " dB", false);
-        row (sk ("Stlačenie"), gr / 24.0f, Colour (0xffc9a35a), (gr > 0.05f ? "-" : "") + String (gr, 1) + " dB", true);
+        const float inD = fx.inNow.load(), out = fx.outNow.load(), gr = fx.grNow.load();
+        row (sk ("Vstup"), (inD + 60.0f) / 60.0f, Colour (0xff4d6f96), String (inD, 1) + " dB", false);
+        row (sk ("Stlačenie"), gr / 24.0f, GCol::gold, (gr > 0.05f ? "-" : "") + String (gr, 1) + " dB", true);
         row (sk ("Výstup"), (out + 60.0f) / 60.0f, Colour (0xff6f8fb3), String (out, 1) + " dB", false);
     }
+    void mouseDown (const MouseEvent& e) override
+    {
+        const float t = fx.thr->get();
+        drag = e.position.getDistanceFrom ({ xOf (t), yOf (outFor (t)) }) < 12.0f ? 1 : (e.position.x > xOf (t) && sq().contains (e.position) ? 2 : 0);
+        if (drag == 1) fx.thr->beginChangeGesture(); else if (drag == 2) fx.rat->beginChangeGesture();
+    }
+    void mouseDrag (const MouseEvent& e) override
+    {
+        const auto a = sq();
+        const float din = jmap (e.position.x, a.getX(), a.getRight(), -60.0f, 0.0f);
+        if (drag == 1) fx.thr->setFromUi (std::round (din * 2.0f) / 2.0f);
+        else if (drag == 2)
+        {
+            const float t = fx.thr->get(), x = jmax (t + 3.0f, din), outY = jmap (e.position.y, a.getBottom(), a.getY(), -60.0f, 0.0f);
+            const float rise = jmax (0.05f, outY - (t - 0.0f));
+            fx.rat->setFromUi (jlimit (1.0f, 20.0f, (x - t) / rise));
+        }
+        repaint();
+    }
+    void mouseUp (const MouseEvent&) override { if (drag == 1) fx.thr->endChangeGesture(); else if (drag == 2) fx.rat->endChangeGesture(); drag = 0; }
 private:
+    Rectangle<float> sq() const { const float h = (float) getHeight() - 16.0f; return { 8.0f, 8.0f, h, h }; }
+    float xOf (float d) const { const auto a = sq(); return jmap (d, -60.0f, 0.0f, a.getX(), a.getRight()); }
+    float yOf (float d) const { const auto a = sq(); return jmap (jlimit (-60.0f, 0.0f, d), -60.0f, 0.0f, a.getBottom(), a.getY()); }
+    float outFor (float in) const   // bez zisku (makeup), rovnake makke koleno ako zvuk
+    {
+        const float t = fx.thr->get(), slope = 1.0f - 1.0f / fx.rat->get(), knee = 6.0f, over = in - t;
+        float gr = 0;
+        if (over > knee * 0.5f) gr = over * slope;
+        else if (over > -knee * 0.5f) { const float k = over + knee * 0.5f; gr = slope * k * k / (2.0f * knee); }
+        return in - gr;
+    }
     void timerCallback() override { repaint(); }
     CompFx& fx;
+    int drag = 0;
 };
 std::unique_ptr<Component> CompFx::makeDisplay() { return std::make_unique<CompMeter> (*this); }
 
@@ -476,21 +897,131 @@ public:
         width = add ("width", "Šírka", 0, 100, 100, "%", 1.0f, 0);
         mix   = add ("mix", "Mix", 0, 100, 25, "%", 1.0f, 0);
         tail = 12.0;
+        size->tip  = sk ("Veľkosť priestoru – od malej izby po veľkú halu (rozostup prvých odrazov).");
+        decay->tip = sk ("Ako dlho dozvuk doznieva. V grafe ťahaj koniec chvosta.");
+        damp->tip  = sk ("Tlmenie výšok: viac = tmavší, mäkší dozvuk (ako v miestnosti so závesmi).");
+        pre->tip   = sk ("Medzera pred dozvukom – spev ostane zreteľný a dozvuk príde až za ním. V grafe ťahaj začiatok chvosta.");
+        width->tip = sk ("Šírka dozvuku v stereu.");
+        mix->tip   = sk ("Koľko dozvuku pridať k pôvodnému zvuku.");
     }
+    std::unique_ptr<Component> makeDisplay() override;
+    int displayHeight() const override { return 168; }
+    bool presetsInHeader() const override { return false; }
+    std::vector<Preset> presets() const override
+    {
+        auto P = [] (const char* n, float sz, float dc, float dm, float pd, float wd, float mx) { return Preset { n, { { "size", sz }, { "decay", dc }, { "damping", dm }, { "predelay", pd }, { "width", wd }, { "mix", mx } } }; };
+        return { P ("Izba", 25, 25, 55, 5, 80, 18), P ("Štúdio", 40, 35, 45, 15, 100, 20), P ("Sála", 70, 60, 40, 30, 100, 25),
+                 P ("Kostol", 95, 85, 30, 45, 100, 30), P ("Plech", 45, 65, 15, 0, 100, 22), P ("Spev", 55, 45, 50, 60, 90, 18) };
+    }
+    std::atomic<float> tailNow { 2.0f };
 
 private:
+    friend class ReverbDisplay;
     void prepare() override { rv.prepare (rate, 8192); rv.reset(); }
 
     void process (AudioBuffer<float>& b) override
     {
         rv.setParams (size->get() * 0.01f, decay->get() * 0.01f, damp->get() * 0.01f, pre->get() / 250.0f, width->get() * 0.01f);
         tail = rv.getTailSeconds();
+        tailNow = (float) tail;
         rv.process (b.getWritePointer (0), b.getNumChannels() > 1 ? b.getWritePointer (1) : nullptr, b.getNumSamples(), mix->get() * 0.01f);
     }
 
     FxParam *size, *decay, *damp, *pre, *width, *mix;
     korgus::SuperVerb rv;
 };
+
+// dozvuk: graf doznievania (predozvuk, prve odrazy, chvost), tlacidla miestnosti
+class ReverbDisplay final : public Component, public SettableTooltipClient, private Timer
+{
+public:
+    explicit ReverbDisplay (ReverbFx& f) : fx (f)
+    {
+        setTooltip (sk ("Ťahaj začiatok chvosta (predozvuk) alebo jeho koniec (dĺžka). Tlačidlá dole = hotové miestnosti."));
+        const auto pr = fx.presets();
+        for (int i = 0; i < (int) pr.size(); ++i)
+        {
+            auto* b = btns.add (new TextButton (sk (pr[(size_t) i].name)));
+            b->setColour (TextButton::buttonColourId, Colour (0xff1c2532));
+            b->setColour (TextButton::textColourOffId, GCol::text);
+            b->onClick = [this, i] { const auto all = fx.presets(); fx.applyPreset (all[(size_t) i]); repaint(); };
+            addAndMakeVisible (b);
+        }
+        startTimerHz (20);
+    }
+    ~ReverbDisplay() override { stopTimer(); }
+    void resized() override
+    {
+        auto r = getLocalBounds().removeFromBottom (26).reduced (6, 2);
+        const int w = r.getWidth() / jmax (1, btns.size());
+        for (auto* b : btns) b->setBounds (r.removeFromLeft (w).reduced (2, 0));
+    }
+    void paint (Graphics& g) override
+    {
+        g.setColour (GCol::bg); g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+        const auto a = area();
+        const float xp = xPre(), xe = xEnd(), base = a.getBottom(), topY = a.getY() + 12;
+        // povodny zvuk
+        g.setColour (GCol::dim); g.fillRect (a.getX(), topY, 3.0f, base - topY);
+        // prve odrazy
+        const float spread = jmap (fx.size->get(), 0.0f, 100.0f, 8.0f, 40.0f);
+        for (int k = 0; k < 6; ++k)
+        {
+            const float x = xp + spread * (0.3f + (float) k * 0.55f) * (1.0f + 0.15f * (float) (k % 2));
+            const float h = (base - topY) * (0.75f - (float) k * 0.09f);
+            g.setColour (GCol::line.withAlpha (0.8f)); g.fillRect (x, base - h, 2.0f, h);
+        }
+        // chvost: spodna vrstva (basy) a horna (vysky) – tlmenie skracuje vysky
+        auto tailPath = [&] (float len, float hFrac)
+        {
+            Path p; p.startNewSubPath (xp, base);
+            const float h = (base - topY) * hFrac;
+            for (float x = xp; x <= xp + len; x += 2.0f) { const float t = (x - xp) / jmax (1.0f, len); p.lineTo (x, base - h * std::pow (1.0f - t, 2.2f) * (0.6f + 0.4f * std::exp (-t * 8.0f))); }
+            p.lineTo (xp + len, base); p.closeSubPath(); return p;
+        };
+        const float len = xe - xp;
+        g.setColour (GCol::steel.withAlpha (0.9f)); g.fillPath (tailPath (len, 0.62f));
+        const float hiLen = len * jmap (fx.damp->get(), 0.0f, 100.0f, 1.0f, 0.3f);
+        g.setGradientFill (ColourGradient (GCol::line.withAlpha (0.55f), xp, topY, GCol::line.withAlpha (0.05f), xp + hiLen, base, false));
+        g.fillPath (tailPath (hiLen, 0.45f));
+        // uchopy
+        for (int i = 0; i < 2; ++i)
+        {
+            const float x = i == 0 ? xp : xe;
+            g.setColour (drag == i + 1 || hover == i + 1 ? GCol::gold : GCol::gold.withAlpha (0.7f));
+            g.drawVerticalLine ((int) x, topY - 8, base);
+            g.fillEllipse (x - 5, topY - 12, 10, 10);
+        }
+        g.setColour (GCol::text); g.setFont (FontOptions (11.0f));
+        g.drawText (sk ("predozvuk") + " " + String (roundToInt (fx.pre->get())) + " ms", Rectangle<float> (xp + 8, a.getY(), 130, 12), Justification::centredLeft);
+        g.drawText (sk ("dĺžka") + " ≈ " + String (korgus::SuperVerb::decayToSeconds (fx.decay->get() * 0.01f), 1) + " s",
+                    Rectangle<float> (jmin (xe + 8, a.getRight() - 90), a.getY(), 90, 12), Justification::centredLeft);
+    }
+    void mouseMove (const MouseEvent& e) override { const int h = hit (e.position); if (h != hover) { hover = h; repaint(); } }
+    void mouseExit (const MouseEvent&) override { hover = 0; repaint(); }
+    void mouseDown (const MouseEvent& e) override { drag = hit (e.position); if (drag == 1) fx.pre->beginChangeGesture(); if (drag == 2) fx.decay->beginChangeGesture(); }
+    void mouseDrag (const MouseEvent& e) override
+    {
+        const auto a = area();
+        if (drag == 1) fx.pre->setFromUi (jmap (e.position.x, a.getX() + 6, a.getX() + 6 + preW(), 0.0f, 250.0f));
+        else if (drag == 2) fx.decay->setFromUi (jmap (e.position.x - xPre(), minLen(), maxLen(), 0.0f, 100.0f));
+        repaint();
+    }
+    void mouseUp (const MouseEvent&) override { if (drag == 1) fx.pre->endChangeGesture(); if (drag == 2) fx.decay->endChangeGesture(); drag = 0; }
+private:
+    Rectangle<float> area() const { return getLocalBounds().toFloat().reduced (10, 8).withTrimmedBottom (26); }
+    float preW() const { return area().getWidth() * 0.18f; }
+    float minLen() const { return 30.0f; }
+    float maxLen() const { return area().getRight() - (area().getX() + 6 + preW()) - 10; }
+    float xPre() const { return area().getX() + 6 + preW() * fx.pre->get() / 250.0f; }
+    float xEnd() const { return xPre() + jmap (fx.decay->get(), 0.0f, 100.0f, minLen(), maxLen()); }
+    int hit (Point<float> p) const { if (std::abs (p.x - xPre()) < 8) return 1; if (std::abs (p.x - xEnd()) < 8) return 2; return 0; }
+    void timerCallback() override { repaint(); }
+    ReverbFx& fx;
+    OwnedArray<TextButton> btns;
+    int drag = 0, hover = 0;
+};
+std::unique_ptr<Component> ReverbFx::makeDisplay() { return std::make_unique<ReverbDisplay> (*this); }
 
 //==============================================================================
 class DelayFx final : public FxBase
@@ -509,9 +1040,27 @@ public:
         pp   = add ("pingpong", "Ping-pong", 0, 1, 0, "", 1.0f, 0);
         pp->toggle = true;
         tail = 4.0;
+        sync->inEditor = false;   // tlacidla v grafe
+        time->tip = sk ("Čas medzi opakovaniami (pri Synchro podľa tempa piesne). V grafe ťahaj prvú čiarku do strany.");
+        fb->tip   = sk ("Koľkokrát sa ozvena opakuje. V grafe ťahaj prvú čiarku hore / dole.");
+        tone->tip = sk ("Farba ozveny: menej = tmavšia, každé ďalšie opakovanie tmavne.");
+        mix->tip  = sk ("Koľko ozveny pridať k pôvodnému zvuku.");
+        pp->tip   = sk ("Ping-pong: ozvena skáče striedavo vľavo a vpravo.");
     }
+    std::unique_ptr<Component> makeDisplay() override;
+    int displayHeight() const override { return 150; }
+    std::vector<Preset> presets() const override
+    {
+        return { { "Spev – jemná ozvena", { { "sync", 3 }, { "feedback", 25 }, { "tone", 6000 }, { "mix", 15 }, { "pingpong", 0 } } },
+                 { "Slapback (rokenrol)", { { "sync", 0 }, { "time", 110 }, { "feedback", 5 }, { "tone", 9000 }, { "mix", 25 }, { "pingpong", 0 } } },
+                 { "Ping-pong", { { "sync", 2 }, { "feedback", 40 }, { "tone", 7000 }, { "mix", 25 }, { "pingpong", 1 } } },
+                 { "Dlhá do priestoru", { { "sync", 1 }, { "feedback", 60 }, { "tone", 4000 }, { "mix", 22 }, { "pingpong", 1 } } },
+                 { "Dub (tmavá)", { { "sync", 2 }, { "feedback", 70 }, { "tone", 2000 }, { "mix", 30 }, { "pingpong", 0 } } } };
+    }
+    std::atomic<float> msNow { 375.0f };
 
 private:
+    friend class DelayDisplay;
     void prepare() override
     {
         size = (int) (rate * 2.1) + 4;
@@ -534,6 +1083,7 @@ private:
                     if (auto b = pos->getBpm()) bpm = jlimit (20.0, 400.0, *b);
             ms = jmin (2000.0, 60000.0 / bpm * beats[sy]);
         }
+        msNow = (float) ms;
         const float target = (float) jlimit (1.0, (double) size - 3, ms * 0.001 * rate);
         const float f = fb->get() * 0.01f, m = mix->get() * 0.01f;
         const float a = (float) std::exp (-MathConstants<double>::twoPi * tone->get() / rate);
@@ -580,6 +1130,99 @@ private:
     float lp[2] {}, curD = 0;
 };
 
+// ozvena: opakovania ako ciarky v case, tlacidla synchronizacie
+class DelayDisplay final : public Component, public SettableTooltipClient, private Timer
+{
+public:
+    explicit DelayDisplay (DelayFx& f) : fx (f)
+    {
+        setTooltip (sk ("Ťahaj prvú zlatú čiarku: do strany = čas, hore / dole = počet opakovaní."));
+        for (int i = 0; i < fx.sync->choices.size(); ++i)
+        {
+            auto* b = btns.add (new TextButton (fx.sync->choices[i]));
+            b->setColour (TextButton::buttonColourId, Colour (0xff1c2532));
+            b->setColour (TextButton::buttonOnColourId, GCol::steel);
+            b->setColour (TextButton::textColourOffId, GCol::text);
+            b->setColour (TextButton::textColourOnId, Colours::white);
+            b->setTooltip (i == 0 ? sk ("Čas nastavíš voľne v milisekundách") : sk ("Čas podľa tempa piesne"));
+            b->onClick = [this, i] { fx.sync->setFromUi ((float) i); repaint(); };
+            addAndMakeVisible (b);
+        }
+        startTimerHz (20);
+    }
+    ~DelayDisplay() override { stopTimer(); }
+    void resized() override
+    {
+        auto r = getLocalBounds().removeFromTop (26).reduced (6, 2);
+        const int w = r.getWidth() / jmax (1, btns.size());
+        for (auto* b : btns) b->setBounds (r.removeFromLeft (w).reduced (2, 0));
+    }
+    void paint (Graphics& g) override
+    {
+        const int sy = roundToInt (fx.sync->get());
+        for (int i = 0; i < btns.size(); ++i) btns[i]->setToggleState (i == sy, dontSendNotification);
+        g.setColour (GCol::bg); g.fillRoundedRectangle (getLocalBounds().toFloat().withTrimmedTop (28), 3.0f);
+        const auto a = area();
+        const bool ping = fx.pp->get() > 0.5f;
+        const float mid = ping ? a.getCentreY() : a.getBottom(), hMax = ping ? a.getHeight() * 0.5f - 4 : a.getHeight() - 6;
+        g.setColour (GCol::grid); g.drawHorizontalLine ((int) mid, a.getX(), a.getRight());
+        g.setFont (FontOptions (10.0f));
+        for (float sec = 0.5f; sec < axis; sec += 0.5f) { const float x = xOf (sec * 1000.0f); g.setColour (GCol::grid); g.drawVerticalLine ((int) x, a.getY(), a.getBottom()); g.setColour (GCol::dim); g.drawText (String (sec, 1) + " s", (int) x + 2, (int) a.getY(), 40, 11, Justification::centredLeft); }
+        g.setColour (GCol::dim); g.fillRect (a.getX(), mid - hMax, 3.0f, hMax * (ping ? 2.0f : 1.0f));
+        const float ms = fx.msNow.load(), f = fx.fb->get() * 0.01f;
+        const float bright = jmap (std::log (fx.tone->get() / 1000.0f) / std::log (20.0f), 0.0f, 1.0f, 0.35f, 1.0f);
+        float lev = 1.0f;
+        for (int k = 1; k < 64; ++k)
+        {
+            const float x = xOf (ms * (float) k);
+            if (x > a.getRight() || lev < 0.02f) break;
+            const float h = hMax * lev;
+            const Colour c = (k == 1 ? GCol::gold : GCol::line).withMultipliedBrightness (k == 1 ? 1.0f : std::pow (bright, (float) (k - 1) * 0.5f));
+            g.setColour (c);
+            if (ping && (k % 2 == 0)) g.fillRect (x - 1.5f, mid, 3.0f, h);
+            else g.fillRect (x - 1.5f, mid - h, 3.0f, h);
+            lev *= f;
+        }
+        g.setColour (GCol::text); g.setFont (FontOptions (11.0f));
+        g.drawText (String (roundToInt (ms)) + " ms · " + String (roundToInt (fx.fb->get())) + " %", a.toNearestInt().removeFromBottom (14).reduced (4, 0), Justification::centredRight);
+        if (ping) { g.setColour (GCol::dim); g.drawText ("L", a.toNearestInt().removeFromTop (14).reduced (4, 0), Justification::centredRight); g.drawText ("R", a.toNearestInt().removeFromBottom (28).removeFromTop (14).reduced (4, 0), Justification::centredRight); }
+    }
+    void mouseDown (const MouseEvent& e) override
+    {
+        drag = std::abs (e.position.x - xOf (fx.msNow.load())) < 10 && area().contains (e.position);
+        if (! drag) return;
+        y0 = e.position.y; fb0 = fx.fb->get(); x0 = e.position.x; ms0 = fx.msNow.load(); axisLock = 0;
+        fx.time->beginChangeGesture(); fx.fb->beginChangeGesture();
+    }
+    void mouseDrag (const MouseEvent& e) override
+    {
+        if (! drag) return;
+        if (axisLock == 0) { const float dx = std::abs (e.position.x - x0), dy = std::abs (e.position.y - y0); if (dx < 4 && dy < 4) return; axisLock = dx > dy ? 1 : 2; }
+        if (axisLock == 1)
+        {
+            const float ms = jlimit (10.0f, 2000.0f, msOf (e.position.x));
+            if (roundToInt (fx.sync->get()) != 0) fx.sync->setFromUi (0.0f);
+            fx.time->setFromUi (ms);
+            fx.msNow = ms;
+        }
+        else fx.fb->setFromUi (jlimit (0.0f, 95.0f, fb0 + (y0 - e.position.y) * 0.6f));
+        repaint();
+    }
+    void mouseUp (const MouseEvent&) override { if (drag) { fx.time->endChangeGesture(); fx.fb->endChangeGesture(); } drag = false; }
+private:
+    Rectangle<float> area() const { return getLocalBounds().toFloat().withTrimmedTop (30).reduced (10, 6); }
+    float xOf (float ms) const { const auto a = area(); return a.getX() + a.getWidth() * ms / (axis * 1000.0f); }
+    float msOf (float x) const { const auto a = area(); return (x - a.getX()) / a.getWidth() * axis * 1000.0f; }
+    void timerCallback() override { repaint(); }
+    DelayFx& fx;
+    OwnedArray<TextButton> btns;
+    const float axis = 2.5f;
+    bool drag = false;
+    int axisLock = 0;
+    float y0 = 0, x0 = 0, fb0 = 0, ms0 = 0;
+};
+std::unique_ptr<Component> DelayFx::makeDisplay() { return std::make_unique<DelayDisplay> (*this); }
+
 //==============================================================================
 class LimiterFx final : public FxBase
 {
@@ -589,6 +1232,15 @@ public:
         gain = add ("gain", "Zisk", 0, 24, 0, "dB");
         ceil = add ("ceiling", "Strop", -12, 0, -0.3f, "dB");
         rel  = add ("release", "Uvoľnenie", 1, 500, 80, "ms", 0.5f, 0);
+        gain->tip = sk ("Zosilní zvuk pred limiterom – výsledok bude hlasnejší, špičky sa zrežú na strop.");
+        ceil->tip = sk ("Najvyššia povolená úroveň. −0,3 až −1 dB je bezpečné pre MP3 a streamovanie.");
+        rel->tip  = sk ("Ako rýchlo sa limiter uvoľní. Kratší = hlasnejšie, ale môže skresľovať.");
+    }
+    std::vector<Preset> presets() const override
+    {
+        return { { "Bezpečný strop", { { "gain", 0 }, { "ceiling", -1 }, { "release", 80 } } },
+                 { "Hlasnejšie", { { "gain", 4 }, { "ceiling", -0.5f }, { "release", 60 } } },
+                 { "Veľmi hlasno", { { "gain", 8 }, { "ceiling", -0.3f }, { "release", 40 } } } };
     }
 
 private:
@@ -628,12 +1280,25 @@ public:
         listen = add ("listen", "Počúvať sykavky", 0, 1, 0, "", 1.0f, 0);
         listen->range.interval = 1.0f;
         listen->toggle = true;
+        freq->tip   = sk ("Od akej frekvencie sú sykavky (s, š, c). V grafe ťahaj zlatú čiaru alebo stlač Nájdi sykavky.");
+        thr->tip    = sk ("Od akej hlasitosti sykaviek sa začne stišovať. V grafe vpravo ťahaj zlatú značku.");
+        range->tip  = sk ("Najviac o koľko sa sykavky stíšia.");
+        listen->tip = sk ("Počuješ len to, čo sa stišuje – pomôže nájsť správnu frekvenciu.");
     }
     std::atomic<float> grDb { 0.0f };   // aktualne stisenie pre zobrazenie
+    std::atomic<float> hiDb { -100.0f }; // uroven sykaviek (vysoke pasmo) pre zobrazenie
     std::unique_ptr<Component> makeDisplay() override;
-    int displayHeight() const override { return 44; }
+    int displayHeight() const override { return 176; }
+    std::vector<Preset> presets() const override
+    {
+        return { { "Mužský hlas", { { "freq", 5000 }, { "threshold", -30 }, { "range", 8 } } },
+                 { "Ženský hlas", { { "freq", 7000 }, { "threshold", -30 }, { "range", 8 } } },
+                 { "Jemne", { { "freq", 6000 }, { "threshold", -24 }, { "range", 5 } } },
+                 { "Silno", { { "freq", 5500 }, { "threshold", -36 }, { "range", 14 } } } };
+    }
 
 private:
+    friend class DeEssMeter;
     void prepare() override
     {
         xo.prepare (spec); xo.setType (dsp::LinkwitzRileyFilterType::lowpass);
@@ -649,7 +1314,7 @@ private:
         const float t = thr->get(), maxR = range->get();
         const bool lis = listen->get() > 0.5f;
         const int nch = b.getNumChannels(), n = b.getNumSamples();
-        float peakGr = 0.0f;
+        float peakGr = 0.0f, envPk = 0.0f;
         for (int i = 0; i < n; ++i)
         {
             float lo[2], hi[2], det = 0.0f;
@@ -659,6 +1324,7 @@ private:
                 det = jmax (det, std::abs (hi[c]));
             }
             env = det > env ? att * env + (1.0f - att) * det : relC * env + (1.0f - relC) * det;
+            envPk = jmax (envPk, env);
             const float over = Decibels::gainToDecibels (env, -100.0f) - t;
             const float gr = over > 0.0f ? jmin (maxR, over * 0.75f) : 0.0f;
             peakGr = jmax (peakGr, gr);
@@ -667,6 +1333,7 @@ private:
                 b.setSample (c, i, lis ? hi[c] : lo[c] + hi[c] * g);
         }
         grDb.store (jmax (peakGr, grDb.load() * 0.85f));
+        hiDb.store (jmax (Decibels::gainToDecibels (envPk, -100.0f), hiDb.load() - 1.5f));
     }
 
     FxParam *freq, *thr, *range, *listen;
@@ -674,27 +1341,132 @@ private:
     float lastF = 6000.0f, env = 0.0f, att = 0.9f, relC = 0.999f;
 };
 
-class DeEssMeter final : public Component, private Timer
+// de-esser: spektrum sykaviek s frekvenciou, uroven sykaviek s prahom, stisenie, automaticke hladanie
+class DeEssMeter final : public Component, public SettableTooltipClient, private Timer
 {
 public:
-    explicit DeEssMeter (DeEsserFx& p) : fx (p) { startTimerHz (30); }
-    ~DeEssMeter() override { stopTimer(); }
+    explicit DeEssMeter (DeEsserFx& p) : fx (p)
+    {
+        ++fx.scope.users;
+        setTooltip (sk ("Ťahaj zlatú čiaru v spektre (frekvencia) a zlatú značku vpravo (prah). Nájdi sykavky = nastaví sa samo."));
+        find.setButtonText (sk ("Nájdi sykavky"));
+        find.setColour (TextButton::buttonColourId, GCol::steel);
+        find.setColour (TextButton::textColourOffId, Colours::white);
+        find.setTooltip (sk ("Pusti spev a stlač – program si 4 sekundy počúva a nastaví frekvenciu aj prah sám."));
+        find.onClick = [this] { learn = 4.0f * 25.0f; acc.assign (acc.size(), -100.0f); maxHi = -100.0f; };
+        addAndMakeVisible (find);
+        startTimerHz (25);
+    }
+    ~DeEssMeter() override { stopTimer(); --fx.scope.users; }
+    void resized() override { find.setBounds (getWidth() - 132, getHeight() - 30, 124, 24); }
     void paint (Graphics& g) override
     {
-        auto r = getLocalBounds().toFloat().reduced (12, 10);
-        g.setColour (Colour (0xffe4e9ef));
-        g.setFont (FontOptions (13.0f));
-        g.drawText (sk ("Stíšenie sykaviek"), r.removeFromLeft (130), Justification::centredLeft);
+        g.setColour (GCol::bg); g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+        const auto a = spArea();
+        g.setFont (FontOptions (10.0f));
+        for (float hz : { 2000.0f, 3000.0f, 5000.0f, 7000.0f, 10000.0f, 14000.0f })
+        {
+            const float x = xOf (hz); g.setColour (GCol::grid); g.drawVerticalLine ((int) x, a.getY(), a.getBottom());
+            g.setColour (GCol::dim); g.drawText (String ((int) (hz / 1000)) + "k", (int) x - 12, (int) a.getBottom() + 1, 24, 11, Justification::centred);
+        }
+        const double sr = fx.sampleRate();
+        const float f = fx.freq->get(), xf = xOf (f);
+        Path sp; sp.startNewSubPath (a.getX(), a.getBottom());
+        for (float x = a.getX(); x <= a.getRight(); x += 2.0f) sp.lineTo (x, jmap (jlimit (-100.0f, -10.0f, spec.at (hzOf (x), sr)), -100.0f, -10.0f, a.getBottom(), a.getY()));
+        sp.lineTo (a.getRight(), a.getBottom()); sp.closeSubPath();
+        g.saveState(); g.reduceClipRegion (a.withLeft (xf).toNearestInt()); g.setColour (GCol::gold.withAlpha (0.35f)); g.fillPath (sp); g.restoreState();
+        g.saveState(); g.reduceClipRegion (a.withRight (xf).toNearestInt()); g.setColour (GCol::steel.withAlpha (0.8f)); g.fillPath (sp); g.restoreState();
+        g.setColour (drag == 1 ? Colours::white : GCol::gold); g.drawLine (xf, a.getY(), xf, a.getBottom(), 2.0f);
+        g.setColour (GCol::text); g.setFont (FontOptions (11.0f));
+        g.drawText (sk ("sykavky od") + " " + String (f / 1000.0f, 1) + " kHz", Rectangle<float> (xf + 5, a.getY(), 120, 12), Justification::centredLeft);
+        // uroven sykaviek + prah
+        const auto m = lvArea();
+        g.setColour (GCol::panel); g.fillRoundedRectangle (m, 3.0f);
+        const float hi = jlimit (-60.0f, 0.0f, fx.hiDb.load()), t = fx.thr->get();
+        const float yHi = yLv (hi), yT = yLv (t);
+        g.setColour (hi > t ? GCol::gold : GCol::line); g.fillRoundedRectangle (m.withTop (yHi), 3.0f);
+        g.setColour (drag == 2 ? Colours::white : GCol::gold); g.fillRect (m.getX() - 4, yT - 1.5f, m.getWidth() + 8, 3.0f);
+        g.setColour (GCol::dim); g.setFont (FontOptions (10.0f));
+        g.drawText (sk ("prah"), Rectangle<float> (m.getX() - 46, yT - 6, 40, 12), Justification::centredRight);
+        g.drawText (sk ("sykavky"), m.withY (m.getBottom() + 1).withHeight (11).expanded (14, 0), Justification::centred);
+        // stisenie
         const float v = jlimit (0.0f, 24.0f, fx.grDb.load());
-        auto bar = r.reduced (0, 4);
-        g.setColour (Colour (0xff1c2430)); g.fillRoundedRectangle (bar, 3.0f);
+        auto bar = Rectangle<float> (8, (float) getHeight() - 28, (float) getWidth() - 152, 20);
+        g.setColour (GCol::text); g.setFont (FontOptions (12.0f));
+        g.drawText (sk ("Stíšenie sykaviek"), bar.removeFromLeft (120), Justification::centredLeft);
+        g.setColour (GCol::panel); g.fillRoundedRectangle (bar, 3.0f);
         g.setColour (Colour (0xff6f8fb8)); g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * v / 24.0f), 3.0f);
-        g.setColour (Colour (0xffe4e9ef));
-        g.drawText ("-" + String (v, 1) + " dB", bar.reduced (6, 0), Justification::centredRight);
+        g.setColour (GCol::text); g.drawText ("-" + String (v, 1) + " dB", bar.reduced (6, 0), Justification::centredRight);
+        if (learn > 0 || ! msg.isEmpty())
+        {
+            g.setColour (GCol::bg.withAlpha (0.85f)); g.fillRoundedRectangle (a.reduced (40, 30), 3.0f);
+            g.setColour (GCol::text); g.setFont (FontOptions (13.0f));
+            g.drawFittedText (learn > 0 ? sk ("Počúvam spev…") + " " + String ((int) std::ceil (learn / 25.0f)) + " s" : msg, a.reduced (44, 30).toNearestInt(), Justification::centred, 2);
+        }
     }
+    void mouseDown (const MouseEvent& e) override
+    {
+        msg.clear();
+        const auto m = lvArea();
+        if (std::abs (e.position.x - xOf (fx.freq->get())) < 8 && spArea().contains (e.position)) { drag = 1; fx.freq->beginChangeGesture(); }
+        else if (m.expanded (10, 6).contains (e.position)) { drag = 2; fx.thr->beginChangeGesture(); }
+        else drag = 0;
+    }
+    void mouseDrag (const MouseEvent& e) override
+    {
+        if (drag == 1) fx.freq->setFromUi (hzOf (e.position.x));
+        else if (drag == 2) fx.thr->setFromUi (std::round (jmap (e.position.y, lvArea().getBottom(), lvArea().getY(), -60.0f, 0.0f)));
+        repaint();
+    }
+    void mouseUp (const MouseEvent&) override { if (drag == 1) fx.freq->endChangeGesture(); if (drag == 2) fx.thr->endChangeGesture(); drag = 0; }
 private:
-    void timerCallback() override { repaint(); }
+    Rectangle<float> spArea() const { return getLocalBounds().toFloat().reduced (10, 8).withTrimmedBottom (40).withTrimmedRight (70); }
+    Rectangle<float> lvArea() const { const auto a = spArea(); return { a.getRight() + 34, a.getY(), 18, a.getHeight() }; }
+    float xOf (float hz) const { const auto a = spArea(); return a.getX() + a.getWidth() * std::log (hz / 1500.0f) / std::log (16000.0f / 1500.0f); }
+    float hzOf (float x) const { const auto a = spArea(); return 1500.0f * std::pow (16000.0f / 1500.0f, jlimit (0.0f, 1.0f, (x - a.getX()) / a.getWidth())); }
+    float yLv (float db) const { const auto m = lvArea(); return jmap (jlimit (-60.0f, 0.0f, db), -60.0f, 0.0f, m.getBottom(), m.getY()); }
+    void timerCallback() override
+    {
+        spec.update (fx.scope);
+        if (learn > 0)
+        {
+            const float hi = fx.hiDb.load();
+            if (hi > -55.0f)   // znie nieco v sykavkovom pasme: pamataj si najvyssie urovne
+            {
+                maxHi = jmax (maxHi, hi);
+                for (size_t i = 0; i < acc.size(); ++i) acc[i] = jmax (acc[i], spec.db[i]);
+            }
+            if (--learn <= 0) finishLearn();
+        }
+        repaint();
+    }
+    void finishLearn()
+    {
+        const double sr = fx.sampleRate();
+        if (maxHi < -54.0f) { msg = sk ("Nič som nepočul – spusti prehrávanie so spevom a skús znova."); return; }
+        int best = -1; float bv = -200.0f;
+        for (int i = 0; i < (int) acc.size(); ++i)
+        {
+            const float hz = (float) i * (float) sr / (float) Spectrum::size;
+            if (hz < 4000.0f || hz > 10000.0f) continue;
+            if (acc[(size_t) i] > bv) { bv = acc[(size_t) i]; best = i; }
+        }
+        if (best < 0) { msg = sk ("Nič som nepočul – spusti prehrávanie so spevom a skús znova."); return; }
+        const float peakHz = (float) best * (float) sr / (float) Spectrum::size;
+        const float f = jlimit (3000.0f, 10000.0f, peakHz * 0.8f);
+        const float t = jlimit (-50.0f, 0.0f, std::round (maxHi - 8.0f));
+        fx.freq->beginChangeGesture(); fx.freq->setFromUi (f); fx.freq->endChangeGesture();
+        fx.thr->beginChangeGesture(); fx.thr->setFromUi (t); fx.thr->endChangeGesture();
+        msg = sk ("Hotovo: sykavky od") + " " + String (f / 1000.0f, 1) + " kHz, " + sk ("prah") + " " + String ((int) t) + " dB";
+        Timer::callAfterDelay (3500, [safe = Component::SafePointer<DeEssMeter> (this)] { if (safe != nullptr) { safe->msg.clear(); safe->repaint(); } });
+    }
     DeEsserFx& fx;
+    Spectrum spec;
+    TextButton find;
+    std::vector<float> acc = std::vector<float> ((size_t) Spectrum::size / 2, -100.0f);
+    float learn = 0, maxHi = -100.0f;
+    String msg;
+    int drag = 0;
 };
 std::unique_ptr<Component> DeEsserFx::makeDisplay() { return std::make_unique<DeEssMeter> (*this); }
 
@@ -2025,6 +2797,7 @@ public:
 
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<MasterDisplay> (*this); }
     int displayHeight() const override { return 128; }
+    bool showHeader() const override { return false; }   // ma vlastne porovnanie
 
     void newSong() override { learnReq = true; }
     bool wantsPrepass() const override { return true; }
