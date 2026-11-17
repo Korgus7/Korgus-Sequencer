@@ -1783,6 +1783,8 @@ public:
         len.setColour (Slider::textBoxTextColourId, Colour (0xffe4e9ef));
         len.setColour (Slider::textBoxOutlineColourId, Colours::transparentBlack);
         len.textFromValueFunction = [] (double v) { return sk ("Dĺžka vzoru: ") + String ((int) v) + sk (" krokov"); };
+        len.setTextBoxIsEditable (false);   // inak sa po otvoreni okna ukaze svetle editovacie pole s oznacenym textom
+        len.setWantsKeyboardFocus (false);
         len.onValueChange = [this] { set (arp.lenP, (float) len.getValue()); };
         for (auto* c : std::initializer_list<Component*> { &rate, &swing, &gate, &oct, &hold, &pat, &len, &grid, &modes }) addAndMakeVisible (c);
         setSize (840, 330);
