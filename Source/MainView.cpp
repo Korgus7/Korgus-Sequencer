@@ -867,8 +867,10 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("raiseMain",   [this] (const juce::var&)
                             {
                                 // klik do hlavneho okna: dopredu pred okna pluginov (napr. editor bicich nad Inspiriou)
+                                // len ak je v popredi ine okno - inak by toFront vzal stranke fokus a zavrel rozbalovacie menu (select)
                                 if (auto* t = dynamic_cast<juce::TopLevelWindow*> (getTopLevelComponent()))
-                                    if (! t->isActiveWindow()) t->toFront (true);
+                                    if (auto* peer = t->getPeer())
+                                        if (! KbdKeys::isForeground (peer->getNativeHandle())) t->toFront (false);
                             })
         .withEventListener ("patLib",      [this] (const juce::var& v)
                             {
