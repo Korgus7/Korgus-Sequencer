@@ -414,22 +414,51 @@ void Engine::audioDeviceStopped()
     forEachPlugin ([] (juce::AudioPluginInstance& p) { p.releaseResources(); });
 }
 
-void Engine::addClick (int offset, bool accent)
+void Engine::addClick (int offset, int level)
 {
+    if (level == 0 && ! metroAcc.load()) level = 1;
+    const int snd = juce::jlimit (0, 3, metroSnd.load());
+    clickSndCur = snd;
     clickDelay = juce::jmax (0, offset);
-    clickLen = clickLeft = (int) (sampleRate * 0.05);
-    clickPhase = 0;
-    clickInc = juce::MathConstants<double>::twoPi * (accent ? 1600.0 : 1050.0) / sampleRate;
+    static const double lens[4] { 0.05, 0.035, 0.012, 0.18 };
+    clickLen = clickLeft = juce::jmax (1, (int) (sampleRate * lens[snd]));
+    clickPhase = clickPhase2 = 0;
+    clickNoise = 0;
+    static const double freq[4][3] { { 1600, 1050, 820 }, { 2100, 1500, 1250 }, { 1, 1, 1 }, { 2637, 1975, 1568 } };
+    clickInc  = juce::MathConstants<double>::twoPi * freq[snd][level] / sampleRate;
+    clickInc2 = clickInc * 2.76;   // druhy alikvot pre drievko a zvoncek
+    clickAmp = metroVol.load() * (level == 0 ? 1.0f : level == 1 ? 0.8f : 0.5f);
 }
 
 void Engine::renderClicks (float* const* out, int numOut, int n)
 {
+    if (metroTest.exchange (false)) addClick (0, 0);
     for (int i = 0; i < n && (clickLeft > 0 || clickDelay > 0); ++i)
     {
         if (clickDelay > 0) { --clickDelay; continue; }
         const float env = (float) clickLeft / (float) juce::jmax (1, clickLen);
-        const float s = (float) std::sin (clickPhase) * 0.3f * env * env;
-        clickPhase += clickInc;
+        float s = 0;
+        switch (clickSndCur)
+        {
+            case 1:   // drievko: kratky tlmeny tón s alikvotom
+                s = ((float) std::sin (clickPhase) + 0.35f * (float) std::sin (clickPhase2)) * 0.32f * env * env * env;
+                break;
+            case 2:   // klik: kratky sum s vysokou priepustou
+            {
+                const float w = clickRnd.nextFloat() * 2.0f - 1.0f;
+                s = (w - clickNoise) * 0.45f * env * env;
+                clickNoise = w;
+                break;
+            }
+            case 3:   // zvoncek: zvoniaci tón s dlhsim dozvukom
+                s = ((float) std::sin (clickPhase) + 0.25f * (float) std::sin (clickPhase2)) * 0.22f * env * env;
+                break;
+            default:  // pipnutie
+                s = (float) std::sin (clickPhase) * 0.3f * env * env;
+                break;
+        }
+        s *= clickAmp;
+        clickPhase += clickInc; clickPhase2 += clickInc2;
         --clickLeft;
         for (int c = 0; c < numOut; ++c)
             if (out[c] != nullptr) out[c][i] += s;
@@ -557,9 +586,12 @@ void Engine::drainRecording (int index, std::vector<float>& left, std::vector<fl
 void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, int len, double sps)
 {
     // metronom na dobach
-    if (sd.click && ! offline)
-        for (double b = std::ceil (p0 / 4.0) * 4.0; b < p1; b += 4.0)
-            addClick (off + (int) ((b - p0) * sps), std::fmod (b, 16.0) < 0.5);
+    if (metroOn.load() && ! offline)
+    {
+        const double sub = (double) juce::jlimit (1, 4, metroSub.load());
+        for (double b = std::ceil (p0 / sub - 1e-9) * sub; b < p1; b += sub)
+            addClick (off + (int) ((b - p0) * sps), std::fmod (b, 16.0) < 0.5 ? 0 : std::fmod (b, 4.0) < 0.5 ? 1 : 2);
+    }
 
     for (const auto& td : sd.tracks)
     {
@@ -766,7 +798,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
         const double total = countTotal.load() * beatSamples;
         for (int b = (int) std::ceil (countSamples / beatSamples); b * beatSamples < countSamples + n && b < countTotal.load(); ++b)
         {
-            addClick ((int) (b * beatSamples - countSamples), b % 4 == 0);
+            addClick ((int) (b * beatSamples - countSamples), b % 4 == 0 ? 0 : 1);
             countBeat = b;
         }
         if (countSamples + n >= total)

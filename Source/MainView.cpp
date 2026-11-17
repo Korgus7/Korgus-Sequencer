@@ -487,6 +487,15 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("trackPlugin", [this] (const juce::var& v) { onTrackPlugin (v); })
         .withEventListener ("openPlugin",  [this] (const juce::var& v) { onOpenPlugin (v); })
         .withEventListener ("showSettings",[this] (const juce::var&)   { showSettings(); })
+        .withEventListener ("metro",       [this] (const juce::var& v)
+        {
+            engine.metroOn  = (bool) v.getProperty ("on", false);
+            engine.metroVol = (float) juce::jlimit (0.0, 1.0, (double) v.getProperty ("vol", 0.8));
+            engine.metroSnd = juce::jlimit (0, 3, (int) v.getProperty ("snd", 0));
+            engine.metroAcc = (bool) v.getProperty ("acc", true);
+            engine.metroSub = juce::jlimit (1, 4, (int) v.getProperty ("sub", 4));
+        })
+        .withEventListener ("metroTest",   [this] (const juce::var&)   { engine.metroTest = true; })
         .withEventListener ("showPlugins", [this] (const juce::var&)   { showPluginManager(); })
         .withEventListener ("saveFile",    [this] (const juce::var& v) { onSaveFile (v); })
         .withEventListener ("openSong",    [this] (const juce::var& v) { onOpenSong (v); })

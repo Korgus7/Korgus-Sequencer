@@ -202,6 +202,10 @@ public:
     // referencna piesen (A/B): pri zapnuti a prehravani znie namiesto mixu
     void setReference (AudioBufPtr buf, float gain) { const juce::SpinLock::ScopedLockType l (refLock); refBuf = std::move (buf); refGain = gain; }
     std::atomic<bool> refOn { false };
+    // metronom: zapnuty, hlasitost 0..1, zvuk 0-3, zvyraznit 1. dobu, delenie v krokoch (4 = stvrtove, 2 = osminove, 1 = sestnastinove)
+    std::atomic<bool> metroOn { false }, metroAcc { true }, metroTest { false };
+    std::atomic<float> metroVol { 0.8f };
+    std::atomic<int> metroSnd { 0 }, metroSub { 4 };
     juce::AudioPluginInstance* getMidiFx (int slot);
     void setMidiFilter (const juce::String& deviceId);
     void triggerSample (int slot, AudioBufPtr buf, float gain, int lane);   // ziva hra / nahlad samplu
@@ -320,7 +324,7 @@ private:
     void forEachPlugin (const std::function<void (juce::AudioPluginInstance&)>&);
     void captureInput (int off, int len, double p0);
     void allNotesOff (int sampleOffset, bool hard);
-    void addClick (int offset, bool accent);
+    void addClick (int offset, int level);   // 0 = prva doba taktu, 1 = doba, 2 = delenie
     void renderClicks (float* const* out, int numOut, int n);
 
     juce::CriticalSection slotLock;
@@ -400,6 +404,7 @@ private:   // slot "__master" s efektmi celej piesne
 
     // metronom
     int clickLeft = 0, clickLen = 0, clickDelay = 0;
-    double clickPhase = 0, clickInc = 0;
+    double clickPhase = 0, clickInc = 0, clickPhase2 = 0, clickInc2 = 0;
+    float clickAmp = 0, clickNoise = 0; int clickSndCur = 0; juce::Random clickRnd;
     double lastBeatStep = -1;
 };
