@@ -1,4 +1,5 @@
 #include "MainView.h"
+#include <juce_cryptography/juce_cryptography.h>
 #include "BuiltinFx.h"
 #include "Autotune.h"
 #include "Denoise.h"

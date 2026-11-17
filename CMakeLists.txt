@@ -79,6 +79,7 @@ target_link_libraries(KorgusSequencer
         shine
         KorgusData
         juce::juce_dsp
+        juce::juce_cryptography
         juce::juce_audio_utils
         juce::juce_audio_processors
         juce::juce_audio_devices
