@@ -252,26 +252,27 @@ body:not(.native) .ph{display:none}
 #pianoCv{position:sticky;left:0;z-index:2;border-right:1px solid #555}
 .dgrid{padding:8px;display:inline-block}
 .dwrap{display:flex;align-items:flex-start}
-.dpads{position:sticky;left:0;z-index:3;flex:none;display:grid;grid-template-columns:repeat(3,76px);grid-auto-rows:76px;gap:2px;padding:34px 4px 8px 8px;background:#b8b8b8}
-.dpad{position:relative;background:#e3e5e8;border:1px solid #7c8796;border-radius:3px;display:flex;flex-direction:column;cursor:pointer;overflow:hidden;user-select:none}
-.dpad:hover{background:#eceef0}.dpad.sel{border:2px solid #1b2533}.dpad.off{opacity:.5}
-.dpad.hit{background:#c7d3e2}.dpad.hit .pw{box-shadow:0 0 6px #c9a35a;filter:brightness(1.6)}
-.dpad .pn{font-size:10px;font-weight:bold;color:#1b2533;text-align:center;padding:3px 2px 0;height:26px;line-height:11px;overflow:hidden;word-break:break-word;cursor:pointer}
-.dpad .pn:hover{text-decoration:underline}.dpad .pn.own{font-style:italic}
-.dpad .pi{font-size:9px;color:#6a7686;text-align:right;padding:0 4px;height:12px;line-height:12px}
-.dpad .pw{display:block;margin:1px auto 0;width:72px;height:14px;border-radius:2px}
-.dpad .pb{margin-top:auto;display:flex;border-top:1px solid #9aa3af;background:#cfd4da;height:17px}
-.dpad .pb button{flex:1;min-height:0;height:16px;padding:0;margin:0;border:0;border-radius:0;background:transparent;font-size:10px;line-height:16px;color:#3d4c62}
-.dpad .pb button+button{border-left:1px solid #9aa3af}
-.dpad .pb .pe.on{color:#c9a35a}.dpad .pb .pm.on{background:#8a5a4a;color:#fff}.dpad .pb .ps.on{background:#c9a35a;color:#1b2533}
+.dpads{position:sticky;left:0;z-index:3;flex:none;display:grid;grid-template-columns:repeat(3,94px);grid-auto-rows:94px;gap:2px;padding:40px 4px 8px 8px;background:#b8b8b8}
+.dpad{position:relative;background:#1b2330;border:1px solid #0f1620;border-radius:3px;display:flex;flex-direction:column;cursor:pointer;overflow:hidden;user-select:none;color:#d7dade}
+.dpad:hover{background:#222c3b}.dpad.sel{border:2px solid #c9a35a}.dpad.off{opacity:.45}
+.dpad .pw{position:absolute;left:0;top:0;width:100%;height:100%;opacity:.45;pointer-events:none;transition:opacity .25s}
+.dpad.hit{background:#2d4362}.dpad.hit .pw{opacity:1;transition:none}
+.dpad .pn,.dpad .pi,.dpad .pb{position:relative}
+.dpad .pn{font-size:9px;font-weight:bold;text-align:center;padding:0 4px;height:18px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;text-shadow:0 1px 2px #000}
+.dpad .pn:hover{text-decoration:underline}.dpad .pn.own{font-style:italic;color:#e8d6ad}
+.dpad .pi{font-size:9px;color:#8a96a6;text-align:right;padding:0 5px;height:12px;line-height:12px;text-shadow:0 1px 2px #000}
+.dpad .pb{margin-top:auto;display:flex;gap:3px;padding:0 4px 4px;height:20px}
+.dpad .pb button{flex:1;min-height:0;height:16px;padding:0;margin:0;border:1px solid #5d6b7e;border-radius:3px;background:transparent;font-size:10px;line-height:14px;color:#b8c0cc;box-shadow:none}
+.dpad .pb button:hover{border-color:#a9b4c2;color:#fff}
+.dpad .pb .pe.on{border-color:#c9a35a;color:#c9a35a}.dpad .pb .pm.on{border-color:#c8735c;color:#e09a86}.dpad .pb .ps.on{border-color:#c9a35a;color:#e3c27a}
 .drow.sel{background:rgba(45,67,98,.18);border-radius:3px}
-.drow{display:flex;align-items:center;height:24px;margin-bottom:2px}
+.drow{display:flex;align-items:center;height:30px;margin-bottom:2px}
 .dlab{width:100px;flex:none;padding:0 7px;height:22px;display:flex;align-items:center;background:#d7dade;border:1px solid #7c8796;margin-right:6px;border-radius:3px;font-size:11px;cursor:pointer;color:#1b2533}
 .dlab:hover{background:#e6e9ec}
 .dlab.own{font-style:italic;background:#c9d4e2;overflow:hidden;white-space:nowrap}
 .smp{width:22px;height:22px;min-height:22px;padding:0;margin-right:4px;flex:none;font-size:12px}
 .dlab.hd,.dlab.hd:hover{background:none;border-color:transparent;cursor:default;color:#333}
-.dc,.dnum{width:22px;height:22px;flex:none;margin-right:2px;border-radius:2px}
+.dc,.dnum{width:22px;height:22px;flex:none;margin-right:2px;border-radius:2px}.dc{height:28px}
 .dc{background:#e3e3e3;border:1px solid #8a8a8a;cursor:pointer}
 .dc.alt{background:#d0d0d0}
 .dc.g,.dnum.g{margin-left:6px}
@@ -2877,25 +2878,25 @@ const PAD_ORDER=[0,1,3,4,2,7,5,6,8];   // poradie padov 1-9 (zdola zlava): Kick,
 function padName(tr,l){ const sm=smpOf(tr,l); return (tr.lnames&&tr.lnames[l])||(sm?sm.name:DRUMS[l][0]); }
 function padNote(l){ const p=DRUMS[l][1], NN=['C','C#','D','D#','E','F','F#','G','G#','A','A#','H']; return NN[p%12]+(Math.floor(p/12)-2); }
 function padHtml(tr,l){ const m=!!(tr.lmute&&tr.lmute[l]), so=!!(tr.lsolo&&tr.lsolo[l]), ed=!!(tr.dset&&tr.dset[l]);
-  return `<div class="dpad${l===drumSel?' sel':''}${laneOff(tr,l)?' off':''}" data-l="${l}" title="Klik = zahrať zvuk · pravý klik = ďalšie možnosti">`+
-    `<div class="pn${smpOf(tr,l)?' own':''}" title="Klik = načítať iný zvuk (sampel)">${esc(padName(tr,l))}</div>`+
-    `<div class="pi">${PAD_ORDER.indexOf(l)+1} • ${padNote(l)}</div><canvas class="pw" width="72" height="14"></canvas>`+
+  return `<div class="dpad${l===drumSel?' sel':''}${laneOff(tr,l)?' off':''}" data-l="${l}" title="Klik = zahrať zvuk · pravý klik = ďalšie možnosti"><canvas class="pw"></canvas>`+
+    `<div class="pn${smpOf(tr,l)?' own':''}" title="${esc(padName(tr,l))} – klik = načítať iný zvuk (sampel)">${esc(padName(tr,l))}</div>`+
+    `<div class="pi">${PAD_ORDER.indexOf(l)+1} • ${padNote(l)}</div>`+
     `<div class="pb"><button class="pe${ed?' on':''}" title="Upraviť zvuk (výška, filter, obálka)">✎</button><button class="pm${m?' on':''}" title="Stlmiť zvuk">M</button><button class="ps${so?' on':''}" title="Sólo – hrá len tento zvuk (a ďalšie so S)">S</button></div></div>`; }
 function padSelect(l){ drumSel=l; document.querySelectorAll('#dpads .dpad').forEach(x=>x.classList.toggle('sel',+x.dataset.l===l)); document.querySelectorAll('#dgrid .drow[data-row]').forEach(x=>x.classList.toggle('sel',+x.dataset.row===l)); }
 function padFlash(l){ const d=document.querySelector('#dpads .dpad[data-l="'+l+'"]'); if(!d) return; d.classList.remove('hit'); void d.offsetWidth; d.classList.add('hit'); clearTimeout(d._ht); d._ht=setTimeout(()=>d.classList.remove('hit'),140); }
 function padRefresh(tr){ document.querySelectorAll('#dpads .dpad').forEach(d=>{ const l=+d.dataset.l; d.classList.toggle('off',laneOff(tr,l)); d.querySelector('.pm').classList.toggle('on',!!(tr.lmute&&tr.lmute[l])); d.querySelector('.ps').classList.toggle('on',!!(tr.lsolo&&tr.lsolo[l])); });
   document.querySelectorAll('#dgrid .drow[data-row]').forEach(x=>x.style.opacity=laneOff(tr,+x.dataset.row)?.5:''); }
 function drawPadWaves(tr){ const ids=[];
-  document.querySelectorAll('#dpads .dpad').forEach(d=>{ const l=+d.dataset.l, cv=d.querySelector('.pw'), c=cv.getContext('2d'), W=cv.width, H=cv.height, sm=smpOf(tr,l);
-    c.clearRect(0,0,W,H); c.fillStyle='#1b2330'; c.fillRect(0,0,W,H);
+  document.querySelectorAll('#dpads .dpad').forEach(d=>{ const l=+d.dataset.l, cv=d.querySelector('.pw'), sm=smpOf(tr,l), dpr=window.devicePixelRatio||1; cv.width=Math.round((cv.clientWidth||94)*dpr); cv.height=Math.round((cv.clientHeight||94)*dpr);
+    const c=cv.getContext('2d'), W=cv.width, H=cv.height; c.clearRect(0,0,W,H);
     let pk=sm&&audioPeaks[sm.id];
     if(sm&&!pk&&!NATIVE&&sm.buf){ pk=audioPeaks[sm.id]=computePeaks(sm.buf); }
     if(sm&&!pk&&NATIVE&&!padPkReq[sm.id]){ padPkReq[sm.id]=1; ids.push(sm.id); }
     c.fillStyle=trColor(tr);
-    if(!pk){ c.fillRect(0,H/2-.5,W,1); return; }
+    if(!pk){ c.globalAlpha=.5; c.fillRect(0,H/2-dpr/2,W,dpr); c.globalAlpha=1; return; }
     const per=2*pk.sr/pk.B/W;   // cela sirka = 2 sekundy: kratky uder = kratka vlna
     for(let x=0;x<W;x++){ const a=Math.floor(x*per), b=Math.min(pk.mx.length,Math.floor((x+1)*per)+1); if(a>=pk.mx.length) break; let v=0;
-      for(let i=a;i<b;i++) v=Math.max(v,pk.mx[i],-pk.mn[i]); const hh=Math.max(1,Math.min(1,v)*(H-2)); c.fillRect(x,(H-hh)/2,1,hh); } });
+      for(let i=a;i<b;i++) v=Math.max(v,pk.mx[i],-pk.mn[i]); const hh=Math.max(dpr,Math.min(1,v)*H*.8); c.fillRect(x,(H-hh)/2,1,hh); } });
   if(ids.length) nat('needPeaks',{ids}); }
 function bindPads(tr){ const P=$('dpads'); if(!P) return;
   P.addEventListener('contextmenu',e=>e.preventDefault());
