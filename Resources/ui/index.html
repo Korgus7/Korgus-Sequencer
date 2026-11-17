@@ -47,11 +47,11 @@ input[type=range]{accent-color:#2d4362}
 #arrWin{flex:1 1 0;min-height:140px}
 #edWin{flex:1.25 1 0;min-height:180px}
 #dgrid .dsed{width:22px;flex:none;padding:0;font-size:12px;background:transparent;border:0;color:#3d4c62;cursor:pointer}#dgrid .dsed:hover,#dgrid .dsed.on{color:#c9a35a}
-#dsePanel{position:fixed;right:24px;top:80px;width:453px;height:721px;background:#151c27;border:1px solid #2d4362;border-radius:3px;z-index:60;box-shadow:0 6px 24px #0009;user-select:none;font-family:'Segoe UI',Arial,sans-serif;cursor:move}
-.dseHead{position:absolute;left:0;top:0;width:453px;height:50px}
+#dsePanel{position:fixed;right:24px;top:80px;width:560px;height:721px;background:#151c27;border:1px solid #2d4362;border-radius:3px;z-index:60;box-shadow:0 6px 24px #0009;user-select:none;font-family:'Segoe UI',Arial,sans-serif;cursor:move}
+.dseHead{position:absolute;left:0;top:0;width:560px;height:50px}
 .dseHead button{position:absolute;top:13px;height:29px;background:#2d4362;color:#d8dee8;border:1px solid #3d5577;border-radius:3px;font-size:15px;cursor:pointer;padding:0}
 .dseHead button:hover{background:#3a5476}
-.dsec{position:absolute;left:8px;width:437px;background:#232d3b;border:1px solid #2a3647;border-radius:3px;cursor:default}
+.dsec{position:absolute;left:8px;width:544px;background:#232d3b;border:1px solid #2a3647;border-radius:3px;cursor:default}
 .dsecH{position:absolute;left:12px;top:2px;height:32px;padding:0 18px;display:flex;align-items:center;gap:9px;font-size:20px;color:#d8dee8;background:#2a3647;border:1px solid #33435a;border-top:0;border-radius:0 0 3px 3px}
 .dled{width:13px;height:13px;border-radius:50%;background:radial-gradient(#5a6068,#3a3f45);border:1px solid #23272b;cursor:pointer;box-shadow:inset 0 1px 1px #0008}.dled.on{background:radial-gradient(#ffd98a,#c9a35a);box-shadow:0 0 6px #c9a35a}
 .dk{position:absolute;cursor:ns-resize}.dk svg{display:block}
@@ -64,7 +64,7 @@ input[type=range]{accent-color:#2d4362}
 #dseType{position:absolute;left:30px;width:80px;height:37px;background:#151c27;border:1px solid #3d5577;border-radius:3px;box-sizing:border-box;cursor:pointer}
 #dseType svg{position:absolute;left:6px;top:5px}#dseType b{position:absolute;right:7px;top:13px;width:0;height:0;border:6px solid transparent;border-top:8px solid #9fb8d0}
 #dseType select{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
-#dseSoft{position:absolute;left:340px;width:80px;height:26px;border-radius:3px;font-size:15px;cursor:pointer;background:#2d4362;color:#9aa6b6;border:1px solid #3d5577}
+#dseSoft{position:absolute;left:447px;width:80px;height:26px;border-radius:3px;font-size:15px;cursor:pointer;background:#2d4362;color:#9aa6b6;border:1px solid #3d5577}
 #dseSoft.on{background:#c9a35a;color:#151c27;border-color:#c9a35a}
 #hSplit{height:6px;cursor:row-resize;background:transparent;flex:0 0 6px;margin:-2px 0}#hSplit:hover{background:#c9a35a55}
 #edWin[hidden]~*{} #keyRulerRow{position:sticky;top:0;z-index:4;display:flex;width:max-content;background:#cfcfcf;border-bottom:1px solid #888}#keyRulerRow .sp{position:sticky;left:0;z-index:5;background:#cfcfcf;flex:0 0 auto;border-right:1px solid #555}
@@ -2829,15 +2829,15 @@ function drumEdit(tr,l){
   // rozlozenie 1:1 podla predlohy (453 x 721); KN = gombik so stredom cx,cy a priemerom d, popis na y ly
   const KN=(k,lab,cx,cy,d,ly)=>`<div class="dk" data-k="${k}" data-d="${d}" style="left:${cx-d/2-4}px;top:${cy-d/2-4}px"></div><span class="dkl" data-for="${k}" data-l="${lab}" style="left:${cx}px;top:${ly}px">${lab}</span>`;
   const SL=(k,lab,cx,top,h)=>`<div class="dsl" data-k="${k}" style="left:${cx}px;top:${top}px;height:${h}px"><div class="dslt"></div><div class="dslh"></div></div><span class="dkl" data-for="${k}" data-l="${lab}" style="left:${cx}px;top:${top+h+18}px">${lab}</span>`;
-  const ADSR=(p,top,h,ly)=>`<canvas class="denv" data-p="${p}" style="left:210px;top:${top}px;width:152px;height:${h}px" title="Obálka: ťahaj guličky myšou – každá sa hýbe sama; horné aj hore / dole (sila), posledná = koniec doznievania · dvojklik = pôvodné časy"></canvas><span class="dkl" data-env="${p}" style="left:286px;top:${top+h+18}px;width:170px;margin-left:-85px;font-size:13px"></span>`;
+  const ADSR=(p,top,h,ly)=>SL(p+'A','A',242,top,h)+SL(p+'H','H',273,top,h)+SL(p+'D','D',305,top,h)+`<canvas class="denv" data-p="${p}" style="left:334px;top:${top}px;width:144px;height:${h}px" title="Obálka: ťahaj guličky myšou – každá sa hýbe sama; horné aj hore / dole (sila), posledná = koniec doznievania · dvojklik = pôvodné časy"></canvas>`;
   const tab=(t,led)=>`<div class="dsecH">${led?`<span class="dled${ds[led]?' on':''}" data-t="${led}"></span>`:''}${t}</div>`;
   const el=document.createElement('div'); el.id='dsePanel'; el.title='';
-  el.innerHTML=`<div class="dseHead"><button id="dseOff" style="left:12px;width:151px" title="Stíši všetky práve znejúce údery">Všetky noty vyp.</button><button id="dseSmp" style="left:172px;width:160px" title="Načítať iný zvuk (sampel) – teraz: ${esc(base)}">Upraviť sampel</button><button id="dseReset" style="left:341px;width:72px" title="Vráti pôvodný zvuk bez úprav">Reset</button><button id="dseX" style="left:419px;width:27px" title="Zavrieť">×</button></div>
-    <div class="dsec" style="top:50px;height:178px">${tab('Výška')}${KN('tr','Transpozícia',84,100,72,143)}${KN('tune','Ladenie',168,98,52,143)}${ADSR('p',22,116)}${KN('pEnv','Obálka',397,44,38,68)}${KN('pVel','Sila',397,114,38,136)}</div>
-    <div class="dsec" style="top:236px;height:289px">${tab('Filter','fOn')}${KN('cut','Cutoff',84,97,72,140)}${KN('res','Rezonancia',168,94,52,140)}${ADSR('f',22,114)}${KN('fEnv','Obálka',397,46,38,70)}${KN('fVel','Sila',397,114,38,137)}
+  el.innerHTML=`<div class="dseHead"><button id="dseOff" style="left:12px;width:151px" title="Stíši všetky práve znejúce údery">Všetky noty vyp.</button><button id="dseSmp" style="left:172px;width:160px" title="Načítať iný zvuk (sampel) – teraz: ${esc(base)}">Upraviť sampel</button><button id="dseReset" style="left:341px;width:72px" title="Vráti pôvodný zvuk bez úprav">Reset</button><button id="dseX" style="left:526px;width:27px" title="Zavrieť">×</button></div>
+    <div class="dsec" style="top:50px;height:178px">${tab('Výška')}${KN('tr','Transpozícia',84,100,72,143)}${KN('tune','Ladenie',168,98,52,143)}${ADSR('p',22,116)}${KN('pEnv','Obálka',504,44,38,68)}${KN('pVel','Sila',504,114,38,136)}</div>
+    <div class="dsec" style="top:236px;height:289px">${tab('Filter','fOn')}${KN('cut','Cutoff',84,97,72,140)}${KN('res','Rezonancia',168,94,52,140)}${ADSR('f',22,114)}${KN('fEnv','Obálka',504,46,38,70)}${KN('fVel','Sila',504,114,38,137)}
       <div id="dseType" style="top:199px" title="Typ filtra"><span id="dseTypeI"></span><b></b><select id="dseTypeS">${['LP24 Ladder','LP24 Zero','LP12 Ladder','BP12 Ladder','HP12 Ladder','LP12 State','BP12 State','HP12 State'].map((n,i)=>`<option value="${i}">${n}</option>`).join('')}</select></div>
       ${KN('drive','Drive',169,211,52,243)}${KN('punch','Punch',252,211,52,243)}<button id="dseSoft" class="${ds.soft?'on':''}" style="top:207px" title="Soft = mäkké skreslenie (Drive), inak tvrdé">Soft</button></div>
-    <div class="dsec" style="top:537px;height:176px">${tab('Hlasitosť')}${KN('gain','Hlasitosť',84,86,72,129)}${KN('pan','Panoráma',168,86,52,129)}${ADSR('a',22,110)}${KN('aVel','Sila',397,100,38,128)}</div>`;
+    <div class="dsec" style="top:537px;height:176px">${tab('Hlasitosť')}${KN('gain','Hlasitosť',84,86,72,129)}${KN('pan','Panoráma',168,86,52,129)}${ADSR('a',22,110)}${KN('aVel','Sila',504,100,38,128)}</div>`;
   el.style.height='721px';
   dock.innerHTML=''; dock.appendChild(el); dsePanel=el; dseFit();
   if(!dseRO&&window.ResizeObserver){ dseRO=new ResizeObserver(()=>dseFit()); dseRO.observe($('edWin')); }
@@ -2857,7 +2857,8 @@ function drumEdit(tr,l){
   const typeIcon=()=>{ const ft=ds.fType, m=(ft===3||ft===6)?2:((ft===4||ft===7)?1:0), code=['L24','Z24','L12','L12','L12','S12','S12','S12'][ft];
     const path=m===0?'M2 10 H22 Q30 6 34 24':m===1?'M2 24 Q8 6 14 10 H40':'M2 24 Q14 4 22 8 Q30 4 40 24';
     $('dseTypeI').innerHTML=`<svg width="44" height="27"><path d="${path}" stroke="#9fb8d0" stroke-width="2" fill="none"/><text x="2" y="26" fill="#9fb8d0" font-size="9" font-family="Segoe UI">${code}</text></svg>`; };
-  const slider=d=>{ const k=d.dataset.k, t=norm(k,ds[k]); d.querySelector('.dslh').style.bottom=`calc(${t*100}% - 7px)`; if(actK===k) showV(k,true); };
+  let envRedraw=null;
+  const slider=d=>{ const k=d.dataset.k, t=norm(k,ds[k]); d.querySelector('.dslh').style.bottom=`calc(${t*100}% - 7px)`; if(actK===k) showV(k,true); if(envRedraw) envRedraw(k[0]); };
   const drag=(d,fn,sens)=>{ d.onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); const k=d.dataset.k, y0=e.clientY, t0=norm(k,ds[k]); actK=k; fn(d);
     const mv=ev=>{ ds[k]=den(k,clamp(t0+(y0-ev.clientY)/sens,0,1)); if(k==='tr') ds.tr=Math.round(ds.tr); fn(d); live(); };
     const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); actK=null; fn(d); showV(k,d.matches(':hover')); commit(true); };
@@ -2909,11 +2910,13 @@ function drumEdit(tr,l){
         else if(k===1){ ds[p+'H']=edge?C[p+'H'][1]:lim(p+'H',t-ds[p+'A']); if(!hInf(p)&&!dI0) ds[p+'D']=lim(p+'D',tD0-ds[p+'A']-ds[p+'H']); }
         else ds[p+'D']=edge?C[p+'D'][1]:lim(p+'D',t-ds[p+'A']-ds[p+'H']);
         if(k<2) envSetLev(p,(g.y0-my)/g.half);
-        envDraw(cv); live(); };
+        envDraw(cv); envSliders(p); live(); };
       const up=()=>{ removeEventListener('mousemove',set); removeEventListener('mouseup',up); if(moved) commit(true); else previewDrum(tr,l,2); };
       addEventListener('mousemove',set); addEventListener('mouseup',up); };
-    cv.ondblclick=()=>{ ['A','H','D'].forEach(x=>ds[p+x]=DSDEF[p+x]); envDraw(cv); live(); commit(true); }; });
+    cv.ondblclick=()=>{ ['A','H','D'].forEach(x=>ds[p+x]=DSDEF[p+x]); envDraw(cv); envSliders(p); live(); commit(true); }; });
   const envAll=()=>el.querySelectorAll('.denv').forEach(envDraw);
+  envRedraw=p=>{ const cv=el.querySelector(`.denv[data-p="${p}"]`); if(cv) envDraw(cv); };
+  const envSliders=p=>['A','H','D'].forEach(x=>{ const d=el.querySelector(`.dsl[data-k="${p+x}"]`); if(d){ const t=norm(p+x,ds[p+x]); d.querySelector('.dslh').style.bottom=`calc(${t*100}% - 7px)`; } });
   el.addEventListener('mouseup',()=>setTimeout(envAll,0));
   el.querySelectorAll('.dled').forEach(b=>b.onclick=()=>{ const k=b.dataset.t; ds[k]=!ds[k]; b.classList.toggle('on',ds[k]); live(); commit(true); });
   $('dseTypeS').value=String(ds.fType); typeIcon(); $('dseTypeS').onchange=e=>{ ds.fType=+e.target.value; typeIcon(); if(!ds.fOn){ ds.fOn=true; el.querySelector('.dled[data-t=fOn]').classList.add('on'); } live(); commit(true); e.target.blur(); };
