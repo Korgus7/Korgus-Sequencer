@@ -1,4 +1,6 @@
 #include "DrumKits.h"
+#include <juce_audio_formats/juce_audio_formats.h>
+#include "BinaryData.h"
 #include <cmath>
 #include <vector>
 
@@ -171,9 +173,31 @@ namespace
 
 namespace DrumKits
 {
+    // supravy zo samplov (vlastne zvuky autora): Pop, House a styri dalsie; Drum & Bass, Afro a Latino su syntetizovane
+    bool isSampleKit (int kit) { return kit == 0 || kit == 1 || (kit >= 5 && kit < numKits); }
+
+    static bool loadSample (int kit, int lane, double sr, juce::AudioBuffer<float>& out)
+    {
+        int size = 0;
+        const auto name = "k" + juce::String (kit) + "_l" + juce::String (lane) + "_wav";
+        const char* data = BinaryData::getNamedResource (name.toRawUTF8(), size);
+        if (data == nullptr || size <= 0) return false;
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatReader> r (wav.createReaderFor (new juce::MemoryInputStream (data, (size_t) size, false), true));
+        if (r == nullptr || r->lengthInSamples <= 0) return false;
+        juce::AudioBuffer<float> src (1, (int) r->lengthInSamples);
+        r->read (&src, 0, (int) r->lengthInSamples, 0, true, false);
+        const double ratio = r->sampleRate / sr;
+        const int n = juce::jmax (1, (int) std::ceil ((double) src.getNumSamples() / ratio));
+        out.setSize (1, n);
+        if (std::abs (ratio - 1.0) < 1.0e-9) out.copyFrom (0, 0, src, 0, 0, juce::jmin (n, src.getNumSamples()));
+        else { juce::LagrangeInterpolator li; li.process (ratio, src.getReadPointer (0), out.getWritePointer (0), n, src.getNumSamples(), 0); }
+        return true;
+    }
+
     juce::String kitName (int kit)
     {
-        static const char* n[] = { "Pop", "House", "Drum & Bass", "Afro", "Latino" };
+        static const char* n[] = { "Pop", "House", "Drum & Bass", "Afro", "Latino", "Hlboká", "Teplá", "Svetlá", "Krátka a tvrdá" };
         return juce::isPositiveAndBelow (kit, numKits) ? juce::String::fromUTF8 (n[kit]) : juce::String();
     }
 
@@ -186,12 +210,26 @@ namespace DrumKits
             { "Afro Kick", "Rimshot", "Clap", "Shaker", "Tamburína", "Konga nízka", "Konga vysoká", "Drievko", "Činel", "Agogo" },
             { "Latin Kick", "Timbales", "Clap", "Shaker", "Güiro", "Konga", "Bongo", "Clave", "Činel", "Zvonec" } };
         if (! juce::isPositiveAndBelow (kit, numKits) || ! juce::isPositiveAndBelow (lane, numLanes)) return {};
+        if (isSampleKit (kit))
+        {
+            static const char* sm[10] = { "Kick", "Snare", "Clap", "HH zatvorený", "HH otvorený", "Perc", "Tamburína", "Snap", "Ride", "" };
+            return juce::String::fromUTF8 (sm[lane]);
+        }
         return juce::String::fromUTF8 (nm[kit][lane]);
     }
 
     bool make (int kit, int lane, double sr, juce::AudioBuffer<float>& out)
     {
         if (! juce::isPositiveAndBelow (kit, numKits) || ! juce::isPositiveAndBelow (lane, numLanes) || sr < 8000) return false;
+        static const float lvl[numLanes] = { 0.8f, 0.6f, 0.5f, 0.28f, 0.28f, 0.5f, 0.45f, 0.38f, 0.28f, 0.32f };
+        if (isSampleKit (kit))
+        {
+            if (! loadSample (kit, lane, sr, out)) return false;
+            const float pk = out.getMagnitude (0, 0, out.getNumSamples());
+            if (pk < 1.0e-6f) return false;
+            out.applyGain (lvl[lane] / pk);
+            return true;
+        }
         Gen g (sr, lengthFor (kit, lane), 1000 + kit * 37 + lane);
         build (kit, lane, g);
         g.fadeOut (0.12);
@@ -199,8 +237,7 @@ namespace DrumKits
         for (auto v : g.x) pk = juce::jmax (pk, std::abs (v));
         if (pk < 1.0e-6f) return false;
         out.setSize (1, g.n());
-        // rozumna hlasitost podla riadku (spolu nesmu skreslovat): kopak najhlasnejsi, hi-haty a cinely tichsie
-        static const float lvl[numLanes] = { 0.8f, 0.6f, 0.5f, 0.28f, 0.28f, 0.5f, 0.45f, 0.38f, 0.28f, 0.32f };
+        // rozumna hlasitost podla riadku (spolu nesmu skreslovat): kopak najhlasnejsi, hi-haty a cinely tichsie (lvl hore)
         for (int i = 0; i < g.n(); ++i) out.setSample (0, i, g.x[(size_t) i] * lvl[lane] / pk);
         return true;
     }

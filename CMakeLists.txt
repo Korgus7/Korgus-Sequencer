@@ -22,7 +22,61 @@ juce_add_gui_app(KorgusSequencer
     NEEDS_WEB_BROWSER TRUE
     NEEDS_WEBVIEW2 TRUE)
 
-juce_add_binary_data(KorgusData SOURCES Resources/ui/index.html)
+juce_add_binary_data(KorgusData SOURCES Resources/ui/index.html
+    Resources/kits/k0_l0.wav
+    Resources/kits/k0_l1.wav
+    Resources/kits/k0_l2.wav
+    Resources/kits/k0_l3.wav
+    Resources/kits/k0_l4.wav
+    Resources/kits/k0_l5.wav
+    Resources/kits/k0_l6.wav
+    Resources/kits/k0_l7.wav
+    Resources/kits/k0_l8.wav
+    Resources/kits/k1_l0.wav
+    Resources/kits/k1_l1.wav
+    Resources/kits/k1_l2.wav
+    Resources/kits/k1_l3.wav
+    Resources/kits/k1_l4.wav
+    Resources/kits/k1_l5.wav
+    Resources/kits/k1_l6.wav
+    Resources/kits/k1_l7.wav
+    Resources/kits/k1_l8.wav
+    Resources/kits/k5_l0.wav
+    Resources/kits/k5_l1.wav
+    Resources/kits/k5_l2.wav
+    Resources/kits/k5_l3.wav
+    Resources/kits/k5_l4.wav
+    Resources/kits/k5_l5.wav
+    Resources/kits/k5_l6.wav
+    Resources/kits/k5_l7.wav
+    Resources/kits/k5_l8.wav
+    Resources/kits/k6_l0.wav
+    Resources/kits/k6_l1.wav
+    Resources/kits/k6_l2.wav
+    Resources/kits/k6_l3.wav
+    Resources/kits/k6_l4.wav
+    Resources/kits/k6_l5.wav
+    Resources/kits/k6_l6.wav
+    Resources/kits/k6_l7.wav
+    Resources/kits/k6_l8.wav
+    Resources/kits/k7_l0.wav
+    Resources/kits/k7_l1.wav
+    Resources/kits/k7_l2.wav
+    Resources/kits/k7_l3.wav
+    Resources/kits/k7_l4.wav
+    Resources/kits/k7_l5.wav
+    Resources/kits/k7_l6.wav
+    Resources/kits/k7_l7.wav
+    Resources/kits/k7_l8.wav
+    Resources/kits/k8_l0.wav
+    Resources/kits/k8_l1.wav
+    Resources/kits/k8_l2.wav
+    Resources/kits/k8_l3.wav
+    Resources/kits/k8_l4.wav
+    Resources/kits/k8_l5.wav
+    Resources/kits/k8_l6.wav
+    Resources/kits/k8_l7.wav
+    Resources/kits/k8_l8.wav)
 
 target_sources(KorgusSequencer PRIVATE
     Source/Main.cpp

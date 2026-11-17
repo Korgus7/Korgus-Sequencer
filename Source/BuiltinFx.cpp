@@ -130,7 +130,7 @@ public:
     {
         g.fillAll (Colour (0xff151c27));
         g.setColour (Colour (0xff1c2532));
-        g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (4.0f).withTrimmedTop ((float) top + 2.0f), 3.0f);
+        if (! comps.empty()) g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (4.0f).withTrimmedTop ((float) top + 2.0f), 3.0f);
         if (head > 0) paintHeader (g);
         g.setColour (Colour (0xffc9d2dc));
         g.setFont (FontOptions (13.0f));
@@ -294,6 +294,7 @@ public:
     AudioProcessorEditor* createEditor() override { return new KnobEditor (*this, knobs); }
     virtual std::unique_ptr<Component> makeDisplay() { return nullptr; }
     virtual int displayHeight() const { return 150; }
+    virtual int displayWidth() const { return 460; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -408,7 +409,7 @@ KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProce
     if (display != nullptr) { top += p.displayHeight(); addAndMakeVisible (*display); }
     int totW = 16;
     for (size_t i = 0; i < comps.size(); ++i) totW += colWidth (i);
-    setSize (jmax (display != nullptr ? 460 : (head > 0 ? 420 : 260), totW), 150 + top);
+    setSize (jmax (display != nullptr ? p.displayWidth() : (head > 0 ? 420 : 260), totW), (comps.empty() ? 8 : 150) + top);
     startTimerHz (20);
 }
 
@@ -994,7 +995,7 @@ public:
         }
         g.setColour (GCol::text); g.setFont (FontOptions (11.0f));
         g.drawText (sk ("predozvuk") + " " + String (roundToInt (fx.pre->get())) + " ms", Rectangle<float> (xp + 8, a.getY(), 130, 12), Justification::centredLeft);
-        g.drawText (sk ("dĺžka") + " ≈ " + String (korgus::SuperVerb::decayToSeconds (fx.decay->get() * 0.01f), 1) + " s",
+        g.drawText (sk ("dĺžka") + String::fromUTF8 (" ≈ ") + String (korgus::SuperVerb::decayToSeconds (fx.decay->get() * 0.01f), 1) + " s",
                     Rectangle<float> (jmin (xe + 8, a.getRight() - 90), a.getY(), 90, 12), Justification::centredLeft);
     }
     void mouseMove (const MouseEvent& e) override { const int h = hit (e.position); if (h != hover) { hover = h; repaint(); } }
@@ -1184,7 +1185,7 @@ public:
             lev *= f;
         }
         g.setColour (GCol::text); g.setFont (FontOptions (11.0f));
-        g.drawText (String (roundToInt (ms)) + " ms · " + String (roundToInt (fx.fb->get())) + " %", a.toNearestInt().removeFromBottom (14).reduced (4, 0), Justification::centredRight);
+        g.drawText (String (roundToInt (ms)) + String::fromUTF8 (" ms · ") + String (roundToInt (fx.fb->get())) + " %", a.toNearestInt().removeFromBottom (14).reduced (4, 0), Justification::centredRight);
         if (ping) { g.setColour (GCol::dim); g.drawText ("L", a.toNearestInt().removeFromTop (14).reduced (4, 0), Justification::centredRight); g.drawText ("R", a.toNearestInt().removeFromBottom (28).removeFromTop (14).reduced (4, 0), Justification::centredRight); }
     }
     void mouseDown (const MouseEvent& e) override
@@ -1977,8 +1978,8 @@ void PulseDisplay::paint (Graphics& g)
     g.setColour (Colour (0xff8a96a3));
     auto head = r.reduced (10, 4).removeFromTop (14);
     String left = "PULSEDIP";
-    if (off > 0.001f) left << "  ·  " << sk ("posun") << " " << String (roundToInt (off * 100.0f)) << " %";
-    if (fx.bassOnly->get() > 0.5f) left << "  ·  " << sk ("len basy");
+    if (off > 0.001f) left << String::fromUTF8 ("  ·  ") << sk ("posun") << " " << String (roundToInt (off * 100.0f)) << " %";
+    if (fx.bassOnly->get() > 0.5f) left << String::fromUTF8 ("  ·  ") << sk ("len basy");
     g.drawText (left, head, Justification::centredLeft);
     if (fx.keyMode.load())
         g.drawText (sk ("SIDECHAIN – riadi kľúčová stopa"), head, Justification::centredRight);
@@ -3435,6 +3436,355 @@ private:
     float g = 1, r = 0;
 };
 
+//==============================================================================
+// Korgus Meter - merac hlasitosti podla EBU R128 / ITU-R BS.1770 (radar, LUFS, True Peak, LRA, korelacia, Mid/Side)
+class MeterFx final : public FxBase
+{
+public:
+    MeterFx() : FxBase ("Korgus Meter", "meter")
+    {
+        target = add ("target", "Cieľ", 0, 3, 0, "", 1.0f, 0);
+        target->range.interval = 1.0f;
+        target->choices = StringArray { "Spotify/YouTube", "Apple Music", "TikTok/Reels", sk ("Rádio / TV") };
+        target->inEditor = false;
+        momP.resize (maxBlocks); stP.resize (maxBlocks);
+    }
+    static constexpr int maxBlocks = 72000;          // 2 hodiny po 100 ms
+    static constexpr int radarN = 1200;              // radar: 2 minuty po 100 ms
+    static float targetLufs (int i) { static const float t[4] = { -14.0f, -16.0f, -9.0f, -23.0f }; return t[jlimit (0, 3, i)]; }
+    float tgt() const { return targetLufs (roundToInt (target->get())); }
+
+    std::unique_ptr<Component> makeDisplay() override;
+    int displayHeight() const override { return 392; }
+    int displayWidth() const override { return 860; }
+    bool showHeader() const override { return false; }
+    double getTailLengthSeconds() const override { return 0; }
+
+    // pre zobrazenie (zapisuje audio vlakno)
+    std::atomic<float> momNow { -100 }, stNow { -100 }, momMax { -100 }, tpMax { -100 }, corr { 1 };
+    std::atomic<float> pkL { -100 }, pkR { -100 };
+    std::atomic<int> nBlocks { 0 }, radarW { 0 };
+    std::array<std::atomic<float>, radarN> radar {};
+    std::vector<float> momP, stP;                    // vykony blokov (400 ms a 3 s okno), kazdych 100 ms
+    std::atomic<bool> resetReq { false };
+    FxParam* target = nullptr;
+    struct XY { float x, y; };
+    std::array<XY, 2048> vs {};                      // Mid/Side (vektorskop)
+    std::atomic<int> vsW { 0 };
+
+private:
+    void prepare() override
+    {
+        using C = dsp::IIR::Coefficients<float>;
+        for (int c = 0; c < 2; ++c)
+        {
+            kpre[(size_t) c].coefficients = C::makeHighShelf (rate, 1681.97, 0.7072f, Decibels::decibelsToGain (4.0f));
+            krlb[(size_t) c].coefficients = C::makeHighPass (rate, 38.13, 0.5003f);
+            kpre[(size_t) c].reset(); krlb[(size_t) c].reset();
+        }
+        blockLen = jmax (1, (int) std::round (rate * 0.1));
+        clearAll();
+        for (auto& r : radar) r = -100.0f;
+    }
+    void clearAll()
+    {
+        acc = 0; accN = 0; ring.fill (0.0); ringN = 0; ringW = 0;
+        nBlocks = 0; momMax = -100.0f; tpMax = -100.0f; radarW = 0;
+        for (auto& r : radar) r = -100.0f;
+        sLR = sLL = sRR = 0;
+        for (auto& h : hist) h.fill (0.0f);
+    }
+    static float lufs (double p) { return p > 1.0e-12 ? (float) (-0.691 + 10.0 * std::log10 (p)) : -100.0f; }
+
+    void process (AudioBuffer<float>& b) override
+    {
+        if (resetReq.exchange (false)) clearAll();
+        const int n = b.getNumSamples(), ch = b.getNumChannels();
+        const float* L = b.getReadPointer (0);
+        const float* R = b.getReadPointer (ch > 1 ? 1 : 0);
+        float pl = 0, pr = 0, tp = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            const float l = L[i], r = R[i];
+            const float kl = krlb[0].processSample (kpre[0].processSample (l));
+            const float kr = ch > 1 ? krlb[1].processSample (kpre[1].processSample (r)) : 0.0f;
+            acc += (double) kl * kl + (double) kr * kr;
+            ++accN;
+            pl = jmax (pl, std::abs (l)); pr = jmax (pr, std::abs (r));
+            // True Peak priblizne: 4x nadvzorkovanie Catmull-Rom medzi vzorkami
+            for (int c = 0; c < (ch > 1 ? 2 : 1); ++c)
+            {
+                auto& h = hist[(size_t) c];
+                h[0] = h[1]; h[1] = h[2]; h[2] = h[3]; h[3] = c == 0 ? l : r;
+                for (float t : { 0.25f, 0.5f, 0.75f })
+                {
+                    const float a0 = -0.5f * h[0] + 1.5f * h[1] - 1.5f * h[2] + 0.5f * h[3];
+                    const float a1 = h[0] - 2.5f * h[1] + 2.0f * h[2] - 0.5f * h[3];
+                    const float a2 = -0.5f * h[0] + 0.5f * h[2];
+                    tp = jmax (tp, std::abs (((a0 * t + a1) * t + a2) * t + h[1]));
+                }
+                tp = jmax (tp, std::abs (h[3]));
+            }
+            sLR += (double) l * r; sLL += (double) l * l; sRR += (double) r * r;
+            if ((i & 3) == 0) { const int w = vsW.load(); vs[(size_t) w] = { l, r }; vsW = (w + 1) & 2047; }
+            if (accN >= blockLen) block();
+        }
+        const float dl = Decibels::gainToDecibels (pl, -100.0f), dr = Decibels::gainToDecibels (pr, -100.0f);
+        pkL = jmax (dl, pkL.load() - 0.6f); pkR = jmax (dr, pkR.load() - 0.6f);
+        const float tpd = Decibels::gainToDecibels (tp, -100.0f);
+        if (tpd > tpMax.load()) tpMax = tpd;
+    }
+    void block()
+    {
+        const double p = acc / (double) accN;
+        acc = 0; accN = 0;
+        ring[(size_t) ringW] = p; ringW = (ringW + 1) % 30; ringN = jmin (30, ringN + 1);
+        double m = 0, s = 0;
+        for (int k = 0; k < jmin (4, ringN); ++k) m += ring[(size_t) ((ringW - 1 - k + 30) % 30)];
+        for (int k = 0; k < ringN; ++k) s += ring[(size_t) k];
+        m /= (double) jmin (4, ringN); s /= (double) ringN;
+        const float mL = lufs (m), sL = lufs (s);
+        momNow = mL; stNow = sL;
+        if (mL > -70.0f)
+        {
+            if (mL > momMax.load()) momMax = mL;
+            const int k = nBlocks.load();
+            if (k < maxBlocks) { momP[(size_t) k] = (float) m; stP[(size_t) k] = ringN >= 30 ? (float) s : 0.0f; nBlocks.store (k + 1, std::memory_order_release); }
+            const int w = radarW.load(); radar[(size_t) w] = sL; radarW = (w + 1) % radarN;
+        }
+        const double d = std::sqrt (sLL * sRR);
+        const float c = d > 1.0e-12 ? (float) (sLR / d) : 1.0f;
+        corr = corr.load() * 0.6f + c * 0.4f;
+        sLR = sLL = sRR = 0;
+    }
+
+    std::array<dsp::IIR::Filter<float>, 2> kpre, krlb;
+    std::array<std::array<float, 4>, 2> hist {};
+    std::array<double, 30> ring {};
+    int ringN = 0, ringW = 0, blockLen = 4410, accN = 0;
+    double acc = 0, sLR = 0, sLL = 0, sRR = 0;
+};
+
+class MeterDisplay final : public Component, public SettableTooltipClient, private Timer
+{
+public:
+    explicit MeterDisplay (MeterFx& f) : fx (f)
+    {
+        setTooltip (sk ("Merač hlasitosti: radar = hlasitosť za posledné 2 minúty, zelená = v cieli, žltá = hlasnejšie, modrá = tichšie."));
+        for (int i = 0; i < 4; ++i)
+        {
+            auto* b = tg.add (new TextButton (fx.target->choices[i] + "  " + String ((int) MeterFx::targetLufs (i))));
+            style (*b);
+            b->setTooltip (sk ("Cieľová hlasitosť (LUFS) pre túto službu"));
+            b->onClick = [this, i] { fx.target->setFromUi ((float) i); repaint(); };
+            addAndMakeVisible (b);
+        }
+        reset.setButtonText (sk ("Reset"));
+        style (reset);
+        reset.setTooltip (sk ("Vynuluje meranie (začne odznova)"));
+        reset.onClick = [this] { fx.resetReq = true; holdL = holdR = -100; };
+        addAndMakeVisible (reset);
+        startTimerHz (20);
+    }
+    ~MeterDisplay() override { stopTimer(); }
+    void resized() override
+    {
+        auto r = getLocalBounds().removeFromBottom (30).reduced (8, 3).withTrimmedLeft (radarSize() + 16);
+        reset.setBounds (r.removeFromRight (70));
+        r.removeFromRight (8);
+        const int w = r.getWidth() / 4;
+        for (auto* b : tg) b->setBounds (r.removeFromLeft (w).reduced (2, 0));
+    }
+    void paint (Graphics& g) override
+    {
+        g.setColour (GCol::bg); g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+        const int ti = roundToInt (fx.target->get());
+        for (int i = 0; i < tg.size(); ++i) tg[i]->setToggleState (i == ti, dontSendNotification);
+        paintRadar (g);
+        paintNumbers (g);
+        paintBars (g);
+        paintScope (g);
+    }
+private:
+    static void style (TextButton& b)
+    {
+        b.setColour (TextButton::buttonColourId, Colour (0xff1c2532)); b.setColour (TextButton::buttonOnColourId, GCol::steel);
+        b.setColour (TextButton::textColourOffId, GCol::text); b.setColour (TextButton::textColourOnId, Colours::white);
+    }
+    int radarSize() const { return getHeight() - 16; }
+    Colour levelColour (float v, float T) const
+    {
+        if (v > T + 1.0f) return Colour (0xffc9b45a);        // hlasnejsie ako ciel
+        if (v > T - 6.0f) return Colour (0xff6fa77c);        // v cieli
+        return Colour (0xff4d7f96);                          // tichsie
+    }
+    void paintRadar (Graphics& g)
+    {
+        const float S = (float) radarSize(), cx = 8 + S * 0.5f, cy = 8 + S * 0.5f, R = S * 0.5f - 18, r0 = R * 0.2f;
+        const float T = fx.tgt(), lo = T - 30.0f, hi = T + 9.0f;
+        auto rad = [&] (float v) { return r0 + (R - r0) * jlimit (0.0f, 1.0f, (v - lo) / (hi - lo)); };
+        g.setColour (Colour (0xff10161e)); g.fillEllipse (cx - R, cy - R, 2 * R, 2 * R);
+        // historia (posledne 2 minuty), najnovsie pri ruciCke
+        const int w = fx.radarW.load();
+        const float step = MathConstants<float>::twoPi / (float) MeterFx::radarN;
+        for (int k = 0; k < MeterFx::radarN; ++k)
+        {
+            const float v = fx.radar[(size_t) k].load();
+            if (v < -90.0f) continue;
+            const float a0 = (float) k * step, rr = rad (v);
+            Path p; p.addPieSegment (cx - rr, cy - rr, 2 * rr, 2 * rr, a0, a0 + step * 1.05f, r0 / rr);
+            const int age = (w - k + MeterFx::radarN) % MeterFx::radarN;
+            g.setColour (levelColour (v, T).withAlpha (0.45f + 0.55f * (1.0f - (float) age / (float) MeterFx::radarN)));
+            g.fillPath (p);
+        }
+        // kruhy: ciel, -6, -12, -18 a popisy
+        g.setFont (FontOptions (11.0f));
+        for (float d : { 0.0f, -6.0f, -12.0f, -18.0f, -24.0f })
+        {
+            const float rr = rad (T + d);
+            g.setColour (d == 0 ? GCol::gold.withAlpha (0.9f) : Colour (0xff2a3a50));
+            g.drawEllipse (cx - rr, cy - rr, 2 * rr, 2 * rr, d == 0 ? 1.4f : 1.0f);
+            g.setColour (d == 0 ? GCol::gold : GCol::dim);
+            g.drawText (String ((int) (T + d)), Rectangle<float> (cx + 3, cy - rr - 1, 34, 12), Justification::centredLeft);
+        }
+        for (int k = 0; k < 12; ++k) { const float a = (float) k * MathConstants<float>::twoPi / 12.0f; g.setColour (Colour (0xff1e2938)); g.drawLine (cx + r0 * std::sin (a), cy - r0 * std::cos (a), cx + R * std::sin (a), cy - R * std::cos (a), 1.0f); }
+        // rucicka
+        const float aw = (float) w * step;
+        g.setColour (Colours::white.withAlpha (0.7f)); g.drawLine (cx + r0 * std::sin (aw), cy - r0 * std::cos (aw), cx + R * std::sin (aw), cy - R * std::cos (aw), 1.5f);
+        // vonkajsi prstenec = okamzita hlasitost (Momentary)
+        const float m = fx.momNow.load(), frac = jlimit (0.0f, 1.0f, (m - lo) / (hi - lo));
+        const int segs = 60;
+        for (int k = 0; k < segs; ++k)
+        {
+            const float a = (float) k / (float) segs * MathConstants<float>::twoPi, ro = R + 12, ri = R + 5;
+            const bool on = (float) k / (float) segs < frac;
+            g.setColour (on ? levelColour (lo + (float) k / (float) segs * (hi - lo), T) : Colour (0xff222c3a));
+            const float a2 = a + MathConstants<float>::twoPi / (float) segs * 0.7f;
+            Path p; p.addPieSegment (cx - ro, cy - ro, 2 * ro, 2 * ro, a, a2, ri / ro); g.fillPath (p);
+        }
+        g.setColour (Colour (0xff151c27)); g.fillEllipse (cx - r0 + 2, cy - r0 + 2, 2 * r0 - 4, 2 * r0 - 4);
+        g.setColour (GCol::text); g.setFont (FontOptions (15.0f, Font::bold));
+        const float st = fx.stNow.load();
+        g.drawText (st > -90 ? String (st, 1) : String::fromUTF8 ("–"), Rectangle<float> (cx - r0, cy - 12, 2 * r0, 18), Justification::centred);
+        g.setFont (FontOptions (9.0f)); g.setColour (GCol::dim);
+        g.drawText ("LUFS S", Rectangle<float> (cx - r0, cy + 5, 2 * r0, 12), Justification::centred);
+    }
+    void paintNumbers (Graphics& g)
+    {
+        const float x = (float) radarSize() + 24, w = 230;
+        float y = 10;
+        auto row = [&] (const String& name, const String& val, const String& unit, Colour c)
+        {
+            g.setColour (GCol::dim); g.setFont (FontOptions (12.0f)); g.drawText (name, Rectangle<float> (x, y, w, 14), Justification::centredLeft);
+            g.setColour (c); g.setFont (FontOptions (26.0f, Font::bold)); g.drawText (val, Rectangle<float> (x, y + 14, w - 52, 30), Justification::centredRight);
+            g.setColour (GCol::dim); g.setFont (FontOptions (12.0f)); g.drawText (unit, Rectangle<float> (x + w - 48, y + 26, 48, 14), Justification::centredLeft);
+            y += 50;
+        };
+        auto f1 = [] (float v) { return v > -90 ? String (v, 1) : String::fromUTF8 ("–"); };
+        const float T = fx.tgt();
+        row (sk ("Celková hlasitosť (Integrated)"), f1 (integ), "LUFS", integ > -90 ? levelColour (integ, T).brighter (0.3f) : GCol::text);
+        row (sk ("Najvyššia špička (True Peak)"), f1 (fx.tpMax.load()), "dBTP", fx.tpMax.load() > -1.0f ? Colour (0xffd07a62) : GCol::gold);
+        row (sk ("Najhlasnejšie miesto"), f1 (fx.momMax.load()), "LUFS", GCol::gold);
+        row (sk ("Rozsah hlasitosti (LRA)"), lra > 0 ? String (lra, 1) : String::fromUTF8 ("–"), "LU", GCol::gold);
+        row (sk ("Špička – hlasitosť (PLR)"), (integ > -90 && fx.tpMax.load() > -90) ? String (fx.tpMax.load() - integ, 1) : String::fromUTF8 ("–"), "dB", GCol::gold);
+        // korelacia
+        g.setColour (GCol::dim); g.setFont (FontOptions (12.0f)); g.drawText (sk ("Korelácia (fáza)"), Rectangle<float> (x, y, w, 14), Justification::centredLeft);
+        auto bar = Rectangle<float> (x, y + 18, w, 10);
+        g.setColour (GCol::panel); g.fillRoundedRectangle (bar, 2.0f);
+        g.setColour (GCol::dim); g.drawVerticalLine ((int) bar.getCentreX(), bar.getY() - 2, bar.getBottom() + 2);
+        const float c = jlimit (-1.0f, 1.0f, fx.corr.load()), cxp = bar.getCentreX() + c * bar.getWidth() * 0.5f;
+        g.setColour (c < 0 ? Colour (0xffd07a62) : Colour (0xff6fa77c));
+        g.fillRect (Rectangle<float>::leftTopRightBottom (jmin (cxp, bar.getCentreX()), bar.getY(), jmax (cxp, bar.getCentreX()), bar.getBottom()));
+        g.setColour (GCol::dim); g.setFont (FontOptions (10.0f));
+        g.drawText ("-1", bar.translated (0, 12).withHeight (12), Justification::centredLeft); g.drawText ("+1", bar.translated (0, 12).withHeight (12), Justification::centredRight);
+        // cas merania
+        const int secs = fx.nBlocks.load() / 10;
+        g.setColour (GCol::text); g.setFont (FontOptions (13.0f));
+        g.drawText (sk ("Meranie") + "  " + String (secs / 60) + ":" + String (secs % 60).paddedLeft ('0', 2), Rectangle<float> (x, y + 36, w, 16), Justification::centredLeft);
+    }
+    void paintBars (Graphics& g)
+    {
+        const float x0 = (float) radarSize() + 270, top = 22, bot = 200;
+        auto yOf = [&] (float db) { return jmap (jlimit (-60.0f, 0.0f, db), -60.0f, 0.0f, bot, top); };
+        g.setFont (FontOptions (10.0f));
+        for (float d : { 0.0f, -6.0f, -12.0f, -18.0f, -24.0f, -36.0f, -48.0f, -60.0f }) { g.setColour (GCol::dim); g.drawText (String ((int) d), Rectangle<float> (x0, yOf (d) - 6, 26, 12), Justification::centredRight); }
+        const float l = fx.pkL.load(), r = fx.pkR.load();
+        holdL = jmax (l, holdL - 0.25f); holdR = jmax (r, holdR - 0.25f);
+        int i = 0;
+        for (float v : { l, r })
+        {
+            const float bx = x0 + 32 + (float) i * 30, hold = i == 0 ? holdL : holdR;
+            auto col = Rectangle<float> (bx, top, 22, bot - top);
+            g.setColour (GCol::panel); g.fillRect (col);
+            const float y = yOf (v);
+            g.setColour (Colour (0xff6f8fb3)); g.fillRect (Rectangle<float> (bx, jmax (y, yOf (-6)), 22, bot - jmax (y, yOf (-6))));
+            if (v > -6) { g.setColour (GCol::gold); g.fillRect (Rectangle<float> (bx, jmax (y, yOf (-1)), 22, yOf (-6) - jmax (y, yOf (-1)))); }
+            if (v > -1) { g.setColour (Colour (0xffd07a62)); g.fillRect (Rectangle<float> (bx, y, 22, yOf (-1) - y)); }
+            g.setColour (Colours::white.withAlpha (0.8f)); g.fillRect (bx, yOf (hold) - 1, 22.0f, 2.0f);
+            g.setColour (GCol::text); g.drawText (i == 0 ? "L" : "R", Rectangle<float> (bx, 6, 22, 12), Justification::centred);
+            ++i;
+        }
+        g.setColour (GCol::dim); g.drawText ("dBFS", Rectangle<float> (x0 + 26, bot + 2, 60, 12), Justification::centred);
+    }
+    void paintScope (Graphics& g)
+    {
+        const float x0 = (float) radarSize() + 380, w = (float) getWidth() - x0 - 10, top = 10, h = 200;
+        if (w < 80) return;
+        const float cx = x0 + w * 0.5f, by = top + h - 8, R = jmin (w * 0.5f, h - 20);
+        g.setColour (Colour (0xff10161e)); g.fillRoundedRectangle (Rectangle<float> (x0, top, w, h), 3.0f);
+        Path arc; arc.addCentredArc (cx, by, R, R, 0, -MathConstants<float>::halfPi, MathConstants<float>::halfPi, true);
+        g.setColour (Colour (0xff2a3a50)); g.strokePath (arc, PathStrokeType (1.0f));
+        g.drawLine (cx, by, cx, by - R); g.drawLine (cx - R, by, cx + R, by);
+        g.setColour (GCol::line.withAlpha (0.55f));
+        for (const auto& p : fx.vs)
+        {
+            float px = (p.y - p.x) * 0.7071f, py = std::abs ((p.x + p.y) * 0.7071f);
+            const float m = std::sqrt (px * px + py * py);
+            if (m < 1.0e-4f) continue;
+            const float sc = R * jmin (1.0f, std::sqrt (m)) / m;   // odmocnina: aj tiche casti su vidiet
+            g.fillRect (cx + px * sc, by - py * sc, 1.5f, 1.5f);
+        }
+        g.setColour (GCol::dim); g.setFont (FontOptions (11.0f));
+        g.drawText ("Mid / Side", Rectangle<float> (x0, top + 2, w, 12), Justification::centred);
+        g.drawText (sk ("Ľavý"), Rectangle<float> (x0 + 4, by - 14, 50, 12), Justification::centredLeft);
+        g.drawText (sk ("Pravý"), Rectangle<float> (x0 + w - 54, by - 14, 50, 12), Justification::centredRight);
+    }
+    void timerCallback() override
+    {
+        if (++calc >= 10) { calc = 0; compute(); }
+        repaint();
+    }
+    void compute()   // Integrated (brana -70 / -10) a LRA (brana -70 / -20, percentily 10 a 95)
+    {
+        const int n = fx.nBlocks.load (std::memory_order_acquire);
+        if (n <= 0) { integ = -100; lra = 0; return; }
+        double s = 0; int c = 0;
+        for (int i = 0; i < n; ++i) { const double p = fx.momP[(size_t) i]; if (p > 1.17e-7) { s += p; ++c; } }   // -70 LUFS
+        if (c == 0) { integ = -100; lra = 0; return; }
+        const double gate = s / c * 0.1;   // -10 LU
+        double s2 = 0; int c2 = 0;
+        for (int i = 0; i < n; ++i) { const double p = fx.momP[(size_t) i]; if (p > 1.17e-7 && p > gate) { s2 += p; ++c2; } }
+        integ = c2 > 0 ? (float) (-0.691 + 10.0 * std::log10 (s2 / c2)) : -100.0f;
+        std::vector<float> st; st.reserve ((size_t) n);
+        double ss = 0; int sc = 0;
+        for (int i = 0; i < n; ++i) { const double p = fx.stP[(size_t) i]; if (p > 1.17e-7) { ss += p; ++sc; } }
+        if (sc > 0)
+        {
+            const double g20 = ss / sc * 0.01;   // -20 LU
+            for (int i = 0; i < n; ++i) { const double p = fx.stP[(size_t) i]; if (p > 1.17e-7 && p > g20) st.push_back ((float) (-0.691 + 10.0 * std::log10 (p))); }
+        }
+        if (st.size() < 2) { lra = 0; return; }
+        std::sort (st.begin(), st.end());
+        lra = st[(size_t) (0.95 * (double) (st.size() - 1))] - st[(size_t) (0.10 * (double) (st.size() - 1))];
+    }
+    MeterFx& fx;
+    OwnedArray<TextButton> tg;
+    TextButton reset;
+    float integ = -100, lra = 0, holdL = -100, holdR = -100;
+    int calc = 0;
+};
+std::unique_ptr<Component> MeterFx::makeDisplay() { return std::make_unique<MeterDisplay> (*this); }
+
 struct Entry { const char* key; const char* name; std::function<std::unique_ptr<AudioPluginInstance>()> make; bool inst = false; };
 
 const std::vector<Entry>& entries()
@@ -3454,6 +3804,7 @@ const std::vector<Entry>& entries()
         { "vocoder", "Korgus Vocoder",   [] { return std::unique_ptr<AudioPluginInstance> (new VocoderFx()); } },
         { "robotvox", "Korgus Robot hlas", [] { return std::unique_ptr<AudioPluginInstance> (new VocoderFx (true)); } },
         { "gater",   "Korgus Gater",     [] { return std::unique_ptr<AudioPluginInstance> (new GaterFx()); } },
+        { "meter",   "Korgus Meter",     [] { return std::unique_ptr<AudioPluginInstance> (new MeterFx()); } },
     };
     return e;
 }

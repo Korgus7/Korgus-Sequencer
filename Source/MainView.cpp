@@ -659,7 +659,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 {
                                     juce::AudioBuffer<float> b;
                                     juce::String id;
-                                    const auto fixed = "kitv2_" + juce::String (kit) + "_" + juce::String (l);
+                                    const auto fixed = "kitv3_" + juce::String (kit) + "_" + juce::String (l);
                                     if (store->fileFor (fixed).existsAsFile()) id = fixed;
                                     else if (DrumKits::make (kit, l, store->getSampleRate(), b))
                                         id = store->addRecordingAs (fixed, b.getReadPointer (0), nullptr, b.getNumSamples(), store->getSampleRate());
@@ -3753,13 +3753,17 @@ namespace
 static juce::File korgusDrumLib()
 {
     const auto root = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Korgus Bicie");
-    const auto mark = root.getChildFile (".korgus_v2");
+    const auto mark = root.getChildFile (".korgus_v3");
     if (mark.existsAsFile()) return root;
     if (! root.createDirectory()) return {};
     // stare supravy (v1) zmazat - nahradili ich Pop, House, Drum & Bass, Afro, Latino
     for (auto* old : { "Akustické", "808 / Trap", "Elektronické (909)", "Perkusie", "Ľudová" })
         if (auto d = root.getChildFile (juce::File::createLegalFileName (juce::String::fromUTF8 (old))); d.isDirectory()) d.deleteRecursively();
     root.getChildFile (".korgus_v1").deleteFile();
+    root.getChildFile (".korgus_v2").deleteFile();
+    // v3: Pop a House su zo samplov - stare syntetizovane subory v nich zmazat
+    for (auto* old : { "Pop", "House" })
+        if (auto d = root.getChildFile (old); d.isDirectory()) d.deleteRecursively();
     constexpr double sr = 44100.0;
     for (int k = 0; k < DrumKits::numKits; ++k)
     {
