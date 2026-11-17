@@ -45,6 +45,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Type: files; Name: "{app}\Korgus Inspire.vst3"
 ; VST3 verzia Korgus Master sa uz nedodava (ostava vstavany efekt)
 Type: files; Name: "{app}\Korgus Master.vst3"
+; rozhranie z aktualizacie bez instalatora (instalator ma novsie vstavane)
+Type: files; Name: "{app}\korgus-ui.html"
+Type: files; Name: "{app}\korgus-ui.ver"
 
 [Files]
 Source: "{#Src}\Korgus Sequencer.exe"; DestDir: "{app}"; Flags: ignoreversion

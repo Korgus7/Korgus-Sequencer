@@ -184,6 +184,7 @@ private:
     void sendTuner();
     void checkForUpdate();
     void updateByFiles();
+    juce::String currentVersion();   // verzia programu alebo novsieho rozhrania korgus-ui.html
     void onLearnSound (const juce::var&);
     struct LearnJob;
     std::unique_ptr<LearnJob> learnJob;

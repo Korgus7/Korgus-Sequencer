@@ -17,6 +17,47 @@
 #include <array>
 #include "SoundMatch.h"
 
+// Rozhranie moze prist aj ako samostatny subor korgus-ui.html vedla programu (aktualizacia bez noveho .exe,
+// ktory by Windows mohol zablokovat). Pouzije sa len ak je novsi ako vstavane rozhranie a ma rovnake API.
+namespace
+{
+    constexpr int kUiApi = 1;   // zvysit spolu s <meta name="korgus-api"> v index.html, ked sa zmenia udalosti medzi C++ a UI
+    juce::File uiFile()    { return juce::File::getSpecialLocation (juce::File::currentExecutableFile).getSiblingFile ("korgus-ui.html"); }
+    juce::File uiVerFile() { return juce::File::getSpecialLocation (juce::File::currentExecutableFile).getSiblingFile ("korgus-ui.ver"); }
+    juce::Array<int> verNums (juce::String v)
+    {
+        v = v.trim().trimCharactersAtStart ("vV");
+        juce::Array<int> r;
+        for (const auto& t : juce::StringArray::fromTokens (v, ".", "")) r.add (t.getIntValue());
+        while (r.size() < 3) r.add (0);
+        return r;
+    }
+    bool verGreater (const juce::String& a, const juce::String& b)
+    {
+        const auto x = verNums (a), y = verNums (b);
+        for (int i = 0; i < juce::jmax (x.size(), y.size()); ++i)
+        {
+            const int p = i < x.size() ? x[i] : 0, q = i < y.size() ? y[i] : 0;
+            if (p != q) return p > q;
+        }
+        return false;
+    }
+    // verzia externeho rozhrania, ak sa da pouzit (inak prazdne)
+    juce::String externalUiVersion()
+    {
+        const auto f = uiFile(), vf = uiVerFile();
+        if (! f.existsAsFile() || ! vf.existsAsFile()) return {};
+        const auto v = vf.loadFileAsString().trim();
+        if (v.isEmpty() || ! verGreater (v, JUCE_APPLICATION_VERSION_STRING)) return {};
+        juce::FileInputStream in (f);
+        if (! in.openedOk()) return {};
+        const auto head = in.readString().substring (0, 4000);   // hlavicka stranky
+        if (! head.contains ("<meta name=\"korgus-api\" content=\"" + juce::String (kUiApi) + "\">")) return {};
+        return v;
+    }
+}
+
+
 struct MainView::LearnJob : juce::Thread
 {
     LearnJob() : juce::Thread ("Korgus learn sound") {}
@@ -430,7 +471,8 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     // na Linuxe velke stranky cez resource provider padaju - nacitame subor z disku
     auto page = dataDir.getChildFile ("ui").getChildFile ("index.html");
     page.getParentDirectory().createDirectory();
-    page.replaceWithData (BinaryData::index_html, (size_t) BinaryData::index_htmlSize);
+    if (externalUiVersion().isNotEmpty()) uiFile().copyFileTo (page);
+    else page.replaceWithData (BinaryData::index_html, (size_t) BinaryData::index_htmlSize);
     web->goToURL (juce::URL (page).toString (false));
    #else
     web->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());
@@ -1017,11 +1059,27 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
     return o;
 }
 
+juce::String MainView::currentVersion()
+{
+    const auto ext = externalUiVersion();
+    return ext.isNotEmpty() ? ext : juce::String (JUCE_APPLICATION_VERSION_STRING);
+}
+
 std::optional<juce::WebBrowserComponent::Resource> MainView::getResource (const juce::String& url)
 {
     const auto path = url.fromFirstOccurrenceOf ("/", false, false).upToFirstOccurrenceOf ("?", false, false);
     if (path.isEmpty() || path == "index.html")
     {
+        if (externalUiVersion().isNotEmpty())
+        {
+            juce::MemoryBlock mb;
+            if (uiFile().loadFileAsData (mb) && mb.getSize() > 1000)
+            {
+                std::vector<std::byte> data (mb.getSize());
+                std::memcpy (data.data(), mb.getData(), data.size());
+                return juce::WebBrowserComponent::Resource { std::move (data), "text/html" };
+            }
+        }
         std::vector<std::byte> data ((size_t) BinaryData::index_htmlSize);
         std::memcpy (data.data(), BinaryData::index_html, data.size());
         return juce::WebBrowserComponent::Resource { std::move (data), "text/html" };
@@ -1526,7 +1584,7 @@ void MainView::onReady()
         booting = false;
         if (! lastSong.isVoid()) onSong (lastSong);
         sendTrackPlugins();
-        { auto o = obj(); put (o, "ver", juce::String (JUCE_APPLICATION_VERSION_STRING)); emit ("appInfo", o); }
+        { auto o = obj(); put (o, "ver", currentVersion()); emit ("appInfo", o); }
         emit ("bootDone", obj());
         sendRecent();
         sendCrashInfo();
@@ -3916,7 +3974,8 @@ void MainView::checkForUpdate()
 {
    #if JUCE_WINDOWS
     juce::Component::SafePointer<MainView> sp (this);
-    juce::Thread::launch ([sp]
+    const auto cur = currentVersion();
+    juce::Thread::launch ([sp, cur]
     {
         // GitHub (raw) drzi subory v cache az 5 minut - parameter ?t= zaruci cerstvu verziu
         juce::URL u (juce::String (updApi) + "?t=" + juce::String (juce::Time::currentTimeMillis()));
@@ -3927,7 +3986,7 @@ void MainView::checkForUpdate()
         if (in == nullptr) return;
         const auto j = juce::JSON::parse (in->readEntireStreamAsString());
         const auto tag = j["version"].toString();
-        if (tag.isEmpty() || ! verNewer (tag, JUCE_APPLICATION_VERSION_STRING)) return;
+        if (tag.isEmpty() || ! verNewer (tag, cur)) return;
         const auto url = j["url"].toString();
         if (! url.startsWith ("https://")) return;
         const auto notes = j["notes"].toString();
@@ -3938,7 +3997,7 @@ void MainView::checkForUpdate()
             sp->updUrl = url; sp->updVer = tag.trimCharactersAtStart ("vV"); sp->updFiles = files;
             auto o = obj();
             put (o, "ver", sp->updVer);
-            put (o, "cur", juce::String (JUCE_APPLICATION_VERSION_STRING));
+            put (o, "cur", sp->currentVersion());
             put (o, "notes", notes);
             sp->emit ("update", o);
         });
@@ -4009,7 +4068,8 @@ void MainView::updateByFiles()
    #if JUCE_WINDOWS
     juce::Component::SafePointer<MainView> sp (this);
     const auto files = updFiles;
-    juce::Thread::launch ([sp, files]
+    const auto ver = updVer;
+    juce::Thread::launch ([sp, files, ver]
     {
         auto fail = [sp] (const juce::String& msg)
         {
@@ -4105,6 +4165,9 @@ void MainView::updateByFiles()
             if (! stage.getChildFile (it.name).moveFileTo (target)) { rollback(); stage.deleteRecursively(); fail (sk ("Aktualizáciu sa nepodarilo uložiť.")); return; }
         }
 
+        bool hasUi = false;
+        for (const auto& it : items) if (it.name == "korgus-ui.html") hasUi = true;
+        if (hasUi) uiVerFile().replaceWithText (ver);
         juce::MessageManager::callAsync ([sp, exe]
         {
             if (sp == nullptr) return;
