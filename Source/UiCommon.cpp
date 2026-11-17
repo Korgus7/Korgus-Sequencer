@@ -68,6 +68,8 @@ juce::String skTranslate (const char* utf8)
         { "Dvojhlas|Harmonizér|Oboje", "Doubler|Harmonizer|Both" },
         { "Dĺžka tónu", "Note length" },
         { "Dĺžka vzoru: ", "Pattern length: " },
+        { "Hotové vzory", "Ready patterns" }, { "Kocka", "Dice" }, { "Náhodný vzor – sila, pauzy a oktávy", "Random pattern – velocity, rests and octaves" },
+        { "Basa v oktávach", "Octave bass" }, { "Hore a dole", "Up and down" }, { "Akordy na osminy", "Eighth-note chords" }, { "Zimmer pulz", "Zimmer pulse" },
         { "Export MP3 – ", "Export MP3 – " },
         { "Export stôp", "Export tracks" },
         { "Export stôp – vyber priečinok", "Export tracks – choose a folder" },

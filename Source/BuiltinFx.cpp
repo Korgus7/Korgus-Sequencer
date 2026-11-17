@@ -1664,6 +1664,7 @@ void ArpGrid::paint (Graphics& g)
             g.drawRoundedRectangle (cell.reduced (0.5f), 3.0f, 1.0f);
         }
         if (! inLen) { g.setColour (Colour (0xaa161c24)); g.fillRoundedRectangle (cell, 3.0f); }
+        if (i == cur && inLen) { g.setColour (Colour (0xffe4e9ef)); g.drawRoundedRectangle (cell.reduced (0.5f), 3.0f, 2.0f); }
         auto oc = Rectangle<float> (oa.getX() + w * (float) i + 2, oa.getY(), w - 4, oa.getHeight());
         const int o = arp.stepOct[i].load();
         g.setColour (o == 0 ? Colour (0xff1f2630) : Colour (0xff2d4362));
@@ -1786,8 +1787,20 @@ public:
         len.setTextBoxIsEditable (false);   // inak sa po otvoreni okna ukaze svetle editovacie pole s oznacenym textom
         len.setWantsKeyboardFocus (false);
         len.onValueChange = [this] { set (arp.lenP, (float) len.getValue()); };
-        for (auto* c : std::initializer_list<Component*> { &rate, &swing, &gate, &oct, &hold, &pat, &len, &grid, &modes }) addAndMakeVisible (c);
-        setSize (840, 330);
+        {
+            int n = 0; const auto* pl = presetList (n);
+            for (int i = 0; i < n; ++i) presets.addItem (sk (pl[i].name), i + 1);
+            presets.setTextWhenNothingSelected (sk ("Hotové vzory"));
+            presets.onChange = [this] { const int id = presets.getSelectedId(); if (id > 0) { applyPreset (id - 1); presets.setSelectedId (0, dontSendNotification); } };
+            style (presets);
+            dice.setButtonText (sk ("Kocka"));
+            dice.setTooltip (sk ("Náhodný vzor – sila, pauzy a oktávy"));
+            dice.setColour (TextButton::buttonColourId, Colour (0xff2a3442));
+            dice.setColour (TextButton::textColourOffId, Colour (0xffc9d2dc));
+            dice.onClick = [this] { randomPattern(); };
+        }
+        for (auto* c : std::initializer_list<Component*> { &rate, &swing, &gate, &oct, &hold, &pat, &len, &grid, &modes, &presets, &dice }) addAndMakeVisible (c);
+        setSize (960, 330);
         sync();
         startTimerHz (15);
     }
@@ -1822,7 +1835,9 @@ public:
         hold.setBounds (mid.getX() + 8, mid.getY() + 8, mid.getWidth() - 16, 26);
         for (int i = 0; i < 3; ++i) velB[i].setBounds (mid.getX() + 10, mid.getY() + 96 + i * 34, mid.getWidth() - 20, 26);
         modes.setBounds (324, 12, 300, 30);
-        pat.setBounds (getWidth() - 100, 14, 84, 26);
+        presets.setBounds (640, 14, 160, 26);
+        dice.setBounds (808, 14, 56, 26);
+        pat.setBounds (getWidth() - 88, 14, 76, 26);
         grid.setBounds (324, 52, getWidth() - 340, 214);
         len.setBounds (324, 276, getWidth() - 340, 40);
     }
@@ -1879,11 +1894,56 @@ private:
     ArpGrid grid;
     ArpModeButtons modes;
     Slider rate, swing, gate, len;
-    ComboBox oct;
+    ComboBox oct, presets;
     ToggleButton hold, pat;
-    TextButton velB[3];
+    TextButton velB[3], dice;
     Rectangle<int> left, mid;
     bool syncing = false;
+
+    // hotove vzory: smer, rychlost, dlzka tonu, kroky zap (bity), sila, oktava
+    struct ArpPreset { const char* name; int mode, rate, gate; const char* on; const char* vel; const char* oct; };
+    static const ArpPreset* presetList (int& n)
+    {
+        static const ArpPreset p[] = {
+            { "Pop arpeggio",     0, 4, 60, "1111111111111111", "IAEAIAEAIAEAIAEA", "0000000000000000" },
+            { "Trance gate",      6, 4, 45, "1011010110110101", "IAIIAIAIIAIIAIAI", "0000000000000000" },
+            { "Basa v oktávach",  0, 4, 50, "1111111111111111", "IEGEIEGEIEGEIEGE", "0101010101010101" },
+            { "Avicii pluck",     2, 4, 35, "1111111111111111", "IAAIAAIAIAAIAAIA", "0000000000000000" },
+            { "Hore a dole",      2, 4, 70, "1111111111111111", "GGGGGGGGGGGGGGGG", "0000000000000000" },
+            { "Akordy na osminy", 6, 1, 50, "1111111111111111", "IEGEIEGEIEGEIEGE", "0000000000000000" },
+            { "Synth 80s",        0, 4, 55, "1111111111111111", "IEGEIEGEIEGEIEGE", "0000000010000000" },
+            { "Zimmer pulz",      6, 4, 80, "1111111111111111", "IEEEIEEEIEEEIEEE", "0000000000000000" } };
+        n = (int) (sizeof (p) / sizeof (p[0]));
+        return p;
+    }
+    void applyPreset (int i)
+    {
+        int n = 0; const auto* p = presetList (n);
+        if (i < 0 || i >= n) return;
+        const auto& q = p[i];
+        set (arp.modeP, (float) q.mode); set (arp.rateP, (float) q.rate); set (arp.gateP, (float) q.gate);
+        set (arp.lenP, 16.0f); set (arp.patP, 1.0f);
+        for (int k = 0; k < 16; ++k)
+        {
+            arp.stepOn[k] = q.on[k] == '1';
+            arp.stepVel[k] = jlimit (1, 127, 50 + (q.vel[k] - 'A') * 9);   // A = 50 ... I = 122
+            arp.stepOct[k] = q.oct[k] == '1' ? 1 : 0;
+        }
+        grid.repaint(); sync();
+    }
+    void randomPattern()
+    {
+        Random r;
+        for (int k = 0; k < 16; ++k)
+        {
+            arp.stepOn[k] = k == 0 || r.nextFloat() < 0.75f;
+            arp.stepVel[k] = (k % 4 == 0) ? 110 + r.nextInt (18) : 60 + r.nextInt (50);
+            const float o = r.nextFloat();
+            arp.stepOct[k] = o < 0.12f ? 1 : (o < 0.18f ? -1 : 0);
+        }
+        set (arp.patP, 1.0f);
+        grid.repaint(); sync();
+    }
 };
 
 AudioProcessorEditor* ArpFx::createEditor() { return new ArpEditor (*this); }
