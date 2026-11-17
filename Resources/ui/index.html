@@ -157,7 +157,7 @@ body.native #trackList .thead{position:sticky;top:0;z-index:3}
 .ms .nm{font-size:12px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none;padding:3px 0;border-top:1px solid #161d27}
 .ms .nm span{color:#8fa9c6;margin-right:4px}
 .sck{font-size:9px;font-weight:bold;color:#1b2533;background:#8fb0d0;border-radius:3px;padding:0 3px;margin-right:5px;vertical-align:1px}
-.sck.sur{background:#c9a24a;font-size:10px}
+.sck.sur{background:#c9a24a;font-size:14px;line-height:16px;padding:0 4px;vertical-align:0}
 .mret{display:flex;flex:none;position:sticky;right:0;margin-left:auto}
 .mret .ms.mst{position:static;margin-left:0}
 .ms.aux{background:#323e50;border-left:1px solid #161d27}
@@ -196,6 +196,8 @@ body.native #trackList .thead,body.native #trackList .thead span{color:#c9d2dc}
 .ntr.sel{background:#55657a}
 .ntr.sel::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:#8fa9c6}
 .ntr .num{width:18px;flex:none;text-align:center;font-size:13px;font-weight:bold;line-height:22px;color:#e4e9ef}
+.ntr .num .tyi{display:flex;justify-content:center;color:#8d9aab;pointer-events:none;margin-top:2px}
+.ntr .dd.ch{flex:0 0 96px}
 .ntr .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .ntr .r{display:flex;align-items:center;gap:4px;height:22px;flex:none}
 .ntr .grp{display:flex;flex:none;border:1px solid #161d27;border-radius:3px;overflow:hidden}
@@ -786,6 +788,7 @@ const ICO_REC='<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy
 const ICO_SPK='<svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.5 4.2h2.6L7.5 1.5v9L4.1 7.8H1.5z" fill="currentColor"/><path d="M9.6 3.6a3.2 3.2 0 0 1 0 4.8M11.4 1.9a5.6 5.6 0 0 1 0 8.2" stroke-linecap="round"/></svg>';
 const ICO_KEYS='<svg width="20" height="12" viewBox="0 0 20 12"><rect x=".5" y=".5" width="19" height="11" rx="1" fill="#fff" stroke="currentColor"/><path d="M4.5 1v10M8.5 1v10M12 1v10M15.5 1v10" stroke="currentColor"/><path d="M3 1h3v6H3zM7 1h3v6H7zM13.8 1h3v6h-3z" fill="currentColor"/></svg>';
 const ICO_ARROW='<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5v12l3.2-3 2.1 4.6 1.9-.9-2.1-4.5 4.4-.2z"/></svg>';
+const ICO_DRUMT='<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><ellipse cx="8" cy="6" rx="6" ry="2.2"/><path d="M2 6v4.5c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V6"/><path d="M10.5 1.5L7 5.5M13.5 2.5L9 6"/></svg>';
 const ICO_GLUE='<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M5 6h6v8.5H5z"/><path d="M6.5 6V3.5h3V6"/><path d="M7.2 3.5L8 1.2l.8 2.3"/><path d="M5 9.5h6"/></svg>';
 const ICO_ERASE='<svg width="14" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9.5 1.5l5 5-6.5 6.5H4.5L1.5 10z"/><path d="M5.5 5.5l5 5"/><path d="M4.5 13h10"/></svg>';
 const ICO_PEN='<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/><path d="M9 4l3 3"/></svg>';
@@ -1484,10 +1487,9 @@ function renderTracksNative(L){
     nm.ondblclick=()=>{ const inp=el('input'); inp.type='text'; inp.value=tr.name; nm.innerHTML=''; nm.appendChild(inp); inp.focus(); inp.select();
       const done=ok=>{ if(ok&&inp.value.trim()&&inp.value!==tr.name){ pushUndo(); tr.name=inp.value.trim(); save(); if(ed) renderEditor(); } renderTracks(); };
       inp.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter') done(true); if(e.key==='Escape') done(false); }; inp.onblur=()=>done(true); inp.onmousedown=e=>e.stopPropagation(); };
-    const ti=el('div','ti',audio?ICO_WAVE:ICO_PIANO); ti.title=audio?'Audio stopa':'Otvoriť okno nástroja';
-    if(!audio){ ti.style.cursor='pointer'; ti.onmousedown=e=>e.stopPropagation();
-      ti.onclick=()=>{ const c=natTrackPlugins[tr.id]; if(c&&c.uid) nat('openPlugin',{track:tr.id,name:tr.name}); else toast('Najprv vyber VST nástroj v riadku pod názvom stopy.'); }; }
-    r1.append(g,nm,ti);
+    r1.append(g,nm);
+    // vlavo pod cislom: ikona typu stopy (len na pohlad)
+    num.innerHTML='<div>'+(i+1)+'</div><div class="tyi" title="'+(audio?'Audio stopa':tr.type==='drum'?'Bicie':'Nástroj')+'">'+(audio?ICO_WAVE:tr.type==='drum'?ICO_DRUMT:ICO_PIANO)+'</div>';
     // riadok 2: hlasitost
     const vb=el('div','vb'), fill=el('i'); vb.appendChild(fill);
     const showV=()=>{fill.style.width=(tr.vol*100)+'%'; vb.title='Hlasitosť '+(tr.vol>0?(40*Math.log10(tr.vol)).toFixed(1)+' dB':'−∞')+' (dvojklik = 0 dB)';}; showV();
@@ -1511,11 +1513,13 @@ function renderTracksNative(L){
     } else {
       const cur=natTrackPlugins[tr.id]||{}, r3=el('div','r');
       const inst='<option value="">Žiadny nástroj</option>'+natPlugins.filter(p=>p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('')+'<option value="__scan">Hľadať pluginy…</option>';
-      const di=dd(ICO_KBD,inst,cur.uid||'',cur.uid?cur.name+' (dvojklik = okno nástroja)':'VST nástroj',(v,sl)=>{ if(v==='__scan'){ sl.value=cur.uid||''; nat('showPlugins'); return; } nat('trackPlugin',{track:tr.id,uid:v,name:tr.name}); });
+      const di=dd('',inst,cur.uid||'',cur.uid?cur.name+' (dvojklik = okno nástroja)':'VST nástroj',(v,sl)=>{ if(v==='__scan'){ sl.value=cur.uid||''; nat('showPlugins'); return; } nat('trackPlugin',{track:tr.id,uid:v,name:tr.name}); });
       di.ondblclick=()=>{ if(cur.uid) nat('openPlugin',{track:tr.id,name:tr.name}); };
       let ch=''; for(let k=1;k<=16;k++) ch+=`<option value="${k}">MIDI kanál ${k}</option>`;
-      const dc=dd('',ch,String(tr.midiCh||1),'MIDI kanál nástroja',v=>{tr.midiCh=+v; save();});
-      r3.append(di,dc);
+      const dc=dd('',ch,String(tr.midiCh||1),'MIDI kanál nástroja',v=>{tr.midiCh=+v; save();}); dc.classList.add('ch');
+      const ko=el('button','tg',ICO_KBD); ko.title=cur.uid?'Otvoriť okno nástroja '+cur.name:'Otvoriť okno nástroja'; ko.onmousedown=e=>e.stopPropagation();
+      ko.onclick=()=>{ const c=natTrackPlugins[tr.id]; if(c&&c.uid) nat('openPlugin',{track:tr.id,name:tr.name}); else toast('Najprv vyber VST nástroj v riadku pod názvom stopy.'); };
+      r3.append(dc,di,ko);
       const r4=el('div','r');
       const mi='<option value="">Všetky vstupy</option>'+natMidiDevs.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')
         +(tr.midiIn&&!natMidiDevs.some(d=>d.id===tr.midiIn)?`<option value="${esc(tr.midiIn)}">(odpojené)</option>`:'');

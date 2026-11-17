@@ -1488,6 +1488,7 @@ public:
         String v, o, a;
         for (int i = 0; i < 16; ++i) { v << stepVel[i].load() << " "; o << stepOct[i].load() << " "; a << (stepOn[i].load() ? 1 : 0) << " "; }
         x.setAttribute ("stepvel", v.trim()); x.setAttribute ("stepoct", o.trim()); x.setAttribute ("stepon", a.trim());
+        x.setAttribute ("preset", presetIdx.load());
         copyXmlToBinary (x, mb);
     }
     void setStateInformation (const void* data, int size) override
@@ -1503,6 +1504,7 @@ public:
                 if (i < o.size()) stepOct[i] = jlimit (-1, 1, o[i].getIntValue());
                 if (i < a.size()) stepOn[i] = a[i].getIntValue() != 0;
             }
+            presetIdx = x->getIntAttribute ("preset", -1);
         }
     }
 
@@ -1619,6 +1621,7 @@ public:
     std::atomic<int> stepVel[16], stepOct[16];
     std::atomic<bool> stepOn[16];
     std::atomic<int> curStep { -1 };
+    std::atomic<int> presetIdx { -1 };   // vybrany hotovy vzor (pamata sa aj v projekte)
     FxParam *rateP, *modeP, *octP, *lenP, *gateP, *swingP, *velP, *latchP, *patP;
     AudioProcessorEditor* createEditor() override;
 
@@ -1791,7 +1794,8 @@ public:
             int n = 0; const auto* pl = presetList (n);
             for (int i = 0; i < n; ++i) presets.addItem (sk (pl[i].name), i + 1);
             presets.setTextWhenNothingSelected (sk ("Hotové vzory"));
-            presets.onChange = [this] { const int id = presets.getSelectedId(); if (id > 0) { applyPreset (id - 1); presets.setSelectedId (0, dontSendNotification); } };
+            presets.onChange = [this] { const int id = presets.getSelectedId(); if (id > 0) applyPreset (id - 1); };
+            presets.setSelectedId (arp.presetIdx.load() + 1, dontSendNotification);
             style (presets);
             dice.setButtonText (sk ("Kocka"));
             dice.setTooltip (sk ("Náhodný vzor – sila, pauzy a oktávy"));
@@ -1929,6 +1933,7 @@ private:
             arp.stepVel[k] = jlimit (1, 127, 50 + (q.vel[k] - 'A') * 9);   // A = 50 ... I = 122
             arp.stepOct[k] = q.oct[k] == '1' ? 1 : 0;
         }
+        arp.presetIdx = i;
         grid.repaint(); sync();
     }
     void randomPattern()
@@ -1942,6 +1947,7 @@ private:
             arp.stepOct[k] = o < 0.12f ? 1 : (o < 0.18f ? -1 : 0);
         }
         set (arp.patP, 1.0f);
+        arp.presetIdx = -1; presets.setSelectedId (0, dontSendNotification);
         grid.repaint(); sync();
     }
 };
