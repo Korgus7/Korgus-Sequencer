@@ -182,6 +182,7 @@ public:
     void killSlotVoices (int slot) { if (juce::isPositiveAndBelow (slot, (int) slots.size())) slots[(size_t) slot]->killVoices.store (true); }
     void play (double fromStep, int countInBars);
     void stop();
+    void panic();   // Reset MIDI
     void setPosition (double step);
     void liveNote (int slot, int pitch, float vel, bool on);
     void setSelectedSlot (int slot)                 { selectedSlot = slot; }

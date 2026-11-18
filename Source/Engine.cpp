@@ -334,6 +334,13 @@ void Engine::stop()
     cmds.push_back ({ 2, 0, 0 });
 }
 
+// Reset MIDI: vsetky noty a zvuky vypnut na vsetkych kanaloch (zaseknuty ton), prehravanie bezi dalej
+void Engine::panic()
+{
+    const juce::SpinLock::ScopedLockType l (cmdLock);
+    cmds.push_back ({ 9, 0, 0 });
+}
+
 void Engine::setPosition (double step)
 {
     publicPos = step;
@@ -757,6 +764,20 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 {
                     allNotesOff (0, false);
                     pos = c.a;
+                }
+                else if (c.type == 9)
+                {
+                    allNotesOff (0, true);
+                    for (auto& sl : slots)
+                    {
+                        for (int ch = 1; ch <= 16; ++ch)
+                        {
+                            sl->midi.addEvent (juce::MidiMessage::controllerEvent (ch, 64, 0), 0);
+                            sl->midi.addEvent (juce::MidiMessage::allNotesOff (ch), 0);
+                            sl->midi.addEvent (juce::MidiMessage::allSoundOff (ch), 0);
+                        }
+                        for (auto& v : sl->voices) if (v.fade < 0) { v.fade = 256; v.fadeLen = 256; }
+                    }
                 }
             }
             cmds.clear();

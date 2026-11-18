@@ -803,6 +803,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                     });
                                 });
                             })
+        .withEventListener ("midiReset",   [this] (const juce::var&) { engine.panic(); })
         .withEventListener ("drumKill",    [this] (const juce::var& v) { engine.killSlotVoices (engine.getOrCreateSlot (v["track"].toString())); })
         .withEventListener ("drumSet",     [this] (const juce::var& v)   // editor zvuku bicich: okamzita zmena
                             {
