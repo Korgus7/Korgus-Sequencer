@@ -606,6 +606,20 @@ namespace
             addAndMakeVisible (load);
             smpName.setFont (juce::FontOptions (12.5f)); smpName.setColour (juce::Label::textColourId, dim.brighter (0.3f));
             addAndMakeVisible (smpName);
+            // prehadzovac samplov: predchadzajuci / dalsi zvuk z toho isteho priecinka
+            for (int d = 0; d < 2; ++d)
+            {
+                stepB[d].setButtonText (juce::String::charToString (d == 0 ? 0x25C0 : 0x25B6));
+                stepB[d].setTooltip (T (d == 0 ? "Predchádzajúci zvuk z priečinka" : "Ďalší zvuk z priečinka"));
+                stepB[d].onClick = [this, d]
+                {
+                    juce::String err;
+                    if (! p.stepSample (li, d == 0 ? -1 : 1, err) && err.isNotEmpty())
+                        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Korgus Inspiria", err);
+                    update();
+                };
+                addChildComponent (stepB[d]);
+            }
             ratioLabel.setText (T ("FM pomer"), juce::dontSendNotification); ratioLabel.setFont (juce::FontOptions (12.5f));
             ratioLabel.setColour (juce::Label::textColourId, dim.brighter (0.2f)); ratioLabel.setJustificationType (juce::Justification::centred);
             addAndMakeVisible (ratioLabel);
@@ -649,6 +663,7 @@ namespace
                 color->setVisible (w >= 3 && ! isUser);
                 ratio.setVisible (w == 6); ratioLabel.setVisible (w == 6);
                 src.setVisible (isSample); load.setVisible (isSample); root->setVisible (isUser); loop.setVisible (isUser); smpName.setVisible (isUser);
+                stepB[0].setVisible (isUser); stepB[1].setVisible (isUser);
                 row1[3]->setEnabled (w <= 3 || w >= 8); row1[4]->setEnabled (w <= 3 || w >= 8);
                 resized();
             }
@@ -689,12 +704,17 @@ namespace
             if (src.isVisible()) x += 134;
             root->setBounds (getWidth() - 12 - 64 - 92, 332, 64, 72);
             loop.setBounds (getWidth() - 12 - 88, 366, 88, 22);
-            smpName.setBounds (x, 336, juce::jmax (40, root->getX() - x - 6), 22);
+            {
+                const int right = root->getX() - 6;
+                stepB[1].setBounds (right - 24, 336, 24, 22);
+                stepB[0].setBounds (right - 50, 336, 24, 22);
+                smpName.setBounds (x, 336, juce::jmax (40, right - 54 - x), 22);
+            }
         }
         NovaProcessor& p; int li; juce::String pre;
         Toggle on; Seg wave; Combo ftype; Toggle f24; Combo lshape, ltgt, ratio, src; Toggle loop; Combo wt; VoiceDisplay disp; juce::Label wtLabel;
         std::vector<std::unique_ptr<Knob>> row1, row2, row3; std::unique_ptr<Knob> color, root;
-        juce::TextButton load; juce::Label smpName, ratioLabel;
+        juce::TextButton load, stepB[2]; juce::Label smpName, ratioLabel;
         std::unique_ptr<juce::FileChooser> chooser;
         int lastWave = -1; bool lastUser = false;
     };

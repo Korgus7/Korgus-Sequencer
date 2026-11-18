@@ -135,7 +135,7 @@ namespace nova
                 { "Nábeh", "Attack" }, { "Pokles", "Decay" }, { "Držanie", "Sustain" }, { "Doznenie", "Release" }, { "Rýchlosť", "Rate" },
                 { "Hĺbka", "Depth" }, { "Onesk.", "Delay" }, { "Farba", "Color" }, { "Šírka pulzu", "Pulse width" }, { "Farba šumu", "Noise color" },
                 { "Jas struny", "Brightness" }, { "FM index", "FM index" }, { "Tvrdosť", "Hardness" }, { "Zákl. tón", "Root key" },
-                { "FM pomer", "FM ratio" }, { "Načítať WAV…", "Load WAV…" }, { "Opakovať", "Loop" }, { "Zvuk do vrstvy", "Sound for the layer" },
+                { "FM pomer", "FM ratio" }, { "Načítať WAV…", "Load WAV…" }, { "Predchádzajúci zvuk z priečinka", "Previous sound in folder" }, { "Ďalší zvuk z priečinka", "Next sound in folder" }, { "Najprv načítaj zvuk zo súboru – potom prepínaš ďalšie z toho istého priečinka.", "Load a sound from a file first – then you can step through the others in the same folder." }, { "Opakovať", "Loop" }, { "Zvuk do vrstvy", "Sound for the layer" },
                 { "Vlastný zvuk do vrstvy (alebo pretiahni WAV súbor myšou na vrstvu)", "Your own sound for the layer (or drag a WAV file onto the layer)" },
                 { "Klavír = vstavané nahrávky klavíra, Vlastný WAV = tvoj zvuk", "Piano = built-in piano recordings, Own WAV = your sound" },
                 { "OBÁLKA FILTRA", "FILTER ENVELOPE" }, { "OBÁLKA HLASITOSTI", "AMP ENVELOPE" },

@@ -48,8 +48,12 @@ private:
 class PluginManagerWindow : public juce::DocumentWindow
 {
 public:
+    // isOn / setOn: ktore cudzie pluginy su povolene (ostatne sa pri spusteni nenacitaju a nie su v ponuke)
     PluginManagerWindow (juce::AudioPluginFormatManager&, juce::KnownPluginList&, const juce::File& deadMansPedal,
-                         juce::PropertiesFile*, std::function<void()> onClose);
+                         juce::PropertiesFile*, std::function<void()> onClose,
+                         std::function<bool (const juce::PluginDescription&)> isOwn,
+                         std::function<bool (const juce::PluginDescription&)> isOn,
+                         std::function<void (const juce::StringArray& uids, bool on)> setOn);
     void closeButtonPressed() override { if (onCloseFn) onCloseFn(); }
 private:
     std::function<void()> onCloseFn;

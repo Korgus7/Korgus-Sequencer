@@ -135,6 +135,10 @@ juce::String skTranslate (const char* utf8)
         { "Plugin sa nedá načítať", "Can't load the plugin" },
         { "Pluginy a priečinky…", "Plugins and folders…" },
         { "Pluginy – zoznam a priečinky", "Plugins – list and folders" },
+        { "Zaškrtni pluginy, ktoré chceš používať. Nezaškrtnuté program pri spustení nenačíta a nie sú v ponuke. Nové pluginy nájdeš na karte Hľadať a priečinky.", "Tick the plugins you want to use. Unticked ones are not loaded at startup and are not offered. Find new plugins on the Search and folders tab." },
+        { "Zapnúť všetky", "Enable all" }, { "Vypnúť všetky", "Disable all" },
+        { "nástroj", "instrument" }, { "efekt", "effect" },
+        { "Moje pluginy", "My plugins" }, { "Hľadať a priečinky", "Search and folders" },
         { "Podržať", "Hold" },
         { "Pomer", "Ratio" },
         { "Potrebné VST pluginy (musia byť nainštalované aj na druhom počítači):\r\n- ", "Required VST plugins (must also be installed on the other computer):\r\n- " },
@@ -626,15 +630,106 @@ PluginWindow::~PluginWindow()
     clearContentComponent();
 }
 
+namespace
+{
+    // zoznam cudzich pluginov so zaskrtavanim - zaskrtnute sa pouzivaju, ostatne program nenacita
+    struct PluginChooser : juce::Component, juce::ListBoxModel, juce::ChangeListener
+    {
+        PluginChooser (juce::KnownPluginList& k, std::function<bool (const juce::PluginDescription&)> own,
+                       std::function<bool (const juce::PluginDescription&)> on,
+                       std::function<void (const juce::StringArray&, bool)> set)
+            : kl (k), isOwn (std::move (own)), isOn (std::move (on)), setOn (std::move (set))
+        {
+            info.setText (sk ("Zaškrtni pluginy, ktoré chceš používať. Nezaškrtnuté program pri spustení nenačíta a nie sú v ponuke. "
+                              "Nové pluginy nájdeš na karte Hľadať a priečinky."), juce::dontSendNotification);
+            info.setFont (juce::FontOptions (14.0f)); info.setColour (juce::Label::textColourId, Col::text);
+            info.setJustificationType (juce::Justification::topLeft);
+            allOn.setButtonText (sk ("Zapnúť všetky")); allOff.setButtonText (sk ("Vypnúť všetky"));
+            allOn.onClick = [this] { setAll (true); }; allOff.onClick = [this] { setAll (false); };
+            list.setModel (this); list.setRowHeight (26);
+            list.setColour (juce::ListBox::backgroundColourId, Col::panelLo);
+            for (auto* c : std::initializer_list<juce::Component*> { &info, &allOn, &allOff, &list }) addAndMakeVisible (c);
+            kl.addChangeListener (this);
+            refresh();
+        }
+        ~PluginChooser() override { kl.removeChangeListener (this); }
+        void changeListenerCallback (juce::ChangeBroadcaster*) override { refresh(); }
+        void refresh()
+        {
+            types.clear();
+            for (const auto& d : kl.getTypes()) if (! isOwn (d)) types.add (d);
+            std::sort (types.begin(), types.end(), [] (const juce::PluginDescription& a, const juce::PluginDescription& b)
+            {
+                if (a.isInstrument != b.isInstrument) return a.isInstrument;
+                return a.name.compareIgnoreCase (b.name) < 0;
+            });
+            list.updateContent(); list.repaint();
+        }
+        void setAll (bool on)
+        {
+            juce::StringArray u;
+            for (const auto& d : types) u.add (d.createIdentifierString());
+            setOn (u, on); list.repaint();
+        }
+        int getNumRows() override { return types.size(); }
+        void paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool) override
+        {
+            if (! juce::isPositiveAndBelow (row, types.size())) return;
+            const auto& d = types.getReference (row);
+            const bool on = isOn (d);
+            auto box = juce::Rectangle<float> (8.0f, (float) h * 0.5f - 8.0f, 16.0f, 16.0f);
+            g.setColour (Col::border); g.drawRoundedRectangle (box, 3.0f, 1.2f);
+            if (on)
+            {
+                g.setColour (Col::steel); g.fillRoundedRectangle (box.reduced (3.0f), 2.0f);
+            }
+            g.setColour (on ? Col::text : Col::text.withAlpha (0.5f));
+            g.setFont (juce::FontOptions (14.0f));
+            g.drawText (d.name, 34, 0, w / 2 - 34, h, juce::Justification::centredLeft, true);
+            g.setFont (juce::FontOptions (12.5f));
+            g.drawText (d.manufacturerName, w / 2, 0, w / 4, h, juce::Justification::centredLeft, true);
+            g.drawText ((d.isInstrument ? sk ("nástroj") : sk ("efekt")) + "  " + d.pluginFormatName,
+                        w * 3 / 4, 0, w / 4 - 8, h, juce::Justification::centredLeft, true);
+        }
+        void listBoxItemClicked (int row, const juce::MouseEvent&) override
+        {
+            if (! juce::isPositiveAndBelow (row, types.size())) return;
+            const auto& d = types.getReference (row);
+            setOn ({ d.createIdentifierString() }, ! isOn (d));
+            list.repaintRow (row);
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (10);
+            info.setBounds (r.removeFromTop (44));
+            auto b = r.removeFromBottom (30); r.removeFromBottom (8);
+            allOn.setBounds (b.removeFromLeft (140)); b.removeFromLeft (8); allOff.setBounds (b.removeFromLeft (140));
+            list.setBounds (r);
+        }
+        void paint (juce::Graphics& g) override { g.fillAll (Col::panel); }
+
+        juce::KnownPluginList& kl;
+        std::function<bool (const juce::PluginDescription&)> isOwn, isOn;
+        std::function<void (const juce::StringArray&, bool)> setOn;
+        juce::Array<juce::PluginDescription> types;
+        juce::Label info; juce::TextButton allOn, allOff; juce::ListBox list;
+    };
+}
+
 PluginManagerWindow::PluginManagerWindow (juce::AudioPluginFormatManager& fm, juce::KnownPluginList& kl, const juce::File& pedal,
-                                          juce::PropertiesFile* props, std::function<void()> onClose)
+                                          juce::PropertiesFile* props, std::function<void()> onClose,
+                                          std::function<bool (const juce::PluginDescription&)> isOwn,
+                                          std::function<bool (const juce::PluginDescription&)> isOn,
+                                          std::function<void (const juce::StringArray&, bool)> setOn)
     : DocumentWindow (sk ("Pluginy – zoznam a priečinky"), Col::steel, DocumentWindow::closeButton),
       onCloseFn (std::move (onClose))
 {
     setUsingNativeTitleBar (true);
-    auto* list = new juce::PluginListComponent (fm, kl, pedal, props, true);
-    list->setSize (820, 520);
-    setContentOwned (list, true);
+    auto* tabs = new juce::TabbedComponent (juce::TabbedButtonBar::TabsAtTop);
+    tabs->addTab (sk ("Moje pluginy"), Col::panel, new PluginChooser (kl, std::move (isOwn), std::move (isOn), std::move (setOn)), true);
+    tabs->addTab (sk ("Hľadať a priečinky"), Col::panel, new juce::PluginListComponent (fm, kl, pedal, props, true), true);
+    tabs->setSize (820, 560);
+    setContentOwned (tabs, true);
     setResizable (true, false);
     centreWithSize (getWidth(), getHeight());
     setVisible (true);

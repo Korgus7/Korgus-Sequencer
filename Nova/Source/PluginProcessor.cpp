@@ -718,6 +718,7 @@ bool NovaProcessor::loadSampleFile (int layer, const juce::File& f, juce::String
         w->writeFromAudioSampleBuffer (b, 0, len);
     }
     setSample (layer, mb, f.getFileNameWithoutExtension());
+    smpFile[layer & 1] = f;
     const juce::String p = layer == 0 ? "a_" : "b_";
     auto set = [this] (const juce::String& id, float v) { if (auto* prm = params.getParameter (id)) prm->setValueNotifyingHost (prm->convertTo0to1 (v)); };
     set (p + "on", 1); set (p + "wave", 7); set (p + "src", 1);
@@ -726,6 +727,20 @@ bool NovaProcessor::loadSampleFile (int layer, const juce::File& f, juce::String
 }
 
 juce::String NovaProcessor::sampleName (int layer) const { return smpName[layer & 1]; }
+
+bool NovaProcessor::stepSample (int layer, int dir, juce::String& error)
+{
+    const auto cur = smpFile[layer & 1];
+    const auto folder = cur.getParentDirectory();
+    if (cur == juce::File() || ! folder.isDirectory()) { error = T ("Najprv načítaj zvuk zo súboru – potom prepínaš ďalšie z toho istého priečinka."); return false; }
+    auto files = folder.findChildFiles (juce::File::findFiles, false, "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
+    if (files.isEmpty()) return false;
+    struct ByName { static int compareElements (const juce::File& a, const juce::File& b) { return a.getFileName().compareNatural (b.getFileName()); } } cmp;
+    files.sort (cmp);
+    int i = files.indexOf (cur);
+    i = i < 0 ? 0 : (i + dir + files.size()) % files.size();
+    return loadSampleFile (layer, files[i], error);
+}
 
 // ------------------------------------------------------------- programy (tovarenske zvuky)
 int NovaProcessor::getNumPrograms() { return (int) factoryPatches().size(); }
@@ -753,6 +768,7 @@ void NovaProcessor::getStateInformation (juce::MemoryBlock& destData)
     {
         state.setProperty (i == 0 ? "smpA" : "smpB", smpFlac[i].getSize() > 0 ? smpFlac[i].toBase64Encoding() : juce::String(), nullptr);
         state.setProperty (i == 0 ? "smpAName" : "smpBName", smpName[i], nullptr);
+        state.setProperty (i == 0 ? "smpAPath" : "smpBPath", smpFile[i].getFullPathName(), nullptr);
     }
     {
         // posledna "Inspiracia" pre hostitela (Korgus Sequencer): <capture id bpm ppq><n t d k v/>...</capture>
@@ -804,6 +820,8 @@ void NovaProcessor::setStateInformation (const void* data, int sizeInBytes)
             const auto b64 = tree.getProperty (i == 0 ? "smpA" : "smpB").toString();
             if (b64.isNotEmpty()) mb.fromBase64Encoding (b64);
             setSample (i, mb, tree.getProperty (i == 0 ? "smpAName" : "smpBName").toString());
+            const auto path = tree.getProperty (i == 0 ? "smpAPath" : "smpBPath").toString();
+            smpFile[i] = juce::File::isAbsolutePath (path) ? juce::File (path) : juce::File();
         }
     }
     restoring = false;

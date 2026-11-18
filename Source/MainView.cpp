@@ -434,6 +434,8 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     }
     blockedPlugins.addLines (props.getUserSettings()->getValue ("blockedPlugins"));
     blockedPlugins.removeEmptyStrings();
+    enabledPlugins.addLines (props.getUserSettings()->getValue ("enabledPlugins"));
+    enabledPlugins.removeEmptyStrings();
     held = obj();
 
     auto* settings = props.getUserSettings();
@@ -2206,6 +2208,17 @@ void MainView::showPluginManager()
     managerWindow = std::make_unique<PluginManagerWindow> (formatManager, knownPlugins, pedal, props.getUserSettings(), [sp]
     {
         juce::MessageManager::callAsync ([sp] { if (sp != nullptr) { sp->managerWindow = nullptr; sp->saveSettings(); } });
+    },
+    [sp] (const juce::PluginDescription& d) { return sp != nullptr && sp->isOwnPlugin (d); },
+    [sp] (const juce::PluginDescription& d) { return sp != nullptr && sp->enabledPlugins.contains (d.createIdentifierString()); },
+    [sp] (const juce::StringArray& uids, bool on)
+    {
+        if (sp == nullptr) return;
+        for (const auto& u : uids) { if (on) sp->enabledPlugins.addIfNotAlreadyThere (u); else sp->enabledPlugins.removeString (u); }
+        sp->props.getUserSettings()->setValue ("enabledPlugins", sp->enabledPlugins.joinIntoString ("\n"));
+        sp->props.saveIfNeeded();
+        if (on) { auto h = sp->held; sp->held = obj(); sp->restorePluginStates (h); }   // vrati odlozene pluginy piesne
+        sp->sendPluginList();
     });
 }
 
@@ -4195,7 +4208,17 @@ bool MainView::isHeld (const juce::PluginDescription& d) const
     if (crashSkipUid.isNotEmpty() && uid == crashSkipUid) return true;
     for (const auto& b : blockedPlugins)
         if (b.upToFirstOccurrenceOf ("\t", false, false) == uid) return true;
+    if (! isOwnPlugin (d) && ! enabledPlugins.contains (uid)) return true;   // cudzi plugin, ktory si pouzivatel nezaskrtol
     return false;
+}
+
+bool MainView::isOwnPlugin (const juce::PluginDescription& d) const
+{
+    if (BuiltinFx::isBuiltin (d)) return true;
+    if (! juce::File::isAbsolutePath (d.fileOrIdentifier)) return false;
+    const juce::File f (d.fileOrIdentifier);
+    const auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
+    return f.getFileName().startsWithIgnoreCase ("Korgus") && (f.getParentDirectory() == exeDir || f.isAChildOf (exeDir));
 }
 
 void MainView::holdEntry (const juce::String& trackId, const juce::var& t, int fxIdx)

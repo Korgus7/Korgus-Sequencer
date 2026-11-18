@@ -194,6 +194,8 @@ private:
     void sendRecent();
     // ochrana pred padajucimi pluginmi
     bool isHeld (const juce::PluginDescription& d) const;
+    bool isOwnPlugin (const juce::PluginDescription& d) const;   // vstavany alebo Korgus plugin dodany s programom
+    juce::StringArray enabledPlugins;          // povolene cudzie pluginy (uid); ostatne sa nenacitaju
     void holdEntry (const juce::String& trackId, const juce::var& t, int fxIdx);
     void mergeHeld (juce::var& states) const;
     void sendCrashInfo();

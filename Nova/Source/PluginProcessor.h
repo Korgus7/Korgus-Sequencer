@@ -94,6 +94,9 @@ public:
     nova::PatchData currentPatch();                      // aktualne hodnoty ako zvuk
     void applyPatch (const nova::PatchData& p);
     bool loadSampleFile (int layer, const juce::File& f, juce::String& error);
+    // predchadzajuci / dalsi zvuk z toho isteho priecinka (prehadzovac samplov); vrati false, ak nie je odkial
+    bool stepSample (int layer, int dir, juce::String& error);
+    juce::File sampleFile (int layer) const { return smpFile[layer & 1]; }
     void copyLayer (int from, int to);   // skopiruje celu vrstvu (oscilator, filter, obalky, LFO, sampel)
     juce::String sampleName (int layer) const;
     void surprise (int type = -1);                       // "Prekvap ma": novy nahodny zvuk (typ -1 = cokolvek)
@@ -138,6 +141,7 @@ private:
     std::map<juce::String, std::atomic<float>*> raw;
     std::atomic<float>* rp (const char* id) { return raw[id]; }
     juce::MemoryBlock smpFlac[2]; juce::String smpName[2];
+    juce::File smpFile[2];   // odkial bol zvuk nacitany (pre prehadzovac)
     std::atomic<int> pendingPreset { -1 };
     std::atomic<int> pendingAction { 0 };   // 1 = prekvap ma, 2 = obmena (zo Sequencera)
     // ukazka
