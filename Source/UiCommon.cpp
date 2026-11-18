@@ -372,11 +372,11 @@ juce::String sk (const char* utf8) { return skTranslate (utf8); }
 namespace Col
 {
     const juce::Colour steel   (0xff2d4362);
-    const juce::Colour panel   (0xffc0c0c0);
-    const juce::Colour panelLo (0xffb2b2b2);
-    const juce::Colour button  (0xffd7dade);
-    const juce::Colour border  (0xff7c8796);
-    const juce::Colour text    (0xff1b2533);
+    const juce::Colour panel   (0xfff4f5f7);   // svetle telo okien (jednotny vzhlad)
+    const juce::Colour panelLo (0xffeceef1);
+    const juce::Colour button  (0xffffffff);
+    const juce::Colour border  (0xffc9cfd6);
+    const juce::Colour text    (0xff1f2833);
     const juce::Colour lcdBg   (0xff18212c);
     const juce::Colour lcdFg   (0xffc3d39a);
 }
@@ -396,8 +396,8 @@ KorgusLookAndFeel::KorgusLookAndFeel()
     setColour (juce::ComboBox::arrowColourId, Col::text);
     setColour (juce::PopupMenu::backgroundColourId, juce::Colours::white);
     setColour (juce::PopupMenu::textColourId, Col::text);
-    setColour (juce::PopupMenu::highlightedBackgroundColourId, Col::steel);
-    setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (0xffe1e8f1));
+    setColour (juce::PopupMenu::highlightedTextColourId, Col::text);
     setColour (juce::Label::textColourId, Col::text);
     setColour (juce::ListBox::backgroundColourId, juce::Colours::white);
     setColour (juce::ListBox::outlineColourId, Col::border);
@@ -407,20 +407,29 @@ KorgusLookAndFeel::KorgusLookAndFeel()
     setColour (juce::Slider::thumbColourId, Col::steel);
     setColour (juce::Slider::trackColourId, Col::border);
     setColour (juce::Slider::backgroundColourId, Col::panelLo);
-    setColour (juce::ScrollBar::thumbColourId, Col::border);
-    setColour (juce::AlertWindow::backgroundColourId, juce::Colour (0xffe9ecf0));
+    setColour (juce::ScrollBar::thumbColourId, juce::Colour (0xffaeb7c2));
+    setColour (juce::TextEditor::backgroundColourId, juce::Colours::white);
+    setColour (juce::TextEditor::outlineColourId, Col::border);
+    setColour (juce::TextEditor::focusedOutlineColourId, Col::steel);
+    setColour (juce::TextEditor::textColourId, Col::text);
+    setColour (juce::TextEditor::highlightColourId, juce::Colour (0xffd3dce8));
+    setColour (juce::TabbedButtonBar::tabOutlineColourId, juce::Colours::transparentBlack);
+    setColour (juce::TabbedButtonBar::frontOutlineColourId, juce::Colours::transparentBlack);
+    setColour (juce::TabbedButtonBar::tabTextColourId, juce::Colour (0xff4a5563));
+    setColour (juce::TabbedButtonBar::frontTextColourId, Col::text);
+    setColour (juce::AlertWindow::backgroundColourId, Col::panel);
     setColour (juce::AlertWindow::textColourId, Col::text);
     setColour (juce::AlertWindow::outlineColourId, Col::border);
     setColour (juce::ProgressBar::foregroundColourId, Col::steel);
-    setColour (juce::ProgressBar::backgroundColourId, juce::Colour (0xffd9dde3));
+    setColour (juce::ProgressBar::backgroundColourId, juce::Colour (0xffdde1e6));
 }
 
 void KorgusLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour& bg, bool over, bool down)
 {
     auto r = b.getLocalBounds().toFloat().reduced (0.5f);
     auto c = bg;
-    if (down)      c = c.darker (0.12f);
-    else if (over) c = c.brighter (0.08f);
+    if (down)      c = c.darker (0.10f);
+    else if (over) c = b.getToggleState() ? c.brighter (0.12f) : c.darker (0.05f);
     g.setColour (c);
     g.fillRoundedRectangle (r, 3.0f);
     g.setColour (b.getToggleState() ? Col::steel.darker (0.3f) : Col::border);
@@ -430,7 +439,7 @@ void KorgusLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b
 void KorgusLookAndFeel::drawProgressBar (juce::Graphics& g, juce::ProgressBar&, int w, int h, double progress, const juce::String& text)
 {
     juce::Rectangle<float> r (0.5f, 0.5f, (float) w - 1.0f, (float) h - 1.0f);
-    g.setColour (juce::Colour (0xffd9dde3));
+    g.setColour (juce::Colour (0xffdde1e6));
     g.fillRoundedRectangle (r, 3.0f);
     if (progress >= 0.0 && progress <= 1.0)
     {
@@ -443,8 +452,6 @@ void KorgusLookAndFeel::drawProgressBar (juce::Graphics& g, juce::ProgressBar&, 
         g.setColour (Col::steel);
         g.fillRoundedRectangle (juce::Rectangle<float> (r.getX() + (r.getWidth() + bw) * t - bw, r.getY(), bw, r.getHeight()).getIntersection (r), 3.0f);
     }
-    g.setColour (Col::border);
-    g.drawRoundedRectangle (r, 3.0f, 1.0f);
     if (text.isNotEmpty())
     {
         // text citatelny na oboch castiach pruhu: biely s tmavym obrysom
@@ -458,12 +465,27 @@ void KorgusLookAndFeel::drawProgressBar (juce::Graphics& g, juce::ProgressBar&, 
     }
 }
 
+void KorgusLookAndFeel::drawTabbedButtonBarBackground (juce::TabbedButtonBar& bar, juce::Graphics& g)
+{
+    g.fillAll (juce::Colours::white);
+    g.setColour (juce::Colour (0xffe1e4e8));
+    g.fillRect (0, bar.getHeight() - 1, bar.getWidth(), 1);
+}
+
+void KorgusLookAndFeel::drawTabButton (juce::TabBarButton& b, juce::Graphics& g, bool over, bool)
+{
+    const auto r = b.getActiveArea();
+    const bool front = b.isFrontTab();
+    g.setColour (front ? Col::text : (over ? Col::text : juce::Colour (0xff4a5563)));
+    g.setFont (juce::FontOptions (14.5f, front ? juce::Font::bold : juce::Font::plain));
+    g.drawText (b.getButtonText().trim(), r, juce::Justification::centred, false);
+    if (front) { g.setColour (Col::steel); g.fillRect (r.getX() + 8, r.getBottom() - 2, r.getWidth() - 16, 2); }
+}
+
 void KorgusLookAndFeel::drawAlertBox (juce::Graphics& g, juce::AlertWindow& a, const juce::Rectangle<int>& textArea, juce::TextLayout& layout)
 {
-    g.fillAll (juce::Colour (0xffe9ecf0));
-    g.setColour (Col::steel);
-    g.fillRect (0, 0, a.getWidth(), 4);
-    g.setColour (Col::border);
+    g.fillAll (Col::panel);
+    g.setColour (juce::Colour (0xffc3c9d1));
     g.drawRect (a.getLocalBounds(), 1);
     layout.draw (g, textArea.toFloat());
 }
@@ -650,7 +672,7 @@ namespace
             search.setFont (juce::FontOptions (14.0f));
             search.onTextChange = [this] { refresh(); };
             list.setModel (this); list.setRowHeight (26);
-            list.setColour (juce::ListBox::backgroundColourId, Col::panelLo);
+            list.setColour (juce::ListBox::backgroundColourId, juce::Colours::white);
             for (auto* c : std::initializer_list<juce::Component*> { &info, &search, &allOn, &allOff, &list }) addAndMakeVisible (c);
             kl.addChangeListener (this);
             refresh();
@@ -683,7 +705,7 @@ namespace
             const auto& d = types.getReference (row);
             const bool on = isOn (d);
             auto box = juce::Rectangle<float> (8.0f, (float) h * 0.5f - 8.0f, 16.0f, 16.0f);
-            g.setColour (Col::border); g.drawRoundedRectangle (box, 3.0f, 1.2f);
+            g.setColour (juce::Colour (0xff9aa4b0)); g.drawRoundedRectangle (box, 3.0f, 1.2f);
             if (on)
             {
                 g.setColour (Col::steel); g.fillRoundedRectangle (box.reduced (3.0f), 2.0f);
@@ -734,6 +756,8 @@ PluginManagerWindow::PluginManagerWindow (juce::AudioPluginFormatManager& fm, ju
     auto* tabs = new juce::TabbedComponent (juce::TabbedButtonBar::TabsAtTop);
     tabs->addTab (sk ("Moje pluginy"), Col::panel, new PluginChooser (kl, std::move (isOwn), std::move (isOn), std::move (setOn)), true);
     tabs->addTab (sk ("Hľadať a priečinky"), Col::panel, new juce::PluginListComponent (fm, kl, pedal, props, true), true);
+    tabs->setTabBarDepth (40);
+    tabs->setOutline (0);
     tabs->setSize (820, 560);
     setContentOwned (tabs, true);
     setResizable (true, false);

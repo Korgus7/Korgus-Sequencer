@@ -22,6 +22,10 @@ public:
     void drawProgressBar (juce::Graphics&, juce::ProgressBar&, int w, int h, double progress, const juce::String& text) override;
     bool isProgressBarOpaque (juce::ProgressBar&) override { return false; }
     void drawAlertBox (juce::Graphics&, juce::AlertWindow&, const juce::Rectangle<int>& textArea, juce::TextLayout&) override;
+    // karty (napr. okno Pluginy): biela lista, vybrana karta podciarknuta
+    void drawTabButton (juce::TabBarButton&, juce::Graphics&, bool over, bool down) override;
+    void drawTabbedButtonBarBackground (juce::TabbedButtonBar&, juce::Graphics&) override;
+    void drawTabAreaBehindFrontButton (juce::TabbedButtonBar&, juce::Graphics&, int, int) override {}
 };
 
 // Okno s GUI pluginu - vzdy cele na obrazovke, ak je plugin vacsi, da sa posuvat
