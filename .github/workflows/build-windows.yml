@@ -53,7 +53,7 @@ jobs:
           cp "build/KorgusSequencer_artefacts/Release/Korgus Sequencer.exe" out/
           # ONNX Runtime pre oddelenie spevu (dava sa vedla programu do priecinka AI)
           mkdir -p out/AI
-          curl -sSL -o ort.zip https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip
+          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o ort.zip https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip
           unzip -q -j ort.zip "onnxruntime-win-x64-1.20.1/lib/onnxruntime.dll" -d out/AI
           # Korgus Inspiria (posledny build z vetvy nova)
           if git fetch -q --depth 1 origin nova; then git show "FETCH_HEAD:Korgus Inspiria.vst3" > "out/Korgus Inspiria.vst3" || rm -f "out/Korgus Inspiria.vst3"; fi
