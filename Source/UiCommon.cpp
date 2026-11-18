@@ -138,7 +138,7 @@ juce::String skTranslate (const char* utf8)
         { "Zaškrtni pluginy, ktoré chceš používať. Nezaškrtnuté program pri spustení nenačíta a nie sú v ponuke. Nové pluginy nájdeš na karte Hľadať a priečinky.", "Tick the plugins you want to use. Unticked ones are not loaded at startup and are not offered. Find new plugins on the Search and folders tab." },
         { "Zapnúť všetky", "Enable all" }, { "Vypnúť všetky", "Disable all" },
         { "nástroj", "instrument" }, { "efekt", "effect" },
-        { "Moje pluginy", "My plugins" }, { "Hľadať a priečinky", "Search and folders" },
+        { "Moje pluginy", "My plugins" }, { "Hľadať plugin podľa názvu alebo výrobcu…", "Search plugins by name or maker…" }, { "Hľadať a priečinky", "Search and folders" },
         { "Podržať", "Hold" },
         { "Pomer", "Ratio" },
         { "Potrebné VST pluginy (musia byť nainštalované aj na druhom počítači):\r\n- ", "Required VST plugins (must also be installed on the other computer):\r\n- " },
@@ -646,9 +646,12 @@ namespace
             info.setJustificationType (juce::Justification::topLeft);
             allOn.setButtonText (sk ("Zapnúť všetky")); allOff.setButtonText (sk ("Vypnúť všetky"));
             allOn.onClick = [this] { setAll (true); }; allOff.onClick = [this] { setAll (false); };
+            search.setTextToShowWhenEmpty (sk ("Hľadať plugin podľa názvu alebo výrobcu…"), Col::text.withAlpha (0.5f));
+            search.setFont (juce::FontOptions (14.0f));
+            search.onTextChange = [this] { refresh(); };
             list.setModel (this); list.setRowHeight (26);
             list.setColour (juce::ListBox::backgroundColourId, Col::panelLo);
-            for (auto* c : std::initializer_list<juce::Component*> { &info, &allOn, &allOff, &list }) addAndMakeVisible (c);
+            for (auto* c : std::initializer_list<juce::Component*> { &info, &search, &allOn, &allOff, &list }) addAndMakeVisible (c);
             kl.addChangeListener (this);
             refresh();
         }
@@ -657,7 +660,9 @@ namespace
         void refresh()
         {
             types.clear();
-            for (const auto& d : kl.getTypes()) if (! isOwn (d)) types.add (d);
+            const auto q = search.getText().trim();
+            for (const auto& d : kl.getTypes())
+                if (! isOwn (d) && (q.isEmpty() || d.name.containsIgnoreCase (q) || d.manufacturerName.containsIgnoreCase (q))) types.add (d);
             std::sort (types.begin(), types.end(), [] (const juce::PluginDescription& a, const juce::PluginDescription& b)
             {
                 if (a.isInstrument != b.isInstrument) return a.isInstrument;
@@ -702,6 +707,7 @@ namespace
         {
             auto r = getLocalBounds().reduced (10);
             info.setBounds (r.removeFromTop (44));
+            search.setBounds (r.removeFromTop (28)); r.removeFromTop (6);
             auto b = r.removeFromBottom (30); r.removeFromBottom (8);
             allOn.setBounds (b.removeFromLeft (140)); b.removeFromLeft (8); allOff.setBounds (b.removeFromLeft (140));
             list.setBounds (r);
@@ -712,7 +718,7 @@ namespace
         std::function<bool (const juce::PluginDescription&)> isOwn, isOn;
         std::function<void (const juce::StringArray&, bool)> setOn;
         juce::Array<juce::PluginDescription> types;
-        juce::Label info; juce::TextButton allOn, allOff; juce::ListBox list;
+        juce::Label info; juce::TextEditor search; juce::TextButton allOn, allOff; juce::ListBox list;
     };
 }
 
