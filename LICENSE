@@ -1,0 +1,51 @@
+Korgus – licencia / License
+Copyright (c) 2026 Korgus (cami.sk). Všetky práva vyhradené. All rights reserved.
+
+Týka sa programu Korgus Sequencer a jeho zdrojového kódu v tomto repozitári
+(okrem súčastí tretích strán uvedených nižšie).
+
+SLOVENSKY
+
+1. Používanie programu: Korgus Sequencer smie každý zadarmo používať na súkromné
+   aj pracovné účely.
+2. Zdrojový kód: kód je zverejnený, aby si ho ktokoľvek mohol pozrieť,
+   naučiť sa z neho a upraviť ho pre vlastnú potrebu.
+3. Šírenie: program môžeš ďalej šíriť len nezmenený, zadarmo a s odkazom
+   na cami.sk. Upravenú verziu nesmieš zverejniť ani šíriť bez písomného
+   súhlasu autora.
+4. Zákaz predaja: program ani jeho kód (celý alebo časť) sa nesmie predávať,
+   prenajímať ani byť súčasťou plateného produktu či služby bez písomného
+   súhlasu autora.
+5. Meno a logo: názov „Korgus“, „Korgus Sequencer“ a logo sa nesmú používať pre iné
+   programy ani na vydávanie upravených verzií za pôvodné.
+6. Návrhy opráv (pull requesty) sú vítané; ich zaslaním súhlasíš, že ich
+   autor smie použiť v programe za rovnakých podmienok.
+7. Bez záruky: program sa poskytuje „tak, ako je“, bez akejkoľvek záruky.
+   Autor nezodpovedá za škody vzniknuté jeho používaním.
+
+ENGLISH
+
+1. Use: anyone may use Korgus Sequencer free of charge, privately or at work.
+2. Source code: the code is published so that anyone can read it, learn
+   from it and modify it for their own use.
+3. Redistribution: you may redistribute the program only unmodified, free
+   of charge and with a link to cami.sk. Modified versions may not be
+   published or distributed without the author's written permission.
+4. No sale: neither the program nor its code (in whole or in part) may be
+   sold, rented or included in a paid product or service without the
+   author's written permission.
+5. Name and logo: the names “Korgus”, “Korgus Sequencer” and the logo may not be used
+   for other programs or to present modified versions as the original.
+6. Contributions (pull requests) are welcome; by submitting one you agree
+   that the author may use it in the program under these same terms.
+7. No warranty: the program is provided “as is”, without warranty of any
+   kind. The author is not liable for any damage arising from its use.
+
+SÚČASTI TRETÍCH STRÁN / THIRD-PARTY COMPONENTS
+- JUCE (juce.com) – JUCE licencia / JUCE licence
+- Steinberg ASIO SDK a VST3 SDK – licencie Steinberg / Steinberg licences
+- shine (MP3 kodér, third_party/shine) – GNU LGPL (pozri third_party/shine/COPYING)
+- ONNX Runtime (third_party/onnxruntime) – MIT (pozri third_party/onnxruntime/LICENSE)
+- pocketfft (third_party/pocketfft_hdronly.hpp) – BSD-3-Clause (pozri hlavičku súboru)
+Tieto súčasti majú vlastné licencie, ktoré platia pre ne prednostne.
+These components are covered by their own licences, which take precedence.
