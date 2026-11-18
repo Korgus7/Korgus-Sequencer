@@ -99,7 +99,7 @@ public:
     juce::File sampleFile (int layer) const { return smpFile[layer & 1]; }
     void copyLayer (int from, int to);   // skopiruje celu vrstvu (oscilator, filter, obalky, LFO, sampel)
     juce::String sampleName (int layer) const;
-    void surprise (int type = -1);                       // "Prekvap ma": novy nahodny zvuk (typ -1 = cokolvek)
+    void surprise (int type = -1, bool keepLevel = false);   // keepLevel: rovnaka hlasitost ako doterajsi zvuk                       // "Prekvap ma": novy nahodny zvuk (typ -1 = cokolvek)
     void mutate();                                       // "Obmena": jemne pozmeni aktualny zvuk
     static const juce::StringArray& surpriseTypes();     // nazvy typov pre vyber (index = typ)
     void newSound (const juce::String& category);        // cisty zakladny zvuk na vlastnu tvorbu

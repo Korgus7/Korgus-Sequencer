@@ -336,7 +336,7 @@ void NovaProcessor::handleAsyncUpdate()
 {
     if (const int a = pendingAction.exchange (0); a != 0)
     {
-        if (a == 1) { const auto st = presets.setting ("surpriseCat"); surprise (st.isEmpty() ? -1 : juce::jlimit (-1, 7, st.getIntValue())); }
+        if (a == 1) { const auto st = presets.setting ("surpriseCat"); surprise (st.isEmpty() ? -1 : juce::jlimit (-1, 7, st.getIntValue()), true); }
         else mutate();
         if (pendingPreset.load() < 0) return;
     }
@@ -660,12 +660,21 @@ void NovaProcessor::mutate()
     if (onPatchChanged) onPatchChanged();
 }
 
-void NovaProcessor::surprise (int type)
+void NovaProcessor::surprise (int type, bool keepLevel)
 {
     juce::Random r;
+    // hlasitost doterajsieho zvuku (s jeho vlastnym ziskom) - nový zvuk ma hrat rovnako hlasno
+    float want = -200.0f;
+    if (keepLevel)
+    {
+        const auto cur = currentPatch();
+        const float lc = measureLevel (cur);
+        if (lc > -90.0f) want = lc + cur.values.at ("p_gain");
+    }
     auto p = randomPatch (r, synth.pianoReady(), type);
     const float lv = measureLevel (p);
-    p.values["p_gain"] = lv > -90.0f ? juce::jlimit (-30.0f, 6.0f, targetLevelDb (p.category) - lv) : 0.0f;
+    const float target = want > -60.0f ? want : targetLevelDb (p.category);
+    p.values["p_gain"] = lv > -90.0f ? juce::jlimit (-30.0f, 6.0f, target - lv) : 0.0f;
     applyPatch (p);
     currentKey = "r:";
     if (onPatchChanged) onPatchChanged();
