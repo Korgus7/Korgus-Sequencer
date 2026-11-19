@@ -1708,7 +1708,6 @@ function renderTracksNative(L){
     r.addEventListener('mousedown',e=>{ if(e.button===0) trackMultiClick(e,i); selectTrack(i); if(e.button===0&&!e.ctrlKey&&!e.shiftKey) trackDragStart(e,i); });
     r.addEventListener('contextmenu',e=>{ e.preventDefault(); selectTrack(i); const X=e.clientX, Y=e.clientY;
       const sub=list=>()=>setTimeout(()=>ctxMenu(X,Y,list),0);
-      const outs=NATIVE?[...grpArr().map(g=>[(tr.out===g.id?'✓ ':'')+g.name,()=>grpRoute(tr,g.id)]),[(tr.out?'':'✓ ')+'Master',()=>grpRoute(tr,null)],null,['Nová skupina…',()=>grpRouteNew(tr)]]:[];
       ctxMenu(X,Y,[
       // stopa
       ...(tr.type==='drum'&&NATIVE?[['Súprava zvukov bicích…',()=>drumKitDialog(tr)]]:[]),
@@ -1722,7 +1721,6 @@ function renderTracksNative(L){
       ...(tr.type==='audio'&&NATIVE?[['Hlasová predvoľba…',()=>voicePresetDialog(tr)],['Ladička…',()=>tunerDialog()]]:[]),
       null,
       // vystup
-      ...(NATIVE?[['Výstup ▸',sub(outs)]]:[]),
       ...(tr.type!=='audio'?[['Nahrať do novej audio stopy',()=>bounceTrack(tr)]]:[]),
       null,
       selTracks.size>1&&selTracks.has(tr.id)?['Zmazať označené stopy ('+selTracks.size+')',()=>deleteSelTracks()]:['Zmazať stopu',()=>deleteTrack(i)]].filter((x,k,a)=>x||(k>0&&a[k-1]&&k<a.length-1))); });
