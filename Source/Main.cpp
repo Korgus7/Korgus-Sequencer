@@ -39,6 +39,7 @@ public:
                 lang = (ul.startsWith ("sk") || ul.startsWith ("cs")) ? "sk" : "en";
             }
             appLang() = lang == "en" ? 1 : 0;
+            shareLangWithInspiria();
         }
 
         // slovenske texty pre standardne JUCE ovladacie prvky (vyber zvukovej karty a pod.)

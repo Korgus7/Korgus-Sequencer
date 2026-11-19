@@ -4,6 +4,14 @@
 #include <unordered_map>
 int& appLang() { static int l = 0; return l; }
 
+// Korgus Inspiria berie jazyk z tohto suboru - nech hovori rovnako ako Sequencer
+void shareLangWithInspiria()
+{
+    const auto f = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Korgus Inspiria").getChildFile ("jazyk.txt");
+    f.getParentDirectory().createDirectory();
+    f.replaceWithText (appLang() == 1 ? "en" : "sk");
+}
+
 juce::String skTranslate (const char* utf8)
 {
     if (appLang() == 1 && utf8 != nullptr)

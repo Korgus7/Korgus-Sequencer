@@ -549,6 +549,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         {
             const auto l = v["lang"].toString() == "en" ? juce::String ("en") : juce::String ("sk");
             appLang() = l == "en" ? 1 : 0;
+            shareLangWithInspiria();
             props.getUserSettings()->setValue ("lang", l);
         })
         .withEventListener ("updateNow",   [this] (const juce::var&)   { onUpdateNow(); })
@@ -3408,6 +3409,9 @@ void MainView::watchPlugin (const juce::String& track, int which, juce::AudioPro
                 if (id == "capture_seq" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("capture_seq", true))
                     || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("capture_seq", false)))
                     w->captureIdx = hp->getParameterIndex();
+                if (id == "learn_req" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("learn_req", true))
+                    || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("learn_req", false)))
+                    w->learnIdx = hp->getParameterIndex();
                 if (id == "vc_src" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("vc_src", true))
                     || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("vc_src", false)))
                     w->vocSrcIdx = hp->getParameterIndex();
@@ -3436,6 +3440,12 @@ void MainView::vocSrcChanged (const juce::String& track, float v01)
         auto o = obj(); put (o, "track", track); put (o, "idx", idx);
         sp->emit ("vocSrc", o);
     });
+}
+
+void MainView::inspireLearnReq (const juce::String& track)
+{
+    juce::Component::SafePointer<MainView> sp (this);
+    juce::MessageManager::callAsync ([sp, track] { if (sp != nullptr) { auto o = obj(); o.getDynamicObject()->setProperty ("track", track); sp->emit ("learnReq", o); } });
 }
 
 void MainView::inspireCaptured (const juce::String& track)
