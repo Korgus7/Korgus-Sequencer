@@ -57,7 +57,9 @@ public:
                          juce::PropertiesFile*, std::function<void()> onClose,
                          std::function<bool (const juce::PluginDescription&)> isOwn,
                          std::function<bool (const juce::PluginDescription&)> isOn,
-                         std::function<void (const juce::StringArray& uids, bool on)> setOn);
+                         std::function<void (const juce::StringArray& uids, bool on)> setOn,
+                         std::function<juce::StringArray()> getBlocked,          // "uid\tnazov" zakazanych (po pade)
+                         std::function<void (const juce::String& uid)> unblock);
     void closeButtonPressed() override { if (onCloseFn) onCloseFn(); }
 private:
     std::function<void()> onCloseFn;

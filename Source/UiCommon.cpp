@@ -138,7 +138,7 @@ juce::String skTranslate (const char* utf8)
         { "Zaškrtni pluginy, ktoré chceš používať. Nezaškrtnuté program pri spustení nenačíta a nie sú v ponuke. Nové pluginy nájdeš na karte Hľadať a priečinky.", "Tick the plugins you want to use. Unticked ones are not loaded at startup and are not offered. Find new plugins on the Search and folders tab." },
         { "Zapnúť všetky", "Enable all" }, { "Vypnúť všetky", "Disable all" },
         { "nástroj", "instrument" }, { "efekt", "effect" },
-        { "Moje pluginy", "My plugins" }, { "Hľadať plugin podľa názvu alebo výrobcu…", "Search plugins by name or maker…" }, { "Hľadať a priečinky", "Search and folders" },
+        { "Moje pluginy", "My plugins" }, { "Štandard −14 LUFS", "Standard −14 LUFS" }, { "Jemne −16 LUFS", "Gentle −16 LUFS" }, { "Hlasno −9 LUFS", "Loud −9 LUFS" }, { "Rádio / TV −23 LUFS", "Radio / TV −23 LUFS" }, { "Slučky", "Loops" }, { "Zakázané", "Blocked" }, { "Správa pluginov", "Plugin manager" }, { "Žiadny plugin nie je zakázaný.", "No plugin is blocked." }, { "Povoliť", "Allow" }, { "Pluginy, ktoré spôsobili pád programu. Program ich nenačíta. Klikni na riadok – plugin sa znova povolí.", "Plugins that crashed the program. They are not loaded. Click a row to allow the plugin again." }, { "Hľadať plugin podľa názvu alebo výrobcu…", "Search plugins by name or maker…" }, { "Hľadať a priečinky", "Search and folders" },
         { "Podržať", "Hold" },
         { "Pomer", "Ratio" },
         { "Potrebné VST pluginy (musia byť nainštalované aj na druhom počítači):\r\n- ", "Required VST plugins (must also be installed on the other computer):\r\n- " },
@@ -744,18 +744,70 @@ namespace
     };
 }
 
+namespace
+{
+    // zakazane pluginy (spadli a program ich odlozil) - klik na riadok = povolit
+    struct BlockedList : juce::Component, juce::ListBoxModel
+    {
+        BlockedList (std::function<juce::StringArray()> g, std::function<void (const juce::String&)> u) : get (std::move (g)), unblock (std::move (u))
+        {
+            info.setText (sk ("Pluginy, ktoré spôsobili pád programu. Program ich nenačíta. Klikni na riadok – plugin sa znova povolí."), juce::dontSendNotification);
+            info.setFont (juce::FontOptions (14.0f)); info.setColour (juce::Label::textColourId, Col::text);
+            info.setJustificationType (juce::Justification::topLeft);
+            list.setModel (this); list.setRowHeight (30);
+            list.setColour (juce::ListBox::backgroundColourId, juce::Colours::white);
+            addAndMakeVisible (info); addAndMakeVisible (list);
+            refresh();
+        }
+        void visibilityChanged() override { if (isVisible()) refresh(); }
+        void refresh() { items = get ? get() : juce::StringArray(); list.updateContent(); list.repaint(); }
+        int getNumRows() override { return juce::jmax (1, items.size()); }
+        void paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool) override
+        {
+            g.setFont (juce::FontOptions (14.0f));
+            if (items.isEmpty())
+            {
+                if (row == 0) { g.setColour (Col::text.withAlpha (0.55f)); g.drawText (sk ("Žiadny plugin nie je zakázaný."), 10, 0, w - 20, h, juce::Justification::centredLeft); }
+                return;
+            }
+            if (! juce::isPositiveAndBelow (row, items.size())) return;
+            const auto name = items[row].fromFirstOccurrenceOf ("\t", false, false);
+            g.setColour (Col::text);
+            g.drawText (name.isNotEmpty() ? name : items[row], 10, 0, w - 120, h, juce::Justification::centredLeft, true);
+            g.setColour (Col::steel);
+            g.drawText (sk ("Povoliť"), w - 110, 0, 100, h, juce::Justification::centredRight);
+            g.setColour (juce::Colour (0xffeef0f3)); g.fillRect (0, h - 1, w, 1);
+        }
+        void listBoxItemClicked (int row, const juce::MouseEvent&) override
+        {
+            if (! juce::isPositiveAndBelow (row, items.size())) return;
+            if (unblock) unblock (items[row].upToFirstOccurrenceOf ("\t", false, false));
+            refresh();
+        }
+        void resized() override { auto r = getLocalBounds().reduced (10); info.setBounds (r.removeFromTop (44)); list.setBounds (r); }
+        void paint (juce::Graphics& g) override { g.fillAll (Col::panel); }
+        std::function<juce::StringArray()> get;
+        std::function<void (const juce::String&)> unblock;
+        juce::StringArray items;
+        juce::Label info; juce::ListBox list;
+    };
+}
+
 PluginManagerWindow::PluginManagerWindow (juce::AudioPluginFormatManager& fm, juce::KnownPluginList& kl, const juce::File& pedal,
                                           juce::PropertiesFile* props, std::function<void()> onClose,
                                           std::function<bool (const juce::PluginDescription&)> isOwn,
                                           std::function<bool (const juce::PluginDescription&)> isOn,
-                                          std::function<void (const juce::StringArray&, bool)> setOn)
-    : DocumentWindow (sk ("Pluginy – zoznam a priečinky"), Col::steel, DocumentWindow::closeButton),
+                                          std::function<void (const juce::StringArray&, bool)> setOn,
+                                          std::function<juce::StringArray()> getBlocked,
+                                          std::function<void (const juce::String&)> unblock)
+    : DocumentWindow (sk ("Správa pluginov"), Col::steel, DocumentWindow::closeButton),
       onCloseFn (std::move (onClose))
 {
     setUsingNativeTitleBar (true);
     auto* tabs = new juce::TabbedComponent (juce::TabbedButtonBar::TabsAtTop);
     tabs->addTab (sk ("Moje pluginy"), Col::panel, new PluginChooser (kl, std::move (isOwn), std::move (isOn), std::move (setOn)), true);
     tabs->addTab (sk ("Hľadať a priečinky"), Col::panel, new juce::PluginListComponent (fm, kl, pedal, props, true), true);
+    tabs->addTab (sk ("Zakázané"), Col::panel, new BlockedList (std::move (getBlocked), std::move (unblock)), true);
     tabs->setTabBarDepth (40);
     tabs->setOutline (0);
     tabs->setSize (820, 560);

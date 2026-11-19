@@ -583,16 +583,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
             sendPluginList();
             saveSession();
         })
-        .withEventListener ("unblockPlugin", [this] (const juce::var& v)
-        {
-            const auto uid = v["uid"].toString();
-            for (int i = blockedPlugins.size(); --i >= 0;)
-                if (blockedPlugins[i].upToFirstOccurrenceOf ("\t", false, false) == uid) blockedPlugins.remove (i);
-            props.getUserSettings()->setValue ("blockedPlugins", blockedPlugins.joinIntoString ("\n"));
-            auto h = held; held = obj();
-            restorePluginStates (h);   // vrati pluginy, ktore boli v piesni odlozene
-            sendPluginList();
-        })
+        .withEventListener ("unblockPlugin", [this] (const juce::var& v) { unblockPlugin (v["uid"].toString()); })
         .withEventListener ("importAudio", [this] (const juce::var& v) { onImportAudio (v); })
         .withEventListener ("audioChunk",  [this] (const juce::var& v) { onAudioChunk (v); })
         .withEventListener ("needPeaks",   [this] (const juce::var& v) { onNeedPeaks (v); })
@@ -2220,7 +2211,9 @@ void MainView::showPluginManager()
         sp->props.saveIfNeeded();
         if (on) { auto h = sp->held; sp->held = obj(); sp->restorePluginStates (h); }   // vrati odlozene pluginy piesne
         sp->sendPluginList();
-    });
+    },
+    [sp] { return sp != nullptr ? sp->blockedPlugins : juce::StringArray(); },
+    [sp] (const juce::String& uid) { if (sp != nullptr) sp->unblockPlugin (uid); });
 }
 
 void MainView::sendMeters()
@@ -3878,7 +3871,7 @@ void MainView::onFsList (const juce::var& v)
     place (sk ("Dokumenty"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
     place (sk ("Plocha"), juce::File::getSpecialLocation (juce::File::userDesktopDirectory));
     place (sk ("Stiahnuté"), juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile ("Downloads"));
-    if (spliceDir().isDirectory()) place ("Splice", spliceDir());
+    if (spliceDir().isDirectory()) place (sk ("Slučky"), spliceDir());
     juce::Array<juce::File> roots;
     juce::File::findFileSystemRoots (roots);
     for (auto& r : roots) place (r.getFullPathName(), r);
@@ -4211,6 +4204,16 @@ bool MainView::isHeld (const juce::PluginDescription& d) const
         if (b.upToFirstOccurrenceOf ("\t", false, false) == uid) return true;
     if (! isOwnPlugin (d) && ! enabledPlugins.contains (uid)) return true;   // cudzi plugin, ktory si pouzivatel nezaskrtol
     return false;
+}
+
+void MainView::unblockPlugin (const juce::String& uid)
+{
+    for (int i = blockedPlugins.size(); --i >= 0;)
+        if (blockedPlugins[i].upToFirstOccurrenceOf ("\t", false, false) == uid) blockedPlugins.remove (i);
+    props.getUserSettings()->setValue ("blockedPlugins", blockedPlugins.joinIntoString ("\n"));
+    auto h = held; held = obj();
+    restorePluginStates (h);   // vrati pluginy, ktore boli v piesni odlozene
+    sendPluginList();
 }
 
 bool MainView::isOwnPlugin (const juce::PluginDescription& d) const

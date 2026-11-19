@@ -2906,7 +2906,7 @@ private:
             { "Pop arpeggio",     0, 4, 60, "1111111111111111", "IAEAIAEAIAEAIAEA", "0000000000000000" },
             { "Trance gate",      6, 4, 45, "1011010110110101", "IAIIAIAIIAIIAIAI", "0000000000000000" },
             { "Basa v oktávach",  0, 4, 50, "1111111111111111", "IEGEIEGEIEGEIEGE", "0101010101010101" },
-            { "Avicii pluck",     2, 4, 35, "1111111111111111", "IAAIAAIAIAAIAAIA", "0000000000000000" },
+            { "Folk pluck",      2, 4, 35, "1111111111111111", "IAAIAAIAIAAIAAIA", "0000000000000000" },
             { "Hore a dole",      2, 4, 70, "1111111111111111", "GGGGGGGGGGGGGGGG", "0000000000000000" },
             { "Akordy na osminy", 6, 1, 50, "1111111111111111", "IEGEIEGEIEGEIEGE", "0000000000000000" },
             { "Synth 80s",        0, 4, 55, "1111111111111111", "IEGEIEGEIEGEIEGE", "0000000010000000" },
@@ -3445,7 +3445,7 @@ public:
     {
         target = add ("target", "Cieľ", 0, 3, 0, "", 1.0f, 0);
         target->range.interval = 1.0f;
-        target->choices = StringArray { "Spotify/YouTube", "Apple Music", "TikTok/Reels", sk ("Rádio / TV") };
+        target->choices = StringArray { sk ("Štandard −14 LUFS"), sk ("Jemne −16 LUFS"), sk ("Hlasno −9 LUFS"), sk ("Rádio / TV −23 LUFS") };
         target->inEditor = false;
         momP.resize (maxBlocks); stP.resize (maxBlocks);
     }
