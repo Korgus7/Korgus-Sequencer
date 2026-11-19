@@ -95,7 +95,7 @@ namespace
             if (NovaProcessor::hostedInKorgus()) { p.publishCapture (ph); flash (T ("Pridané do stopy")); return; }
             juce::PopupMenu m;
             m.addItem (1, T ("Uložiť ako MIDI…"));
-            m.addItem (2, T ("Uložiť ako WAV (podklad pre Suno)…"));
+            m.addItem (2, T ("Uložiť ako WAV…"));
             juce::Component::SafePointer<InspireButton> sp (this);
             m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [sp, ph] (int r) { if (sp != nullptr && r > 0) sp->save (ph, r == 2); });
         }
@@ -103,7 +103,7 @@ namespace
         {
             auto dir = dataDir(); dir.createDirectory();
             const auto name = "Inspiracia-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + (wav ? ".wav" : ".mid");
-            chooser = std::make_unique<juce::FileChooser> (wav ? T ("Uložiť ako WAV (podklad pre Suno)…") : T ("Uložiť ako MIDI…"), dir.getChildFile (name), wav ? "*.wav" : "*.mid");
+            chooser = std::make_unique<juce::FileChooser> (wav ? T ("Uložiť ako WAV…") : T ("Uložiť ako MIDI…"), dir.getChildFile (name), wav ? "*.wav" : "*.mid");
             juce::Component::SafePointer<InspireButton> sp (this);
             chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
                                   [sp, ph, wav] (const juce::FileChooser& fc)
