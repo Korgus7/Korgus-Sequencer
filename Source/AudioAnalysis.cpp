@@ -310,7 +310,7 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
         {
             const double fq = b * asr / N;
             pcB[(size_t) b] = (((int) std::lround (midiOf[(size_t) b] - tune)) % 12 + 12) % 12;
-            isBass[(size_t) b] = fq >= 38.0 && fq <= 220.0; isTre[(size_t) b] = fq >= 180.0 && fq <= 2400.0;
+            isBass[(size_t) b] = fq >= 38.0 && fq <= 300.0; isTre[(size_t) b] = fq >= 150.0 && fq <= 2400.0;
             wTre[(size_t) b] = fq > 1000.0 ? (float) (1000.0 / fq) : 1.0f;
         }
         // useky: doby, pri pomalom tempe polovice dob
@@ -389,9 +389,13 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
         }
         std::vector<double> sc = em[0];
         std::vector<std::vector<int>> bk ((size_t) ns, std::vector<int> ((size_t) S, 0));
-        const double change = 0.12;
+        // akord sa meni tam, kde v nahravke nieco zaznie (uder, nova nota); bez nabehu je zmena drahsia
+        const float eMax = juce::jmax (1.0e-9f, robustMax (env));
+        auto onsetAt = [&] (double t) { const int f = (int) std::round (t * fps - sp.nfft * 0.5 / sp.hop); float m = 0;
+            for (int k = -3; k <= 3; ++k) m = juce::jmax (m, env[(size_t) juce::jlimit (0, (int) env.size() - 1, f + k)]); return m / eMax; };
         for (int i = 1; i < ns; ++i)
         {
+            const double change = 0.08 + 0.4 * (1.0 - juce::jlimit (0.0, 1.0, (double) onsetAt (sg[(size_t) i].a) / 0.3));
             int bp = 0; for (int q = 1; q < S; ++q) if (sc[(size_t) q] > sc[(size_t) bp]) bp = q;
             std::vector<double> nx ((size_t) S);
             for (int q = 0; q < S; ++q)
