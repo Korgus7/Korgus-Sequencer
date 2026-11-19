@@ -570,10 +570,12 @@ namespace
     {
         LayerPanel (NovaProcessor& pr, int layer) : p (pr), li (layer), pre (layer == 0 ? "a_" : "b_"),
             on (pr.params, pre + "on", layer == 0 ? T ("VRSTVA A") : T ("VRSTVA B"), layer == 0 ? arc : arcB),
-            wave (pr.params, pre + "wave", juce::StringArray::fromTokens (T ("Sín|Troj|Píla|Obdĺž|Šum|Pluck|FM|Smp|Roj|WT"), "|", ""), layer == 0 ? steelHi : accentB),
-            ftype (pr.params, pre + "ftype"),
+            wave (pr.params, pre + "wave", juce::StringArray::fromTokens (T ("Sínus|Trojuholník|Píla|Obdĺžnik|Šum|Pluck|FM|Sampel|Roj|WT"), "|", ""), layer == 0 ? steelHi : accentB),
+            ftype (pr.params, pre + "ftype", juce::StringArray::fromTokens (T ("Dolná|Pásmová|Horná|Telo"), "|", ""), layer == 0 ? steelHi : accentB),
             f24 (pr.params, pre + "f24", "24 dB", layer == 0 ? arc : arcB),
-            lshape (pr.params, pre + "lshape"), ltgt (pr.params, pre + "ltgt"), ratio (pr.params, pre + "ratio"), src (pr.params, pre + "src"),
+            lshape (pr.params, pre + "lshape", juce::StringArray::fromTokens (T ("Sínus|Trojuholník|Obdĺžnik|Náhodne"), "|", ""), layer == 0 ? steelHi : accentB),
+            ltgt (pr.params, pre + "ltgt"), ratio (pr.params, pre + "ratio"),
+            src (pr.params, pre + "src", juce::StringArray::fromTokens (T ("Klavír|WAV"), "|", ""), layer == 0 ? steelHi : accentB),
             loop (pr.params, pre + "loop", T ("Opakovať"), layer == 0 ? arc : arcB),
             wt (pr.params, pre + "wt"), disp (pr, pre)
         {
@@ -582,20 +584,34 @@ namespace
             wtLabel.setColour (juce::Label::textColourId, dim.brighter (0.2f)); wtLabel.setJustificationType (juce::Justification::centred);
             wt.setTooltip (T ("Tabuľka tvarov vlny: Analóg (píla–obdĺžnik–pulz), PWM, Harmonický (rezonančný prechod), Vokál (A-E-I-O-U), Digitál, Organ, Sklo, Spev"));
             ltgt.setTooltip (T ("Cieľ LFO: Výška = vibrato, Filter, Hlasitosť = tremolo, Panoráma, Farba = hýbe gombíkom Farba (šírka pulzu, FM index, Focus, pozícia WT)"));
+            // prepinace s ikonami
+            wave.setIcons ({ icSine, icTri, icSaw, icSquare, -1, -1, -1, -1, -1, -1 });
+            wave.setWeights ({ 0.7f, 0.7f, 0.7f, 0.7f, 1.05f, 1.15f, 0.85f, 1.35f, 0.95f, 0.95f });
+            wave.setGroupEnd (3);
+            wave.setTips ({ T ("Analóg – sínus (mäkký, čistý)"), T ("Analóg – trojuholník (jemný, flauta)"), T ("Analóg – píla (ostrý, struny, brass)"), T ("Analóg – obdĺžnik (dutý, klarinet)"),
+                            T ("Šum (dych, vietor, bicie)"), T ("Pluck – brnknutá struna"), T ("FM – zvonivé a elektrické piano"), T ("Sampel – klavír alebo vlastný WAV"),
+                            T ("Roj – veľa rozladených hlasov (supersaw)"), T ("Wavetable – plynulý prechod medzi tvarmi vlny") });
+            ftype.setIcons ({ icLow, icBand, icHigh, icBody });
+            ftype.setTips ({ T ("Dolná priepusť – stmavuje (najčastejší)"), T ("Pásmová priepusť – nechá len stred"), T ("Horná priepusť – zoslabí basy"), T ("Telo – rezonancie ako drevo nástroja") });
+            lshape.setIcons ({ icSine, icTri, icSquare, icRandom });
+            lshape.setTips ({ T ("LFO sínus"), T ("LFO trojuholník"), T ("LFO obdĺžnik"), T ("LFO náhodne") });
+            src.setTips ({ T ("Vstavané nahrávky klavíra"), T ("Vlastný zvuk WAV") });
             addAndMakeVisible (on); addAndMakeVisible (wave); addAndMakeVisible (ftype); addAndMakeVisible (f24);
             addAndMakeVisible (lshape); addAndMakeVisible (ltgt); addAndMakeVisible (ratio); addAndMakeVisible (src); addAndMakeVisible (loop);
-            const char* r1[] = { "oct", "semi", "fine", "uni", "spread", "level", "pan" };
-            const char* r2[] = { "cut", "reso", "fenv", "fa", "fd", "fs", "fr" };
+            const char* r1[] = { "oct", "semi", "fine", "uni", "spread", "level", "pan", "penv", "ptime" };
+            const char* r2[] = { "cut", "reso", "fenv", "ktrk", "fvel", "fa", "fd", "fs", "fr" };
             const char* r3[] = { "aa", "ad", "as", "ar", "lrate", "ldepth", "ldelay" };
-            const char* t1[] = { "Oktáva", "Poltón", "Jemne", "Unison", "Rozlad.", "Úroveň", "Panoráma" };
-            const char* t2[] = { "Cutoff", "Rezon.", "Obálka", "Nábeh", "Pokles", "Držanie", "Doznenie" };
+            const char* t1[] = { "Oktáva", "Poltón", "Jemne", "Unison", "Rozlad.", "Úroveň", "Panoráma", "Skok", "Čas" };
+            const char* t2[] = { "Cutoff", "Rezon.", "Obálka", "Kláves", "Úder", "Nábeh", "Pokles", "Držanie", "Doznenie" };
             const char* t3[] = { "Nábeh", "Pokles", "Držanie", "Doznenie", "Rýchlosť", "Hĺbka", "Onesk." };
-            for (int i = 0; i < 7; ++i)
-            {
-                row1.push_back (mk (r1[i], T (t1[i])));
-                row2.push_back (mk (r2[i], T (t2[i])));
-                row3.push_back (mk (r3[i], T (t3[i])));
-            }
+            for (int i = 0; i < 9; ++i) { row1.push_back (mk (r1[i], T (t1[i]))); row2.push_back (mk (r2[i], T (t2[i]))); }
+            for (int i = 0; i < 7; ++i) row3.push_back (mk (r3[i], T (t3[i])));
+            row1[7]->s.setTooltip (T ("Skok výšky na začiatku tónu (v poltónoch) – úder bubna, trsatko, „pew“ zvuky"));
+            row1[8]->s.setTooltip (T ("Ako rýchlo sa výška vráti na tón"));
+            row2[3]->s.setTooltip (T ("Vyššie tóny majú otvorenejší filter (0 = rovnako pre všetky)"));
+            row2[4]->s.setTooltip (T ("Silnejší úder otvorí filter viac (0 = nezáleží na sile)"));
+            noise = mk ("noise", T ("Šum"));
+            noise->s.setTooltip (T ("Primieša šum do vrstvy – dych pri flaute, škrabnutie trsatka, vzduch"));
             color = mk ("color", {});
             root = mk ("root", T ("Zákl. tón"));
             load.setButtonText (T ("Načítať WAV…"));
@@ -621,7 +637,6 @@ namespace
             ratioLabel.setText (T ("FM pomer"), juce::dontSendNotification); ratioLabel.setFont (juce::FontOptions (12.5f));
             ratioLabel.setColour (juce::Label::textColourId, dim.brighter (0.2f)); ratioLabel.setJustificationType (juce::Justification::centred);
             addAndMakeVisible (ratioLabel);
-            src.setTooltip (T ("Klavír = vstavané nahrávky klavíra, Vlastný WAV = tvoj zvuk"));
             update();
         }
         std::unique_ptr<Knob> mk (const char* id, const juce::String& title)
@@ -659,6 +674,7 @@ namespace
                 wt.setVisible (w == 9); wtLabel.setVisible (w == 9); disp.setVisible (! isUser);
                 row1[3]->setTitle (T (w == 8 ? "Bohatosť" : "Unison")); row1[4]->setTitle (T (w == 8 ? "Rozptyl" : "Rozlad."));
                 color->setVisible (w >= 3 && ! isUser);
+                noise->setVisible (w != 4 && ! isUser);
                 ratio.setVisible (w == 6); ratioLabel.setVisible (w == 6);
                 src.setVisible (isSample); load.setVisible (isSample); root->setVisible (isUser); loop.setVisible (isUser); smpName.setVisible (isUser);
                 stepB[0].setVisible (isUser); stepB[1].setVisible (isUser);
@@ -672,28 +688,29 @@ namespace
         {
             drawPanel (g, getLocalBounds());
             sectionLabel (g, { 12, 118, 50, 20 }, "FILTER");
-            sectionLabel (g, { 12 + 3 * 60, 118, 130, 20 }, T ("OBÁLKA FILTRA"));
+            sectionLabel (g, { 12 + 5 * 46, 118, 130, 20 }, T ("OBÁLKA FILTRA"));
             sectionLabel (g, { 12, 222, 160, 20 }, T ("OBÁLKA HLASITOSTI"));
             sectionLabel (g, { 12 + 4 * 60, 222, 30, 20 }, "LFO");
-            g.setColour (line); g.fillRect (12 + 3 * 60 - 2, 146, 1, 66); g.fillRect (12 + 4 * 60 - 2, 250, 1, 66);
+            g.setColour (line); g.fillRect (12 + 5 * 46 - 2, 146, 1, 66); g.fillRect (12 + 4 * 60 - 2, 250, 1, 66); g.fillRect (12 + 7 * 46 - 2, 42, 1, 66);
             g.fillRect (12, 326, getWidth() - 24, 1);
         }
         void resized() override
         {
             on.setBounds (10, 8, 110, 24);
             wave.setBounds (124, 9, getWidth() - 134, 22);
-            for (int i = 0; i < 7; ++i)
+            for (int i = 0; i < 9; ++i)
             {
-                row1[(size_t) i]->setBounds (12 + i * 60, 40, 58, 74);
-                row2[(size_t) i]->setBounds (12 + i * 60, 144, 58, 74);
-                row3[(size_t) i]->setBounds (12 + i * 60, 248, 58, 74);
+                row1[(size_t) i]->setBounds (12 + i * 46, 40, 46, 74);
+                row2[(size_t) i]->setBounds (12 + i * 46, 144, 46, 74);
             }
-            ftype.setBounds (62, 117, 104, 21);
-            f24.setBounds (getWidth() - 76, 117, 66, 22);
+            for (int i = 0; i < 7; ++i) row3[(size_t) i]->setBounds (12 + i * 60, 248, 58, 74);
+            ftype.setBounds (62, 117, 108, 21);
+            f24.setBounds (174, 117, 60, 22);
             lshape.setBounds (12 + 4 * 60 + 32, 220, 72, 22);
             ltgt.setBounds (12 + 4 * 60 + 108, 220, getWidth() - (12 + 4 * 60 + 108) - 12, 22);
             int x = 12;
             color->setBounds (x, 332, 70, 72); if (color->isVisible()) x += 78;
+            noise->setBounds (x, 332, 58, 72); if (noise->isVisible()) x += 64;
             ratioLabel.setBounds (x, 334, 84, 15); ratio.setBounds (x, 354, 84, 24); if (ratio.isVisible()) x += 94;
             wtLabel.setBounds (x, 334, 104, 15); wt.setBounds (x, 354, 104, 24); if (wt.isVisible()) x += 114;
             disp.setBounds (src.isVisible() ? x + 134 : x, 334, getWidth() - 12 - (src.isVisible() ? x + 134 : x), 68);
@@ -710,8 +727,8 @@ namespace
             }
         }
         NovaProcessor& p; int li; juce::String pre;
-        Toggle on; Seg wave; Combo ftype; Toggle f24; Combo lshape, ltgt, ratio, src; Toggle loop; Combo wt; VoiceDisplay disp; juce::Label wtLabel;
-        std::vector<std::unique_ptr<Knob>> row1, row2, row3; std::unique_ptr<Knob> color, root;
+        Toggle on; Seg wave, ftype; Toggle f24; Seg lshape; Combo ltgt, ratio; Seg src; Toggle loop; Combo wt; VoiceDisplay disp; juce::Label wtLabel;
+        std::vector<std::unique_ptr<Knob>> row1, row2, row3; std::unique_ptr<Knob> color, root, noise;
         juce::TextButton load, stepB[2]; juce::Label smpName, ratioLabel;
         std::unique_ptr<juce::FileChooser> chooser;
         int lastWave = -1; bool lastUser = false;
@@ -931,10 +948,13 @@ namespace
     {
         FxPanel (NovaProcessor& pr) : p (pr),
             drive (pr.params, "drive_on"), chorus (pr.params, "ch_on"), delay (pr.params, "dl_on"), reverb (pr.params, "rv_on"), pp (pr.params, "dl_pp"),
-            sync (pr.params, "dl_sync"), chType (pr.params, "ch_type"), graph (pr)
+            sync (pr.params, "dl_sync", juce::StringArray::fromTokens (T ("Voľne|1/4|1/8.|1/8|1/8T|1/16"), "|", "")),
+            chType (pr.params, "ch_type", juce::StringArray::fromTokens ("Chorus|Ensemble|Flanger|Phaser|Tremolo", "|", "")), graph (pr)
         {
             for (auto* c : std::initializer_list<juce::Component*> { &drive, &chorus, &delay, &reverb, &pp, &sync, &chType }) addAndMakeVisible (c);
-            chType.setTooltip (T ("Chorus = širší zvuk, Ensemble = sláčikový ensemble, Flanger a Phaser = „lietadlo“, Tremolo = kolísanie hlasitosti"));
+            chType.setTips ({ T ("Chorus = širší zvuk"), T ("Ensemble = sláčikový ensemble"), T ("Flanger = „lietadlo“"), T ("Phaser = „lietadlo“, jemnejšie"), T ("Tremolo = kolísanie hlasitosti") });
+            sync.setTips ({ T ("Voľne = čas v ms, ostatné = podľa tempa (1/8. = osminka s bodkou, T = triola)") });
+            chorus.setButtonText ({}); chorus.setTooltip (T ("Modulácia zap / vyp"));
             auto add = [this] (std::vector<std::unique_ptr<Knob>>& v, const juce::String& id, const char* t) { v.push_back (std::make_unique<Knob> (p.params, id, T (t))); addAndMakeVisible (*v.back()); };
             add (fx, "drive", "Sila");
             add (fx, "ch_rate", "Rýchlosť"); add (fx, "ch_depth", "Hĺbka"); add (fx, "ch_mix", "Mix");
@@ -1021,7 +1041,7 @@ namespace
             vcMeter.onTick = [this] { refreshVocTracks(); };
             // gater
             gtOn = std::make_unique<Toggle> (p.params, "gt_on", T ("GATER"), amber.brighter (0.3f));
-            gtRate = std::make_unique<Combo> (p.params, "gt_rate");
+            gtRate = std::make_unique<Seg> (p.params, "gt_rate", juce::StringArray::fromTokens ("1/4|1/8|1/8T|1/16|1/32", "|", ""), amber);
             gtDepth = std::make_unique<Knob> (p.params, "gt_depth", T ("Hĺbka"));
             gtSmooth = std::make_unique<Knob> (p.params, "gt_smooth", T ("Hladkosť"));
             gtSwing = std::make_unique<Knob> (p.params, "gt_swing", "Swing");
@@ -1040,7 +1060,7 @@ namespace
                     if (auto* prm = p.params.getParameter ("gt_s" + juce::String (i))) prm->setValueNotifyingHost (b[i] == '1' ? 1.0f : 0.0f);
                 if (auto* on = p.params.getParameter ("gt_on")) on->setValueNotifyingHost (1.0f);
             };
-            gtRate->setTooltip (T ("Dĺžka jedného kroku vzoru"));
+            gtRate->setTips ({ T ("Dĺžka jedného kroku vzoru") });
             for (int k = 0; k < 16; ++k)
             {
                 auto& b = steps[k];
@@ -1138,7 +1158,7 @@ namespace
                 for (int k = 0; k < 6; ++k) vcK[k]->setBounds (12 + k * kw, 122, kw, 80);
             }
             // gater
-            gtOn->setBounds (12, 40, 92, 22); gtRate->setBounds (108, 40, 70, 22); gtPreset.setBounds (182, 40, 110, 22);
+            gtOn->setBounds (12, 40, 92, 22); gtRate->setBounds (108, 40, 150, 22); gtPreset.setBounds (262, 40, getWidth() - 192 - 268, 22);
             gtDepth->setBounds (getWidth() - 192, 36, 58, 72); gtSmooth->setBounds (getWidth() - 132, 36, 58, 72); gtSwing->setBounds (getWidth() - 72, 36, 58, 72);
             gtHelp.setBounds (12, 70, getWidth() - 210, 40);
             {
@@ -1155,10 +1175,10 @@ namespace
             }
             drive.setBounds (12, 40, 100, 22);
             fx[0]->setBounds (12, 62, 58, 72);
-            delay.setBounds (12, 142, 74, 22); sync.setBounds (88, 142, 92, 22); pp.setBounds (184, 142, 90, 22);
+            delay.setBounds (12, 142, 90, 22); pp.setBounds (184, 142, 90, 22); sync.setBounds (12, 244, 256, 20);
             for (int i = 0; i < 4; ++i) fx[(size_t) (4 + i)]->setBounds (12 + i * 64, 166, 60, 72);
             const int x2 = 286;
-            chorus.setBounds (x2, 40, 110, 22); chType.setBounds (x2 + 114, 40, 116, 22);
+            chorus.setBounds (x2, 40, 24, 22); chType.setBounds (x2 + 26, 40, 230 - 26 + 2, 22);
             const int chk[4] = { 1, 2, 11, 3 }, rvk[4] = { 8, 12, 9, 10 };
             for (int i = 0; i < 4; ++i) fx[(size_t) chk[i]]->setBounds (x2 + i * 58, 64, 56, 70);
             reverb.setBounds (x2, 142, 100, 22);
@@ -1172,10 +1192,10 @@ namespace
             graph.setBounds (12, 140, getWidth() - 24, getHeight() - 150);
         }
         NovaProcessor& p;
-        Toggle drive, chorus, delay, reverb, pp; Combo sync, chType;
+        Toggle drive, chorus, delay, reverb, pp; Seg sync, chType;
         std::vector<std::unique_ptr<Knob>> fx, eq;
         juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help, gtHelp;
-        std::unique_ptr<Toggle> gtOn; std::unique_ptr<Combo> gtRate, mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing, mAmt[4]; juce::ComboBox gtPreset;
+        std::unique_ptr<Toggle> gtOn; std::unique_ptr<Seg> gtRate; std::unique_ptr<Combo> mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing, mAmt[4]; juce::ComboBox gtPreset;
         juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[6]; juce::Label vcHelp;
         juce::ComboBox vcSrc; bool vcSrcSync = false; juce::String vcSrcList;
         // zoznam spevovych stop zapisuje Korgus Sequencer do docasneho suboru
@@ -1225,11 +1245,13 @@ namespace
     {
         ArpPanel (NovaProcessor& pr) : on (pr.params, "arp_on", T ("ARPEGGIÁTOR"), amber.brighter (0.3f)), hold (pr.params, "arp_hold", T ("Držať"), amber.brighter (0.3f)),
             mono (pr.params, "mono", "Mono"),
-            pat (pr.params, "arp_pat", juce::StringArray::fromTokens (T ("Hore|Dole|H/D|Hrám|Náhod.|Akord"), "|", ""), amber),
+            pat (pr.params, "arp_pat", juce::StringArray::fromTokens (T ("Hore|Dole|Hore/Dole|Ako hrám|Náhodne|Akord"), "|", ""), amber),
             speed (pr.params, "arp_speed", juce::StringArray::fromTokens ("1/4|1/8|1/8T|1/16|1/32", "|", ""), amber),
             oct (pr.params, "arp_oct", T ("Oktávy")), len (pr.params, "arp_len", T ("Dĺžka")), glide (pr.params, "glide"), vel (pr.params, "veltrack", T ("Citlivosť"))
         {
             for (auto* c : std::initializer_list<juce::Component*> { &on, &hold, &mono, &pat, &speed, &oct, &len, &glide, &vel }) addAndMakeVisible (c);
+            pat.setIcons ({ icUp, icDown, icUpDown, icPlayed, icRandArp, icChord });
+            pat.setTips ({ T ("Arpeggio hore"), T ("Arpeggio dole"), T ("Hore a dole"), T ("V poradí, ako hráš"), T ("Náhodné poradie"), T ("Celý akord naraz v rytme") });
             oct.setArc (amber); len.setArc (amber);
             vel.s.setTooltip (T ("Ako veľmi hlasitosť závisí od sily úderu"));
             mono.setTooltip (T ("Hrá vždy len jeden tón (basy, leady) – s Glide sa tóny prelínajú"));
@@ -1304,13 +1326,15 @@ namespace
             cut (pr.params, "mf_cut"), reso (pr.params, "mf_reso", T ("Rezon.")), drive (pr.params, "mf_drive"), gain (pr.params, "p_gain", T ("Úroveň"))
         {
             for (auto* c : std::initializer_list<juce::Component*> { &on, &type, &cut, &reso, &drive, &gain }) addAndMakeVisible (c);
+            type.setIcons ({ icLow, icHigh });
+            type.setTips ({ T ("Dolná priepusť"), T ("Horná priepusť") });
             cut.setArc (amber); reso.setArc (amber); drive.setArc (amber);
             gain.s.setTooltip (T ("Hlasitosť tohto zvuku (ukladá sa so zvukom)"));
         }
         void paint (juce::Graphics& g) override { drawPanel (g, getLocalBounds()); g.setColour (line); g.fillRect (12 + 3 * ((getWidth() - 24) / 4) - 2, 36, 1, 64); }
         void resized() override
         {
-            on.setBounds (10, 6, 150, 22); type.setBounds (getWidth() - 132, 6, 120, 22);
+            on.setBounds (10, 6, 150, 22); type.setBounds (getWidth() - 76, 6, 64, 22);
             const int w = (getWidth() - 24) / 4;
             cut.setBounds (12, 32, w, 72); reso.setBounds (12 + w, 32, w, 72); drive.setBounds (12 + 2 * w, 32, w, 72); gain.setBounds (12 + 3 * w, 32, w, 72);
         }

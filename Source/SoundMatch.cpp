@@ -535,6 +535,10 @@ namespace
             { "a_lrate", 0.5f, 8, Log, {} },
             { "a_ltgt", 0, 0, Choice, { 0, 1, 2, 3 } },
             { "a_ldelay", 0, 1.5f, Lin, {} },
+            { "a_penv", -12, 12, Lin, {} },       // skok vysky na zaciatku tonu
+            { "a_ptime", 0.005f, 0.5f, Log, {} },
+            { "a_ktrk", 0, 1, Lin, {} },          // filter podla klavesu
+            { "a_noise", 0, 0.6f, Lin, {} },      // primiesany sum
             { "b_on", 0, 0, Choice, { 0, 1 } },
             { "b_wave", 0, 0, Choice, { 0, 1, 2, 3, 4, 5, 6 } },
             { "b_oct", -2, 3, Int, {} },
@@ -677,7 +681,8 @@ namespace
         auto v = [&] (const char* id) { for (size_t i = 0; i < D.size(); ++i) if (juce::String (D[i].id) == id) return decode (D[i], x[i]); return 0.0f; };
         const std::pair<const char*, float> fixed[] = {
             { "a_on", 1 }, { "a_level", 0.8f }, { "a_semi", 0 }, { "a_fine", 0 }, { "a_pan", 0 },
-            { "a_lshape", 0 }, { "a_src", 0 },
+            { "a_lshape", 0 }, { "a_src", 0 }, { "a_fvel", 0.5f },
+            { "b_penv", 0 }, { "b_ptime", 0.08f }, { "b_fvel", 0.5f }, { "b_noise", 0 },
             { "b_fine", 0 }, { "b_pan", 0 }, { "b_ftype", 0 }, { "b_f24", 0 }, { "b_ldepth", 0 }, { "b_src", 0 }, { "b_root", 60 }, { "b_loop", 0 },
             { "bright", 0.5f }, { "attack", 0.5f }, { "release", 0.5f }, { "space", 0.5f }, { "width", 0.5f }, { "volume", 0 }, { "p_gain", gainDb }, { "veltrack", 0.7f },
             { "morph_x", 0 }, { "morph_y", 0 }, { "dl_on", 0 }, { "arp_on", 0 }, { "mono", 0 }, { "glide", 0 }, { "mf_on", 0 }, { "comp_on", 0 },
@@ -687,7 +692,7 @@ namespace
         for (auto pre : { "a_", "b_", "rv_", "dl_" })
             for (auto s : { "eql", "eqm", "eqh" }) p.set (juce::String (pre) + s, 0);
         // vrstva B zdiela filter-obalku, nabeh, doznenie a FM pomer s vrstvou A (pokles a drzanie ma vlastne)
-        for (auto s : { "fenv", "fa", "fd", "fs", "fr", "aa", "ar", "ratio" })
+        for (auto s : { "fenv", "fa", "fd", "fs", "fr", "aa", "ar", "ratio", "ktrk" })
             p.set (juce::String ("b_") + s, v ((juce::String ("a_") + s).toRawUTF8()));
         p.set ("ch_on", v ("ch_mix") > 0.03f ? 1.0f : 0.0f);
         p.set ("rv_on", v ("rv_mix") > 0.02f ? 1.0f : 0.0f);

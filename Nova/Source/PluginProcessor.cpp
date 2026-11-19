@@ -73,6 +73,7 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
         L.aa = g (p + "aa"); L.ad = g (p + "ad"); L.as = g (p + "as"); L.ar = g (p + "ar");
         L.lshape = (int) g (p + "lshape"); L.ltgt = (int) g (p + "ltgt"); L.lrate = g (p + "lrate"); L.ldepth = g (p + "ldepth"); L.ldelay = g (p + "ldelay");
         L.src = (int) g (p + "src"); L.root = (int) g (p + "root"); L.loop = g (p + "loop") > 0.5f; L.wt = (int) g (p + "wt");
+        L.penv = g (p + "penv"); L.ptime = g (p + "ptime"); L.ktrk = g (p + "ktrk"); L.fvel = g (p + "fvel"); L.noise = g (p + "noise");
         L.eqLow = g (p + "eql"); L.eqMid = g (p + "eqm"); L.eqMidF = g (p + "eqmf"); L.eqHigh = g (p + "eqh"); L.eqEnabled = g (p + "eqon") > 0.5f;
     }
     auto& f = s.fx;

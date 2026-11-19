@@ -99,6 +99,7 @@ namespace nova::ui
             l->setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
             l->setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
             l->setColour (juce::Label::textColourId, dim.brighter (0.3f));
+            l->setMinimumHorizontalScale (0.55f);
             return l;
         }
     };
@@ -124,6 +125,7 @@ namespace nova::ui
             label.setFont (juce::FontOptions (12.5f));
             label.setColour (juce::Label::textColourId, dim.brighter (0.2f));
             label.setInterceptsMouseClicks (false, false);
+            label.setMinimumHorizontalScale (0.6f);
             addAndMakeVisible (label);
             s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
             s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 16);
@@ -163,14 +165,83 @@ namespace nova::ui
             auto r = getLocalBounds();
             label.setBounds (r.removeFromTop (15));
             s.setBounds (r);
+            // uzky gombik: mensie pismo hodnoty, nech sa zmesti (napr. 20.0 kHz)
+            for (auto* c : s.getChildren())
+                if (auto* l = dynamic_cast<juce::Label*> (c))
+                {
+                    l->setFont (juce::FontOptions (getWidth() < 54 ? 11.5f : 12.5f));
+                    l->setMinimumHorizontalScale (0.55f);
+                    l->setBorderSize ({ 1, 1, 1, 1 });
+                }
         }
         juce::Slider s; juce::Label label;
     private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> att;
     };
 
-    // segmentove tlacidla pre parameter s vyberom
-    class Seg : public juce::Component
+    // ikony do prepinacov (tenka linka 1.4 px, bez farieb)
+    enum SegIcon { icSine = 0, icTri, icSaw, icSquare, icRandom, icLow = 10, icBand, icHigh, icBody,
+                   icUp = 20, icDown, icUpDown, icPlayed, icRandArp, icChord };
+    inline void drawSegIcon (juce::Graphics& g, juce::Rectangle<float> r, int kind, juce::Colour c)
+    {
+        const float s = juce::jmin (r.getHeight() - 6.0f, 18.0f), w = juce::jmin (r.getWidth() - 6.0f, s * 1.5f);
+        auto b = juce::Rectangle<float> (w, s).withCentre (r.getCentre());
+        const float x0 = b.getX(), x1 = b.getRight(), y0 = b.getY(), y1 = b.getBottom(), ym = b.getCentreY(), bw = b.getWidth(), bh = b.getHeight();
+        juce::Path p;
+        auto curve = [&] (std::function<float (float)> f)   // f: 0..1 -> 0 (dole) .. 1 (hore)
+        {
+            for (int i = 0; i <= 32; ++i) { const float t = (float) i / 32.0f, x = x0 + t * bw, y = y1 - f (t) * bh; if (i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y); }
+        };
+        switch (kind)
+        {
+            case icSine:   curve ([] (float t) { return 0.5f + 0.5f * std::sin (t * juce::MathConstants<float>::twoPi); }); break;
+            case icTri:    p.startNewSubPath (x0, ym); p.lineTo (x0 + bw * 0.25f, y0); p.lineTo (x0 + bw * 0.75f, y1); p.lineTo (x1, ym); break;
+            case icSaw:    p.startNewSubPath (x0, y1); p.lineTo (x0 + bw * 0.5f, y0); p.lineTo (x0 + bw * 0.5f, y1); p.lineTo (x1, y0); p.lineTo (x1, y1); break;
+            case icSquare: p.startNewSubPath (x0, y1); p.lineTo (x0, y0); p.lineTo (x0 + bw * 0.5f, y0); p.lineTo (x0 + bw * 0.5f, y1); p.lineTo (x1, y1); p.lineTo (x1, y0); break;
+            case icRandom: { const float h[5] = { 0.3f, 0.9f, 0.1f, 0.65f, 0.4f }; p.startNewSubPath (x0, y1 - h[0] * bh);
+                             for (int i = 0; i < 5; ++i) { const float xa = x0 + bw * (float) i / 5.0f, xb = x0 + bw * (float) (i + 1) / 5.0f; p.lineTo (xa, y1 - h[i] * bh); p.lineTo (xb, y1 - h[i] * bh); } } break;
+            case icLow:    curve ([] (float t) { return t < 0.55f ? 0.62f + 0.1f * std::exp (-std::pow ((t - 0.5f) * 9.0f, 2.0f)) : juce::jmax (0.0f, 0.68f - (t - 0.55f) * 1.6f); }); break;
+            case icHigh:   curve ([] (float t) { return t > 0.45f ? 0.62f + 0.1f * std::exp (-std::pow ((t - 0.5f) * 9.0f, 2.0f)) : juce::jmax (0.0f, 0.68f - (0.45f - t) * 1.6f); }); break;
+            case icBand:   curve ([] (float t) { return 0.85f * std::exp (-std::pow ((t - 0.5f) * 4.2f, 2.0f)); }); break;
+            case icBody:   curve ([] (float t) { return 0.15f + 0.6f * std::exp (-std::pow ((t - 0.3f) * 9.0f, 2.0f)) + 0.45f * std::exp (-std::pow ((t - 0.72f) * 10.0f, 2.0f)); }); break;
+            case icUp: case icDown: case icUpDown: case icPlayed: case icRandArp: case icChord:
+            {
+                float hs[4] = { 0, 1, 2, 3 }; int n = 4;
+                if (kind == icDown) { hs[0] = 3; hs[1] = 2; hs[2] = 1; hs[3] = 0; }
+                if (kind == icUpDown) { hs[0] = 0; hs[1] = 2; hs[2] = 3; hs[3] = 1; }
+                if (kind == icPlayed) { hs[0] = 1; hs[1] = 3; hs[2] = 0; hs[3] = 2; }
+                const float d = 3.0f;
+                if (kind == icChord)
+                {
+                    for (int col = 0; col < 2; ++col) for (int k = 0; k < 3; ++k)
+                        p.addEllipse (x0 + bw * (col == 0 ? 0.22f : 0.78f) - d * 0.5f, y0 + bh * (0.1f + 0.4f * (float) k) - d * 0.5f, d, d);
+                    g.setColour (c); g.fillPath (p); return;
+                }
+                if (kind == icRandArp)
+                {
+                    const float px[5] = { 0.1f, 0.35f, 0.6f, 0.85f, 0.5f }, py[5] = { 0.3f, 0.85f, 0.15f, 0.6f, 0.5f };
+                    for (int k = 0; k < 5; ++k) p.addEllipse (x0 + bw * px[k] - d * 0.5f, y0 + bh * py[k] - d * 0.5f, d, d);
+                    g.setColour (c); g.fillPath (p); return;
+                }
+                juce::Path ln, dots;
+                for (int k = 0; k < n; ++k)
+                {
+                    const float x = x0 + bw * (0.08f + 0.28f * (float) k), y = y1 - bh * (0.1f + 0.8f * hs[k] / 3.0f);
+                    dots.addEllipse (x - d * 0.5f, y - d * 0.5f, d, d);
+                    if (k == 0) ln.startNewSubPath (x, y); else ln.lineTo (x, y);
+                }
+                g.setColour (c.withAlpha (0.55f)); g.strokePath (ln, juce::PathStrokeType (1.0f));
+                g.setColour (c); g.fillPath (dots);
+                return;
+            }
+            default: break;
+        }
+        g.setColour (c);
+        g.strokePath (p, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // segmentove tlacidla pre parameter s vyberom (text alebo ikona, tip pri kazdom)
+    class Seg : public juce::Component, public juce::TooltipClient
     {
     public:
         Seg (juce::AudioProcessorValueTreeState& st, const juce::String& id, juce::StringArray labels, juce::Colour on = steelHi)
@@ -180,28 +251,60 @@ namespace nova::ui
             att = std::make_unique<juce::ParameterAttachment> (*prm, [this] (float v) { value = juce::roundToInt (v); repaint(); }, st.undoManager);
             att->sendInitialUpdate();
         }
+        // ikony: -1 = text; vahy sirky; tipy; skupina = segmenty od 0 po groupEnd su spojene (mensia medzera)
+        void setIcons (std::initializer_list<int> ic) { icons.clear(); for (int v : ic) icons.add (v); repaint(); }
+        void setWeights (std::initializer_list<float> wt) { weights.clear(); for (float v : wt) weights.add (v); repaint(); }
+        void setTips (const juce::StringArray& t) { tips = t; }
+        void setGroupEnd (int g) { groupEnd = g; }
+        juce::String getTooltip() override
+        {
+            if (hover < 0) return {};
+            if (tips.size() == 1) return tips[0];
+            if (hover < tips.size() && tips[hover].isNotEmpty()) return tips[hover];
+            return icon (hover) >= 0 ? names[hover] : juce::String();
+        }
+        juce::Rectangle<float> segRect (int i) const
+        {
+            const int n = names.size();
+            float total = 0, gaps = 0;
+            for (int k = 0; k < n; ++k) { total += wt (k); if (k < n - 1) gaps += gapAfter (k); }
+            const float unit = ((float) getWidth() - gaps) / juce::jmax (0.001f, total);
+            float x = 0;
+            for (int k = 0; k < i; ++k) x += wt (k) * unit + gapAfter (k);
+            return { x, 0.0f, wt (i) * unit, (float) getHeight() };
+        }
         void paint (juce::Graphics& g) override
         {
             const int n = names.size(); if (n == 0) return;
-            const float gap = 3.0f, w = ((float) getWidth() - gap * (float) (n - 1)) / (float) n;
             for (int i = 0; i < n; ++i)
             {
-                auto r = juce::Rectangle<float> ((float) i * (w + gap), 0, w, (float) getHeight());
+                auto r = segRect (i);
                 const bool sel = i == value, hov = i == hover;
                 g.setColour (sel ? onCol : (hov ? steel.brighter (0.12f) : steel));
                 g.fillRoundedRectangle (r, 3.0f);
-                g.setColour (sel ? juce::Colours::white : text.withAlpha (0.85f));
+                const auto tc = sel ? juce::Colours::white : text.withAlpha (0.85f);
+                if (icon (i) >= 0) { drawSegIcon (g, r, icon (i), tc); continue; }
+                g.setColour (tc);
                 g.setFont (juce::FontOptions (juce::jmin (13.5f, (float) getHeight() * 0.55f)));
                 g.drawFittedText (names[i], r.toNearestInt().reduced (2, 0), juce::Justification::centred, 1, 0.7f);
             }
         }
-        int indexAt (juce::Point<int> p) const { const int n = names.size(); return n == 0 ? -1 : juce::jlimit (0, n - 1, p.x * n / juce::jmax (1, getWidth())); }
+        int indexAt (juce::Point<int> p) const
+        {
+            const int n = names.size(); if (n == 0) return -1;
+            for (int i = 0; i < n; ++i) if ((float) p.x < segRect (i).getRight() + gapAfter (i) * 0.5f) return i;
+            return n - 1;
+        }
         void mouseDown (const juce::MouseEvent& e) override { const int i = indexAt (e.getPosition()); if (i >= 0) att->setValueAsCompleteGesture ((float) i); }
         void mouseMove (const juce::MouseEvent& e) override { const int i = indexAt (e.getPosition()); if (i != hover) { hover = i; repaint(); } }
         void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
         int value = 0;
     private:
-        juce::StringArray names; juce::Colour onCol; int hover = -1;
+        int icon (int i) const { return i < icons.size() ? icons[i] : -1; }
+        float wt (int i) const { return i < weights.size() ? weights[i] : 1.0f; }
+        float gapAfter (int i) const { return i < groupEnd ? 1.0f : 3.0f; }
+        juce::StringArray names, tips; juce::Colour onCol; int hover = -1, groupEnd = -1;
+        juce::Array<int> icons; juce::Array<float> weights;
         std::unique_ptr<juce::ParameterAttachment> att;
     };
 

@@ -66,6 +66,11 @@ namespace nova
                 F (p + "root", "Základný tón", 0, 127, 60, "note");
                 B (p + "loop", "Opakovať", false);
                 C (p + "wt", "Tabuľka", "Analóg|PWM|Harmonický|Vokál|Digitál|Organ|Sklo|Spev", 0);
+                F (p + "penv", "Skok výšky", -24, 24, 0, "st");
+                F (p + "ptime", "Čas skoku", 0.002f, 2, 0.08f, "s", 0.3f);
+                F (p + "ktrk", "Podľa klávesu", 0, 1, 0.5f, "%");
+                F (p + "fvel", "Podľa úderu", 0, 1, 0.5f, "%");
+                F (p + "noise", "Šum", 0, 1, 0, "%");
             }
             // tube
             F ("tube", "Analóg", 0, 1, 0, "%");

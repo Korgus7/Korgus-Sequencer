@@ -27,6 +27,10 @@ namespace nova
         int lshape = 0, ltgt = 0; float lrate = 5, ldepth = 0, ldelay = 0; int src = 0; int root = 60; bool loop = false;
         float eqLow = 0, eqMid = 0, eqMidF = 1000, eqHigh = 0; bool eqEnabled = true;
         int wt = 0;                     // wavetable (wave 9): cislo tabulky; pozicia = color
+        // tvarovanie zvuku: obalka vysky (skok na zaciatku tonu), filter podla klavesu a sily uderu, primiesany sum
+        float penv = 0, ptime = 0.08f;  // poltony, s
+        float ktrk = 0.5f, fvel = 0.5f; // 0..1 (0.5 = povodne spravanie)
+        float noise = 0;                // 0..1
     };
 
     struct Settings

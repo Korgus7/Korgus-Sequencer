@@ -576,6 +576,44 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "shapes")
+    {
+        // nove parametre vrstvy: skok vysky, sum, filter podla klavesu + snimky editora -> /home/claude/shp/
+        File ("/home/claude/shp").createDirectory();
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        auto renderN = [&] (int note, double secs) { const int total = (int) (secs * sr); AudioBuffer<float> out (2, total); out.clear();
+            for (int pos = 0; pos < total; pos += bs) { const int n = std::min (bs, total - pos); MidiBuffer mb; if (pos == 0) mb.addEvent (MidiMessage::noteOn (1, note, 0.8f), 0);
+                AudioBuffer<float> blk (2, n); blk.clear(); q.processBlock (blk, mb); for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n); }
+            for (int k = 0; k < 20; ++k) { MidiBuffer mb; for (int n = 0; n < 128; ++n) mb.addEvent (MidiMessage::noteOff (1, n), 0); AudioBuffer<float> blk (2, bs); q.processBlock (blk, mb); }
+            for (int k = 0; k < 300; ++k) { MidiBuffer mb; AudioBuffer<float> blk (2, bs); blk.clear(); q.processBlock (blk, mb); }
+            return out; };
+        auto zc = [&] (const AudioBuffer<float>& b, double t0, double t1) { int z = 0; const int a = (int) (t0 * sr), e = (int) (t1 * sr);
+            for (int i = a + 1; i < e; ++i) if (b.getSample (0, i - 1) <= 0 && b.getSample (0, i) > 0) ++z; return z / (t1 - t0); };
+        auto rms = [&] (const AudioBuffer<float>& b) { double s = 0; for (int i = 0; i < b.getNumSamples(); ++i) s += b.getSample (0, i) * b.getSample (0, i); return Decibels::gainToDecibels ((float) std::sqrt (s / b.getNumSamples()), -120.0f); };
+        auto base = [&] { q.loadPreset (String ("f:") + nova::factoryPatches()[0].name);
+            for (auto id : { "ch_on", "dl_on", "rv_on", "arp_on", "b_on", "drive_on", "comp_on" }) setParam (q, id, 0);
+            setParam (q, "a_wave", 0); setParam (q, "a_ldepth", 0); setParam (q, "a_uni", 1); setParam (q, "a_cut", 20000); setParam (q, "a_fenv", 0); setParam (q, "tube", 0); };
+        base(); { auto b = renderN (57, 1.0); printf ("sinus A3: zc 0-0.03 %.0f Hz, 0.5-0.9 %.0f Hz, %.1f dB\n", zc (b, 0.0, 0.03), zc (b, 0.5, 0.9), rms (b)); }
+        base(); setParam (q, "a_penv", 12); setParam (q, "a_ptime", 0.1f);
+        { auto b = renderN (57, 1.0); printf ("skok +12: zc 0-0.03 %.0f Hz, 0.5-0.9 %.0f Hz, %.1f dB\n", zc (b, 0.0, 0.03), zc (b, 0.5, 0.9), rms (b)); }
+        base(); setParam (q, "a_noise", 1);
+        { auto b = renderN (57, 1.0); float pk = 0; for (int i = 0; i < b.getNumSamples(); ++i) pk = std::max (pk, std::abs (b.getSample (0, i))); printf ("sum 1.0: %.1f dB, spicka %.2f\n", rms (b), pk); }
+        for (float kt : { 0.0f, 0.5f, 1.0f })
+        {
+            base(); setParam (q, "a_wave", 2); setParam (q, "a_cut", 600); setParam (q, "a_ktrk", kt);
+            auto lo = renderN (36, 0.6), hi = renderN (84, 0.6);
+            printf ("pila cut 600, kláves %.1f: C2 %.1f dB, C6 %.1f dB\n", kt, rms (lo), rms (hi));
+        }
+        q.uiMode = 1; int k = 0;
+        for (int w : { 2, 7, 9 })
+        {
+            base(); setParam (q, "a_wave", (float) w);
+            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);
+            auto img = ed->createComponentSnapshot (ed->getLocalBounds());
+            File f ("/home/claude/shp/shot_" + String (k++) + ".png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
+        }
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "wtshot")
     {
         // snimky rozsireneho editora s displejom hlasov: WT, Roj, pila s unisonom, klavir, FM  -> /home/claude/wt/shot_*.png

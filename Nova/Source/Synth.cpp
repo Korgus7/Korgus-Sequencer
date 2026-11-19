@@ -338,7 +338,8 @@ namespace nova
         const float morph = li == 0 ? (mx <= 0 ? 1.0f : 1.0f - mx) : (mx >= 0 ? 1.0f : 1.0f + mx);
         const float lg = morph * s.level * lv.velGain;
         const float q = 0.5f + 9.0f * s.reso * s.reso;
-        const float kt = 0.5f * ((float) v.note - 60.0f) / 12.0f + 0.8f * (v.vel - 0.7f) + 2.0f * bright;
+        const float kt = s.ktrk * ((float) v.note - 60.0f) / 12.0f + 1.6f * s.fvel * (v.vel - 0.7f) + 2.0f * bright;
+        const bool hasPEnv = std::abs (s.penv) > 0.01f;
         const float invSr = 1.0f / (float) sr;
         const int nu = juce::jlimit (1, 8, s.uni);
         const float uniNorm = 1.0f / std::sqrt ((float) nu);
@@ -465,6 +466,7 @@ namespace nova
                     else mRes += x;
                 }
             float cents = (s.ltgt == 0 ? lfoV * 100.0f : 0.0f) + mPitch * 100.0f;
+            if (hasPEnv) { cents += s.penv * 100.0f * std::exp (-lv.t / std::max (0.002f, s.ptime)); mPitch += 0.0001f; }   // obalka vysky
             if (modWheel > 0.001f) cents += modWheel * 30.0f * std::sin (twoPi * 5.5f * lv.t);
             const float pitchMul = mPitch != 0.0f ? std::pow (2.0f, cents / 1200.0f) : 1.0f + cents * 0.000577789f;
             const float volMul = (s.ltgt == 2 ? std::max (0.0f, 1.0f + 0.5f * lfoV) : 1.0f) * std::max (0.0f, 1.0f + mVol);
@@ -627,6 +629,7 @@ namespace nova
                 lv.pos += std::pow (2.0, (v.curNote + shift - (float) s.root) / 12.0) * lv.user->rate / sr * pitchMul;
             }
             if (lv.wave == 7 && tilt != 0.0f) { l += tilt * (l - lv.tiltL.lp (l)); r += tilt * (r - lv.tiltR.lp (r)); }
+            if (s.noise > 0.001f && lv.wave != 4) { const float nz = v.rng.next() * 0.45f * s.noise * s.noise; l += nz; r += nz; }   // primiesany sum (dych, trsatko)
 
             // filter vrstvy
             if (useFilter)
