@@ -46,17 +46,16 @@ namespace
         mut.onClick = [&p, after] { p.mutate(); if (after) after(); };
     }
 
-    // vyber jazyka SK / EN; po zmene sa rozhranie postavi znova
-    void setupLangBox (juce::ComboBox& b, NovaEditor& ed)
+    // "Nauc sa zvuk": v Korgus Sequenceri otvori okno ucenia zvuku z inej stopy
+    void setupLearn (NovaProcessor& p, juce::TextButton& b)
     {
-        b.setWantsKeyboardFocus (false);
-        b.addItem ("SK", 1); b.addItem ("EN", 2);
-        b.setSelectedId (lang() + 1, juce::dontSendNotification);
-        b.setTooltip ("Jazyk / Language");
-        b.onChange = [&b, &ed]
+        b.setButtonText (T ("Nauč sa zvuk"));
+        b.setTooltip (T ("Inspiria sa pokúsi napodobniť nástroj z inej stopy v Korgus Sequenceri."));
+        b.onClick = [&p]
         {
-            setLang (b.getSelectedId() - 1);
-            juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<NovaEditor> (&ed)] { if (sp != nullptr) sp->setMode (sp->proc.uiMode); });
+            if (! p.requestLearn())
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Korgus Inspiria",
+                    T ("Nauč sa zvuk funguje v programe Korgus Sequencer: Inspiria tam napodobní nástroj z inej stopy."));
         };
     }
 
@@ -187,13 +186,13 @@ namespace
                 addAndMakeVisible (*k);
                 knobs.push_back (std::move (k));
             }
-            ext.setButtonText (T ("Rozšírená ▸"));
+            ext.setButtonText (T ("Rozšírená"));
             ext.setTooltip (T ("Úplný editor zvuku: vrstvy, filtre, efekty, arpeggiátor, vlastné zvuky"));
             ext.onClick = [this] { juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<NovaEditor> (&ed)] { if (sp != nullptr) sp->setMode (1); }); };
             addAndMakeVisible (ext);
             setupSurprise (p, surprise, surCat, mutateB, [this] { tick(); });
             addAndMakeVisible (surprise); addAndMakeVisible (surCat); addAndMakeVisible (mutateB);
-            setupLangBox (langBox, ed); addAndMakeVisible (langBox);
+            setupLearn (p, learnB); addAndMakeVisible (learnB);
             addAndMakeVisible (insp);
             setSize (SW, SH);
             tick();
@@ -227,19 +226,19 @@ namespace
             auto head = getLocalBounds().removeFromTop (44);
             g.setColour (panel); g.fillRect (head);
             g.setColour (text); g.setFont (juce::FontOptions (19.0f, juce::Font::bold));
-            g.drawText ("KORGUS INSPIRE", head.reduced (16, 0), juce::Justification::centredLeft);
+            g.drawText ("KORGUS INSPIRIA", head.reduced (16, 0), juce::Justification::centredLeft);
             g.setColour (dim); g.setFont (juce::FontOptions (13.0f));
-            g.drawText (status, head.reduced (16, 0).withTrimmedRight (420).withTrimmedLeft (170), juce::Justification::centredRight);
+            g.drawText (status, head.reduced (16, 0).withTrimmedRight (480).withTrimmedLeft (190), juce::Justification::centredRight);
             g.setFont (juce::FontOptions (11.5f));
             g.drawText (T ("Klavír: Salamander Grand Piano V3 – Alexander Holm, licencia CC-BY 3.0"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
         }
         void resized() override
         {
-            ext.setBounds (getWidth() - 16 - 112, 9, 112, 26);
+            ext.setBounds (getWidth() - 16 - 96, 9, 96, 26);
             mutateB.setBounds (ext.getX() - 8 - 84, 9, 84, 26);
             surCat.setBounds (mutateB.getX() - 6 - 22, 9, 22, 26);
             surprise.setBounds (surCat.getX() - 2 - 104, 9, 104, 26);
-            langBox.setBounds (surprise.getX() - 8 - 58, 11, 58, 22);
+            learnB.setBounds (surprise.getX() - 8 - 104, 9, 104, 26);
             auto r = getLocalBounds().reduced (16, 0);
             r.removeFromTop (44 + 10);
             {
@@ -264,8 +263,7 @@ namespace
         std::vector<std::unique_ptr<PresetButton>> buttons, catButtons;
         std::vector<std::unique_ptr<Knob>> knobs;
         juce::String curCat, lastKey;
-        juce::TextButton ext, surprise, surCat, mutateB;
-        juce::ComboBox langBox;
+        juce::TextButton ext, surprise, surCat, mutateB, learnB;
         juce::String status;
     };
 
@@ -1710,9 +1708,12 @@ namespace
     {
         TopBar (NovaEditor& e, Browser& b) : ed (e), p (e.proc), br (b)
         {
-            simple.setButtonText (T ("Jednoduchá")); advanced.setButtonText (T ("Rozšírená"));
+            // jedno tlacidlo: zapnute = rozsirena verzia, klik = spat na jednoduchu
+            advanced.setButtonText (T ("Rozšírená"));
             advanced.setToggleState (true, juce::dontSendNotification);
-            simple.onClick = [this] { juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<NovaEditor> (&ed)] { if (sp != nullptr) sp->setMode (0); }); };
+            advanced.setTooltip (T ("Vypnúť = jednoduchá verzia so šiestimi gombíkmi"));
+            advanced.onClick = [this] { juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<NovaEditor> (&ed)] { if (sp != nullptr) sp->setMode (0); }); };
+            setupLearn (p, learnB);
             prev.setButtonText (juce::String::charToString (0x25C0)); next.setButtonText (juce::String::charToString (0x25B6));
             prev.onClick = [this] { br.step (-1); }; next.onClick = [this] { br.step (1); };
             save.setButtonText (T ("Uložiť…")); save.onClick = [this] { saveDialog(); };
@@ -1727,8 +1728,7 @@ namespace
             vol.setSliderStyle (juce::Slider::LinearHorizontal); vol.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             volAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.params, "volume", vol);
             vol.setDoubleClickReturnValue (true, 0.0);
-            for (auto* c : std::initializer_list<juce::Component*> { &simple, &advanced, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &langBox, &size, &vol }) addAndMakeVisible (c);
-            setupLangBox (langBox, ed);
+            for (auto* c : std::initializer_list<juce::Component*> { &advanced, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &learnB, &size, &vol }) addAndMakeVisible (c);
             tick();
         }
         void saveDialog()
@@ -1783,19 +1783,19 @@ namespace
         void resized() override
         {
             const int y = 12, h = 28;
-            simple.setBounds (12, y, 96, h); advanced.setBounds (110, y, 96, h);
+            advanced.setBounds (12, y, 96, h);
             prev.setBounds (220, y, 30, h);
             nameBox = { 254, y, 220, h };
             next.setBounds (478, y, 30, h);
             save.setBounds (516, y, 76, h); undoB.setBounds (598, y, 58, h); redoB.setBounds (660, y, 58, h);
             surprise.setBounds (728, y, 96, h); surCat.setBounds (826, y, 20, h); mutateB.setBounds (852, y, 74, h);
-            langBox.setBounds (932, y + 2, 58, h - 4);
+            learnB.setBounds (932, y, 116, h);
             vol.setBounds (getWidth() - 12 - 96, y, 96, h);
             size.setBounds (vol.getX() - 76 - 78, y + 2, 78, h - 4);
         }
         NovaEditor& ed; NovaProcessor& p; Browser& br;
-        juce::TextButton simple, advanced, prev, next, save, undoB, redoB, surprise, surCat, mutateB;
-        juce::ComboBox size, langBox; juce::Slider vol;
+        juce::TextButton advanced, prev, next, save, undoB, redoB, surprise, surCat, mutateB, learnB;
+        juce::ComboBox size; juce::Slider vol;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> volAtt;
         juce::Rectangle<int> nameBox; juce::String shownName, shownCat;
     };

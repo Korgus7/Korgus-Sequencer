@@ -211,7 +211,7 @@ namespace nova
                 { "Zachytí, čo si práve zahral (aj bez nahrávania) – v Korgus Sequenceri to vloží do stopy, inde ponúkne uloženie MIDI alebo WAV",
                   "Captures what you just played (even without recording) – in Korgus Sequencer it goes into the track, elsewhere you can save it as MIDI or WAV" },
                 { "Zatiaľ si nič nezahral", "You haven't played anything yet" }, { "Pridané do stopy", "Added to the track" },
-                { "Uložiť ako MIDI…", "Save as MIDI…" }, { "Uložiť ako WAV…", "Save as WAV…" },
+                { "Uložiť ako MIDI…", "Save as MIDI…" }, { "Uložiť ako WAV…", "Save as WAV…" }, { "Nauč sa zvuk", "Learn sound" }, { "Inspiria sa pokúsi napodobniť nástroj z inej stopy v Korgus Sequenceri.", "Inspiria tries to imitate an instrument from another track in Korgus Sequencer." }, { "Nauč sa zvuk funguje v programe Korgus Sequencer: Inspiria tam napodobní nástroj z inej stopy.", "Learn sound works in Korgus Sequencer: there Inspiria imitates an instrument from another track." }, { "Vypnúť = jednoduchá verzia so šiestimi gombíkmi", "Turn off = simple version with six knobs" },
                 { "Ukladám…", "Saving…" }, { "Uložené: ", "Saved: " }, { "Nepodarilo sa uložiť", "Couldn't save" },
                 { "Ukladám zvuk…", "Saving sound…" },
             };

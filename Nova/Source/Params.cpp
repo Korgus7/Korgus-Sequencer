@@ -500,6 +500,9 @@ namespace nova
         // skryty parameter pre hostitela: zvysi sa po kazdom "Inspiracia" zachyteni (stav obsahuje <capture>)
         v.push_back (std::make_unique<juce::AudioParameterInt> (juce::ParameterID { "capture_seq", 2 }, "Capture", 0, 1000000, 0,
                                                                 juce::AudioParameterIntAttributes().withAutomatable (false)));
+        // skryty parameter pre hostitela: "Nauc sa zvuk" - Korgus Sequencer otvori okno ucenia zvuku z inej stopy
+        v.push_back (std::make_unique<juce::AudioParameterInt> (juce::ParameterID { "learn_req", 3 }, "Learn", 0, 1000000, 0,
+                                                                juce::AudioParameterIntAttributes().withAutomatable (false)));
         return { v.begin(), v.end() };
     }
 }

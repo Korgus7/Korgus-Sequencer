@@ -122,7 +122,10 @@ public:
 
     // Inspiracia
     nova::CapPhrase lastPhrase() const;                  // posledna zahrana fraza (prazdna = nic nezahral)
-    void publishCapture (const nova::CapPhrase& ph);     // preda frazu hostitelovi (Korgus Sequencer) cez stav + parameter capture_seq
+    void publishCapture (const nova::CapPhrase& ph);
+    // "Nauc sa zvuk": v Korgus Sequenceri poziada hostitela o okno ucenia; inde vrati false
+    bool requestLearn();
+    static bool inKorgusSequencer();     // preda frazu hostitelovi (Korgus Sequencer) cez stav + parameter capture_seq
     nova::Settings currentSettings();                    // aktualny zvuk ako nastavenia syntetizatora (hlavne vlakno)
     static bool hostedInKorgus();
     nova::CaptureBuffer capBuf;

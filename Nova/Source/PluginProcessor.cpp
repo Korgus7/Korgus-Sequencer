@@ -1064,6 +1064,23 @@ void NovaProcessor::publishCapture (const nova::CapPhrase& ph)
     prm->endChangeGesture();
 }
 
+bool NovaProcessor::inKorgusSequencer()
+{
+    return juce::PluginHostType::getHostPath().containsIgnoreCase ("Korgus Sequencer");
+}
+
+bool NovaProcessor::requestLearn()
+{
+    if (! inKorgusSequencer()) return false;
+    auto* prm = params.getParameter ("learn_req");
+    if (prm == nullptr) return false;
+    const int next = (int) std::lround (prm->convertFrom0to1 (prm->getValue())) + 1;
+    prm->beginChangeGesture();
+    prm->setValueNotifyingHost (prm->convertTo0to1 ((float) (next % 1000000)));
+    prm->endChangeGesture();
+    return true;
+}
+
 nova::Settings NovaProcessor::currentSettings()
 {
     nova::Settings s;
