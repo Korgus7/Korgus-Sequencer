@@ -741,6 +741,21 @@ namespace
 }
 
 int NovaProcessor::builtinSampleCount() { return kNumBuiltin; }
+
+void NovaProcessor::setSourceMode (int layer, int mode)
+{
+    const int li = layer & 1;
+    const juce::String p = li == 0 ? "a_" : "b_";
+    if (mode == 2 && smpBuiltin[li] < 0) { loadBuiltinSample (li, lastBuiltin[li]); return; }
+    if (mode == 1 && (smpBuiltin[li] >= 0 || smpFlac[li].getSize() == 0))
+    {
+        juce::String err;
+        if (lastWav[li].existsAsFile() && loadSampleFile (li, lastWav[li], err)) return;
+        setSample (li, {}, {}); smpFile[li] = juce::File();
+        if (auto* prm = params.getParameter (p + "src")) prm->setValueNotifyingHost (prm->convertTo0to1 (1.0f));
+        if (onPatchChanged) onPatchChanged();
+    }
+}
 juce::String NovaProcessor::builtinSampleName (int i)
 {
     if (! juce::isPositiveAndBelow (i, kNumBuiltin)) return {};
@@ -754,10 +769,10 @@ bool NovaProcessor::loadBuiltinSample (int layer, int idx)
     const char* data = NovaSamples::getNamedResource (kBuiltin[idx].res, size);
     if (data == nullptr || size <= 0) return false;
     setSample (layer, juce::MemoryBlock (data, (size_t) size), builtinSampleName (idx));
-    smpFile[layer & 1] = juce::File();
+    smpFile[layer & 1] = juce::File(); lastBuiltin[layer & 1] = idx;
     const juce::String p = layer == 0 ? "a_" : "b_";
     auto set = [this] (const juce::String& id, float v) { if (auto* prm = params.getParameter (id)) prm->setValueNotifyingHost (prm->convertTo0to1 (v)); };
-    set (p + "on", 1); set (p + "wave", 7); set (p + "src", 1); set (p + "root", (float) kBuiltin[idx].root); set (p + "loop", 0);
+    set (p + "on", 1); set (p + "wave", 7); set (p + "src", 2); set (p + "root", (float) kBuiltin[idx].root); set (p + "loop", 0);
     if (onPatchChanged) onPatchChanged();
     return true;
 }
@@ -796,7 +811,7 @@ bool NovaProcessor::loadSampleFile (int layer, const juce::File& f, juce::String
         w->writeFromAudioSampleBuffer (b, 0, len);
     }
     setSample (layer, mb, f.getFileNameWithoutExtension());
-    smpFile[layer & 1] = f;
+    smpFile[layer & 1] = f; lastWav[layer & 1] = f; smpBuiltin[layer & 1] = -1;
     const juce::String p = layer == 0 ? "a_" : "b_";
     auto set = [this] (const juce::String& id, float v) { if (auto* prm = params.getParameter (id)) prm->setValueNotifyingHost (prm->convertTo0to1 (v)); };
     set (p + "on", 1); set (p + "wave", 7); set (p + "src", 1);

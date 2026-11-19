@@ -618,9 +618,9 @@ int main (int argc, char** argv)
           float mean = 0; for (float v : e) mean += v; mean /= (float) e.size(); int cr = 0; for (size_t j = 21; j < e.size(); ++j) if (e[j - 1] < mean && e[j] >= mean) ++cr;
           printf ("LFO 1/8 pri 120 BPM: %.1f vlnení za sekundu\n", cr / ((e.size() - 21) * 0.005)); }
         q.uiMode = 1; int k = 0;
-        for (int w : { 2, 7, 9, 77 })
+        for (int w : { 2, 7, 9, 77, 78 })
         {
-            base(); if (w == 77) q.loadBuiltinSample (0, 12); else setParam (q, "a_wave", (float) w);
+            base(); if (w == 77) q.loadBuiltinSample (0, 12); else if (w == 78) { setParam (q, "a_wave", 7); q.setSourceMode (0, 1); } else setParam (q, "a_wave", (float) w);
             std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);
             auto img = ed->createComponentSnapshot (ed->getLocalBounds());
             File f ("/home/claude/shp/shot_" + String (k++) + ".png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);

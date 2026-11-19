@@ -577,7 +577,7 @@ namespace
             f24 (pr.params, pre + "f24", "24 dB", layer == 0 ? arc : arcB),
             lshape (pr.params, pre + "lshape", juce::StringArray::fromTokens (T ("Sínus|Trojuholník|Obdĺžnik|Náhodne"), "|", ""), layer == 0 ? steelHi : accentB),
             ltgt (pr.params, pre + "ltgt"), ratio (pr.params, pre + "ratio"),
-            src (pr.params, pre + "src", juce::StringArray::fromTokens (T ("Klavír|WAV"), "|", ""), layer == 0 ? steelHi : accentB),
+            src (pr.params, pre + "src", juce::StringArray::fromTokens (T ("Klavír|Vzorky|WAV"), "|", ""), layer == 0 ? steelHi : accentB),
             loop (pr.params, pre + "loop", T ("Opakovať"), layer == 0 ? arc : arcB),
             wt (pr.params, pre + "wt"), disp (pr, pre)
         {
@@ -597,7 +597,9 @@ namespace
             ftype.setTips ({ T ("Dolná priepusť – stmavuje (najčastejší)"), T ("Pásmová priepusť – nechá len stred"), T ("Horná priepusť – zoslabí basy"), T ("Telo – rezonancie ako drevo nástroja") });
             lshape.setIcons ({ icSine, icTri, icSquare, icRandom });
             lshape.setTips ({ T ("LFO sínus"), T ("LFO trojuholník"), T ("LFO obdĺžnik"), T ("LFO náhodne") });
-            src.setTips ({ T ("Vstavané nahrávky klavíra"), T ("Vlastný zvuk WAV") });
+            src.setValueMap ({ 0, 2, 1 });   // parameter: 0 klavir, 1 WAV, 2 vzorky
+            src.setTips ({ T ("Vstavané nahrávky klavíra"), T ("Zabudované vzorky nástrojov – gitary, basy, sláčiky, dychy, zbor…"), T ("Vlastný zvuk WAV") });
+            src.onPick = [this] (int v) { p.setSourceMode (li, v); update(); };
             addAndMakeVisible (on); addAndMakeVisible (wave); addAndMakeVisible (ftype); addAndMakeVisible (f24);
             addAndMakeVisible (lshape); addAndMakeVisible (ltgt); addAndMakeVisible (ratio); addAndMakeVisible (src); addAndMakeVisible (loop);
             const char* r1[] = { "oct", "semi", "fine", "uni", "spread", "level", "pan", "penv", "ptime" };
@@ -623,34 +625,33 @@ namespace
             noise->s.setTooltip (T ("Primieša šum do vrstvy – dych pri flaute, škrabnutie trsatka, vzduch"));
             color = mk ("color", {});
             root = mk ("root", T ("Zákl. tón"));
-            load.setButtonText (juce::String::fromUTF8 ("WAV…"));
+            load.setButtonText (T ("Načítať…"));
             load.setTooltip (T ("Vlastný zvuk do vrstvy (alebo pretiahni WAV súbor myšou na vrstvu)"));
             load.onClick = [this] { chooseFile(); };
             addAndMakeVisible (load);
-            // zabudovane vzorky nastrojov (gitara, husle, flauta…)
-            smpMenu.setButtonText (T ("Vzorky ▾"));
-            smpMenu.setTooltip (T ("Zabudované vzorky nástrojov – gitary, basy, sláčiky, dychy, zbor…"));
-            smpMenu.onClick = [this]
+            // zabudovane vzorky: klik na nazov = zoznam vsetkych
+            nameBtn.setTooltip (T ("Klik = zoznam vzoriek"));
+            nameBtn.onClick = [this]
             {
                 juce::PopupMenu m;
                 const int cur = p.builtinSample (li);
                 for (int i = 0; i < NovaProcessor::builtinSampleCount(); ++i) m.addItem (i + 1, NovaProcessor::builtinSampleName (i), true, i == cur);
                 juce::Component::SafePointer<LayerPanel> sp (this);
-                m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&smpMenu), [sp] (int r)
+                m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&nameBtn), [sp] (int r)
                 {
                     if (sp == nullptr || r <= 0) return;
                     sp->p.loadBuiltinSample (sp->li, r - 1);
                     sp->update();
                 });
             };
-            addAndMakeVisible (smpMenu);
+            addChildComponent (nameBtn);
             smpName.setFont (juce::FontOptions (12.5f)); smpName.setColour (juce::Label::textColourId, dim.brighter (0.3f));
             addAndMakeVisible (smpName);
             // prehadzovac samplov: predchadzajuci / dalsi zvuk z toho isteho priecinka
             for (int d = 0; d < 2; ++d)
             {
                 stepB[d].setButtonText (juce::String::charToString (d == 0 ? 0x25C0 : 0x25B6));
-                stepB[d].setTooltip (T (d == 0 ? "Predchádzajúci zvuk (z priečinka alebo zo vzoriek)" : "Ďalší zvuk (z priečinka alebo zo vzoriek)"));
+                stepB[d].setTooltip (T (d == 0 ? "Predchádzajúci zvuk" : "Ďalší zvuk"));
                 stepB[d].onClick = [this, d]
                 {
                     juce::String err;
@@ -689,20 +690,21 @@ namespace
         void update()
         {
             const int w = (int) p.params.getRawParameterValue (pre + "wave")->load();
-            const bool isSample = w == 7, isUser = isSample && p.params.getRawParameterValue (pre + "src")->load() > 0.5f;
-            if (w != lastWave || isUser != lastUser)
+            const int srcV = (int) std::round (p.params.getRawParameterValue (pre + "src")->load());
+            const bool isSample = w == 7, isUser = isSample && srcV > 0, isWav = isSample && srcV == 1, isSmp = isSample && srcV == 2;
+            if (w != lastWave || srcV != lastSrc)
             {
-                lastWave = w; lastUser = isUser;
+                lastWave = w; lastSrc = srcV;
                 const char* ct = "Farba";
                 switch (w) { case 3: ct = "Šírka pulzu"; break; case 4: ct = "Farba šumu"; break; case 5: ct = "Jas struny"; break; case 6: ct = "FM index"; break; case 7: ct = "Tvrdosť"; break; case 8: ct = "Focus"; break; case 9: ct = "Pozícia"; break; default: break; }
                 color->setTitle (T (ct));
                 color->s.setTooltip (w == 9 ? T ("Pozícia vo wavetable – plynulý prechod medzi 64 tvarmi vlny. Hýbe ňou aj Obálka (filtra) a LFO s cieľom Farba.") : juce::String());
-                wt.setVisible (w == 9); wtLabel.setVisible (w == 9); disp.setVisible (! isUser);
+                wt.setVisible (w == 9); wtLabel.setVisible (w == 9); disp.setVisible (! isWav);
                 row1[3]->setTitle (T (w == 8 ? "Bohatosť" : "Unison")); row1[4]->setTitle (T (w == 8 ? "Rozptyl" : "Rozlad."));
                 color->setVisible (w >= 3 && ! isUser);
                 noise->setVisible (w != 4 && ! isUser);
                 ratio.setVisible (w == 6); ratioLabel.setVisible (w == 6);
-                src.setVisible (isSample); load.setVisible (isSample); smpMenu.setVisible (isSample); root->setVisible (isUser); loop.setVisible (isUser); smpName.setVisible (isUser);
+                src.setVisible (isSample); load.setVisible (isWav); nameBtn.setVisible (isSmp); root->setVisible (isWav); loop.setVisible (isWav); smpName.setVisible (isWav);
                 stepB[0].setVisible (isUser); stepB[1].setVisible (isUser);
                 row1[3]->setEnabled (w <= 3 || w >= 8); row1[4]->setEnabled (w <= 3 || w >= 8);
                 resized();
@@ -710,6 +712,7 @@ namespace
             row3[4]->setEnabled (p.params.getRawParameterValue (pre + "lsync")->load() < 0.5f);   // Rychlost len pri volnom LFO
             const auto nm = p.sampleName (li);
             smpName.setText (nm.isNotEmpty() ? nm : T ("(žiadny zvuk)"), juce::dontSendNotification);
+            if (nameBtn.getButtonText() != nm + juce::String::fromUTF8 (" ▾")) nameBtn.setButtonText (nm + juce::String::fromUTF8 (" ▾"));
         }
         void paint (juce::Graphics& g) override
         {
@@ -740,26 +743,37 @@ namespace
             noise->setBounds (x, 332, 58, 72); if (noise->isVisible()) x += 64;
             ratioLabel.setBounds (x, 334, 84, 15); ratio.setBounds (x, 354, 84, 24); if (ratio.isVisible()) x += 94;
             wtLabel.setBounds (x, 334, 104, 15); wt.setBounds (x, 354, 104, 24); if (wt.isVisible()) x += 114;
-            disp.setBounds (src.isVisible() ? x + 134 : x, 334, getWidth() - 12 - (src.isVisible() ? x + 134 : x), 68);
-            src.setBounds (x, 336, 124, 24);
-            load.setBounds (x, 366, 52, 26);
-            smpMenu.setBounds (x + 56, 366, 68, 26);
-            if (src.isVisible()) x += 134;
-            root->setBounds (getWidth() - 12 - 64 - 92, 332, 64, 72);
-            loop.setBounds (getWidth() - 12 - 88, 366, 88, 22);
             {
-                const int right = root->getX() - 6;
-                stepB[1].setBounds (right - 24, 336, 24, 22);
-                stepB[0].setBounds (right - 50, 336, 24, 22);
-                smpName.setBounds (x, 336, juce::jmax (40, right - 54 - x), 22);
+                // zdroj sampla: Klavir | Vzorky | WAV, pod nim ovladanie zvoleneho zdroja
+                const int sw = juce::jmin (200, getWidth() - 12 - x - 80);
+                const int dx = src.isVisible() ? x + sw + 10 : x;
+                disp.setBounds (dx, 334, juce::jmax (10, getWidth() - 12 - dx), 68);
+                src.setBounds (x, 336, sw, 24);
+                // Vzorky: ◀ nazov ▶
+                stepB[0].setBounds (x, 366, 26, 26);
+                if (nameBtn.isVisible())
+                {
+                    nameBtn.setBounds (x + 30, 366, sw - 60, 26);
+                    stepB[1].setBounds (x + sw - 26, 366, 26, 26);
+                }
+                // WAV: Nacitat… ◀ ▶ nazov suboru, vpravo zakladny ton a opakovanie
+                load.setBounds (x, 366, 84, 26);
+                if (load.isVisible())
+                {
+                    stepB[0].setBounds (x + 88, 366, 26, 26);
+                    stepB[1].setBounds (x + 118, 366, 26, 26);
+                }
+                root->setBounds (getWidth() - 12 - 64 - 92, 332, 64, 72);
+                loop.setBounds (getWidth() - 12 - 88, 366, 88, 22);
+                smpName.setBounds (x + 150, 368, juce::jmax (40, root->getX() - 6 - (x + 150)), 22);
             }
         }
         NovaProcessor& p; int li; juce::String pre;
         Toggle on; Seg wave, ftype; Toggle f24; Seg lshape; Combo ltgt, ratio; Seg src; Toggle loop; Combo wt; VoiceDisplay disp; juce::Label wtLabel;
         std::vector<std::unique_ptr<Knob>> row1, row2, row3; std::unique_ptr<Knob> color, root, noise;
-        juce::TextButton load, smpMenu, stepB[2]; juce::Label smpName, ratioLabel;
+        juce::TextButton load, nameBtn, stepB[2]; juce::Label smpName, ratioLabel;
         std::unique_ptr<juce::FileChooser> chooser;
-        int lastWave = -1; bool lastUser = false;
+        int lastWave = -1, lastSrc = -1;
     };
 
     // ===================================================================== tube

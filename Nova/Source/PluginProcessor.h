@@ -101,6 +101,7 @@ public:
     static juce::String builtinSampleName (int i);
     bool loadBuiltinSample (int layer, int idx);
     int builtinSample (int layer) const { return smpBuiltin[layer & 1]; }
+    void setSourceMode (int layer, int mode);   // 0 klavir, 1 WAV, 2 vzorky (pri prepnuti vrati posledny zvuk daneho druhu)
     juce::File sampleFile (int layer) const { return smpFile[layer & 1]; }
     void copyLayer (int from, int to);   // skopiruje celu vrstvu (oscilator, filter, obalky, LFO, sampel)
     juce::String sampleName (int layer) const;
@@ -151,6 +152,8 @@ private:
     juce::MemoryBlock smpFlac[2]; juce::String smpName[2];
     juce::File smpFile[2];   // odkial bol zvuk nacitany (pre prehadzovac)
     int smpBuiltin[2] { -1, -1 };   // cislo zabudovanej vzorky (-1 = vlastny zvuk)
+    int lastBuiltin[2] { 0, 0 };    // posledna zvolena vzorka
+    juce::File lastWav[2];          // posledny nacitany WAV
     std::atomic<int> pendingPreset { -1 };
     std::atomic<int> pendingAction { 0 };   // 1 = prekvap ma, 2 = obmena (zo Sequencera)
     // ukazka

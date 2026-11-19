@@ -12,6 +12,8 @@ namespace nova
             static const std::unordered_map<std::string, const char*> t = {
                 // vseobecne
                 // prepinace s ikonami, tvarovanie zvuku
+                { "Klavír|Vzorky|WAV", "Piano|Samples|WAV" }, { "Načítať…", "Load…" }, { "Klik = zoznam vzoriek", "Click = list of samples" },
+                { "Predchádzajúci zvuk", "Previous sound" }, { "Ďalší zvuk", "Next sound" },
                 { "LFO podľa tempa piesne (1/8 = vlnenie každú osminu, T = triola). Voľne = podľa gombíka Rýchlosť.", "LFO follows the song tempo (1/8 = a wobble every eighth, T = triplet). Free = set by the Rate knob." },
                 { "LFO tempo", "LFO tempo" },
                 { "Vzorky ▾", "Samples ▾" }, { "Zabudované vzorky nástrojov – gitary, basy, sláčiky, dychy, zbor…", "Built-in instrument samples – guitars, basses, strings, winds, choir…" },

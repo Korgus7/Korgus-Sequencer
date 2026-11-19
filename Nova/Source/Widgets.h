@@ -184,60 +184,52 @@ namespace nova::ui
                    icUp = 20, icDown, icUpDown, icPlayed, icRandArp, icChord };
     inline void drawSegIcon (juce::Graphics& g, juce::Rectangle<float> r, int kind, juce::Colour c)
     {
-        const float s = juce::jmin (r.getHeight() - 6.0f, 18.0f), w = juce::jmin (r.getWidth() - 6.0f, s * 1.5f);
-        auto b = juce::Rectangle<float> (w, s).withCentre (r.getCentre());
-        const float x0 = b.getX(), x1 = b.getRight(), y0 = b.getY(), y1 = b.getBottom(), ym = b.getCentreY(), bw = b.getWidth(), bh = b.getHeight();
+        // jednotny vzhlad: rovnaky ramcek ikony (pomer 8:5) s okrajom od hrany tlacidla, rovnaka hrubka ciary
+        const float h = juce::jmin (r.getHeight() * 0.42f, (r.getWidth() * 0.62f) * 5.0f / 8.0f, 10.0f);
+        const float w = h * 1.6f;
+        const auto b = juce::Rectangle<float> (w, h).withCentre (r.getCentre());
+        const float x0 = b.getX(), y0 = b.getY(), bw = b.getWidth(), bh = b.getHeight(), y1 = b.getBottom(), ym = b.getCentreY();
+        auto X = [&] (float t) { return x0 + t * bw; };
+        auto Y = [&] (float v) { return y1 - v * bh; };   // v: 0 dole .. 1 hore
         juce::Path p;
-        auto curve = [&] (std::function<float (float)> f)   // f: 0..1 -> 0 (dole) .. 1 (hore)
+        auto curve = [&] (std::function<float (float)> f)
         {
-            for (int i = 0; i <= 32; ++i) { const float t = (float) i / 32.0f, x = x0 + t * bw, y = y1 - f (t) * bh; if (i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y); }
+            for (int i = 0; i <= 40; ++i) { const float t = (float) i / 40.0f; if (i == 0) p.startNewSubPath (X (t), Y (f (t))); else p.lineTo (X (t), Y (f (t))); }
         };
+        auto steps = [&] (std::initializer_list<float> lv)   // schodiky (arpeggio): kazdy ton = vodorovna ciarka
+        {
+            const int n = (int) lv.size(); int k = 0;
+            for (float v : lv)
+            {
+                const float xa = X ((float) k / (float) n + 0.04f), xb = X ((float) (k + 1) / (float) n - 0.04f);
+                p.startNewSubPath (xa, Y (v)); p.lineTo (xb, Y (v)); ++k;
+            }
+        };
+        auto shelf = [] (float t) { return 0.62f + 0.12f * std::exp (-std::pow ((t - 0.55f) * 10.0f, 2.0f)); };
         switch (kind)
         {
             case icSine:   curve ([] (float t) { return 0.5f + 0.5f * std::sin (t * juce::MathConstants<float>::twoPi); }); break;
-            case icTri:    p.startNewSubPath (x0, ym); p.lineTo (x0 + bw * 0.25f, y0); p.lineTo (x0 + bw * 0.75f, y1); p.lineTo (x1, ym); break;
-            case icSaw:    p.startNewSubPath (x0, y1); p.lineTo (x0 + bw * 0.5f, y0); p.lineTo (x0 + bw * 0.5f, y1); p.lineTo (x1, y0); p.lineTo (x1, y1); break;
-            case icSquare: p.startNewSubPath (x0, y1); p.lineTo (x0, y0); p.lineTo (x0 + bw * 0.5f, y0); p.lineTo (x0 + bw * 0.5f, y1); p.lineTo (x1, y1); p.lineTo (x1, y0); break;
-            case icRandom: { const float h[5] = { 0.3f, 0.9f, 0.1f, 0.65f, 0.4f }; p.startNewSubPath (x0, y1 - h[0] * bh);
-                             for (int i = 0; i < 5; ++i) { const float xa = x0 + bw * (float) i / 5.0f, xb = x0 + bw * (float) (i + 1) / 5.0f; p.lineTo (xa, y1 - h[i] * bh); p.lineTo (xb, y1 - h[i] * bh); } } break;
-            case icLow:    curve ([] (float t) { return t < 0.55f ? 0.62f + 0.1f * std::exp (-std::pow ((t - 0.5f) * 9.0f, 2.0f)) : juce::jmax (0.0f, 0.68f - (t - 0.55f) * 1.6f); }); break;
-            case icHigh:   curve ([] (float t) { return t > 0.45f ? 0.62f + 0.1f * std::exp (-std::pow ((t - 0.5f) * 9.0f, 2.0f)) : juce::jmax (0.0f, 0.68f - (0.45f - t) * 1.6f); }); break;
-            case icBand:   curve ([] (float t) { return 0.85f * std::exp (-std::pow ((t - 0.5f) * 4.2f, 2.0f)); }); break;
-            case icBody:   curve ([] (float t) { return 0.15f + 0.6f * std::exp (-std::pow ((t - 0.3f) * 9.0f, 2.0f)) + 0.45f * std::exp (-std::pow ((t - 0.72f) * 10.0f, 2.0f)); }); break;
-            case icUp: case icDown: case icUpDown: case icPlayed: case icRandArp: case icChord:
-            {
-                float hs[4] = { 0, 1, 2, 3 }; int n = 4;
-                if (kind == icDown) { hs[0] = 3; hs[1] = 2; hs[2] = 1; hs[3] = 0; }
-                if (kind == icUpDown) { hs[0] = 0; hs[1] = 2; hs[2] = 3; hs[3] = 1; }
-                if (kind == icPlayed) { hs[0] = 1; hs[1] = 3; hs[2] = 0; hs[3] = 2; }
-                const float d = 3.0f;
-                if (kind == icChord)
-                {
-                    for (int col = 0; col < 2; ++col) for (int k = 0; k < 3; ++k)
-                        p.addEllipse (x0 + bw * (col == 0 ? 0.22f : 0.78f) - d * 0.5f, y0 + bh * (0.1f + 0.4f * (float) k) - d * 0.5f, d, d);
-                    g.setColour (c); g.fillPath (p); return;
-                }
-                if (kind == icRandArp)
-                {
-                    const float px[5] = { 0.1f, 0.35f, 0.6f, 0.85f, 0.5f }, py[5] = { 0.3f, 0.85f, 0.15f, 0.6f, 0.5f };
-                    for (int k = 0; k < 5; ++k) p.addEllipse (x0 + bw * px[k] - d * 0.5f, y0 + bh * py[k] - d * 0.5f, d, d);
-                    g.setColour (c); g.fillPath (p); return;
-                }
-                juce::Path ln, dots;
-                for (int k = 0; k < n; ++k)
-                {
-                    const float x = x0 + bw * (0.08f + 0.28f * (float) k), y = y1 - bh * (0.1f + 0.8f * hs[k] / 3.0f);
-                    dots.addEllipse (x - d * 0.5f, y - d * 0.5f, d, d);
-                    if (k == 0) ln.startNewSubPath (x, y); else ln.lineTo (x, y);
-                }
-                g.setColour (c.withAlpha (0.55f)); g.strokePath (ln, juce::PathStrokeType (1.0f));
-                g.setColour (c); g.fillPath (dots);
-                return;
-            }
+            case icTri:    p.startNewSubPath (X (0), Y (0.5f)); p.lineTo (X (0.25f), Y (1)); p.lineTo (X (0.75f), Y (0)); p.lineTo (X (1), Y (0.5f)); break;
+            case icSaw:    p.startNewSubPath (X (0), Y (0.5f)); p.lineTo (X (0.5f), Y (1)); p.lineTo (X (0.5f), Y (0)); p.lineTo (X (1), Y (0.5f)); break;
+            case icSquare: p.startNewSubPath (X (0), Y (0.5f)); p.lineTo (X (0), Y (1)); p.lineTo (X (0.5f), Y (1)); p.lineTo (X (0.5f), Y (0)); p.lineTo (X (1), Y (0)); p.lineTo (X (1), Y (0.5f)); break;
+            case icRandom: { const float hv[4] = { 0.55f, 1.0f, 0.0f, 0.7f }; p.startNewSubPath (X (0), Y (hv[0]));
+                             for (int i = 0; i < 4; ++i) { p.lineTo (X ((float) i / 4.0f), Y (hv[i])); p.lineTo (X ((float) (i + 1) / 4.0f), Y (hv[i])); } } break;
+            case icLow:    curve ([shelf] (float t) { return t < 0.55f ? shelf (t) : juce::jmax (0.0f, shelf (t) - std::pow ((t - 0.55f) / 0.45f, 1.6f) * 0.74f); }); break;
+            case icHigh:   curve ([shelf] (float t) { const float u = 1.0f - t; return u < 0.55f ? shelf (u) : juce::jmax (0.0f, shelf (u) - std::pow ((u - 0.55f) / 0.45f, 1.6f) * 0.74f); }); break;
+            case icBand:   curve ([] (float t) { return 0.85f * std::exp (-std::pow ((t - 0.5f) * 4.0f, 2.0f)); }); break;
+            case icBody:   curve ([] (float t) { return 0.08f + 0.8f * std::exp (-std::pow ((t - 0.3f) * 8.0f, 2.0f)) + 0.55f * std::exp (-std::pow ((t - 0.72f) * 9.0f, 2.0f)); }); break;
+            case icUp:      steps ({ 0.0f, 0.33f, 0.67f, 1.0f }); break;
+            case icDown:    steps ({ 1.0f, 0.67f, 0.33f, 0.0f }); break;
+            case icUpDown:  steps ({ 0.0f, 0.5f, 1.0f, 0.5f }); break;
+            case icPlayed:  steps ({ 0.33f, 1.0f, 0.0f, 0.67f }); break;
+            case icRandArp: steps ({ 0.67f, 0.0f, 1.0f, 0.33f });
+                            p.startNewSubPath (X (0.45f), Y (0.5f)); p.lineTo (X (0.55f), Y (0.5f)); break;
+            case icChord:   for (float v : { 0.0f, 0.5f, 1.0f }) { p.startNewSubPath (X (0.06f), Y (v)); p.lineTo (X (0.42f), Y (v)); p.startNewSubPath (X (0.58f), Y (v)); p.lineTo (X (0.94f), Y (v)); } break;
             default: break;
         }
+        (void) ym;
         g.setColour (c);
-        g.strokePath (p, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath (p, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     // segmentove tlacidla pre parameter s vyberom (text alebo ikona, tip pri kazdom)
@@ -256,6 +248,9 @@ namespace nova::ui
         void setWeights (std::initializer_list<float> wt) { weights.clear(); for (float v : wt) weights.add (v); repaint(); }
         void setTips (const juce::StringArray& t) { tips = t; }
         void setGroupEnd (int g) { groupEnd = g; }
+        // poradie zobrazenia: segment i = hodnota parametra map[i]
+        void setValueMap (std::initializer_list<int> m) { vmap.clear(); for (int v : m) vmap.add (v); repaint(); }
+        std::function<void (int)> onPick;   // po kliku (hodnota parametra)
         juce::String getTooltip() override
         {
             if (hover < 0) return {};
@@ -279,7 +274,7 @@ namespace nova::ui
             for (int i = 0; i < n; ++i)
             {
                 auto r = segRect (i);
-                const bool sel = i == value, hov = i == hover;
+                const bool sel = valOf (i) == value, hov = i == hover;
                 g.setColour (sel ? onCol : (hov ? steel.brighter (0.12f) : steel));
                 g.fillRoundedRectangle (r, 3.0f);
                 const auto tc = sel ? juce::Colours::white : text.withAlpha (0.85f);
@@ -295,16 +290,22 @@ namespace nova::ui
             for (int i = 0; i < n; ++i) if ((float) p.x < segRect (i).getRight() + gapAfter (i) * 0.5f) return i;
             return n - 1;
         }
-        void mouseDown (const juce::MouseEvent& e) override { const int i = indexAt (e.getPosition()); if (i >= 0) att->setValueAsCompleteGesture ((float) i); }
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            const int i = indexAt (e.getPosition()); if (i < 0) return;
+            att->setValueAsCompleteGesture ((float) valOf (i));
+            if (onPick) onPick (valOf (i));
+        }
         void mouseMove (const juce::MouseEvent& e) override { const int i = indexAt (e.getPosition()); if (i != hover) { hover = i; repaint(); } }
         void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
         int value = 0;
     private:
         int icon (int i) const { return i < icons.size() ? icons[i] : -1; }
+        int valOf (int i) const { return i < vmap.size() ? vmap[i] : i; }
         float wt (int i) const { return i < weights.size() ? weights[i] : 1.0f; }
         float gapAfter (int i) const { return i < groupEnd ? 1.0f : 3.0f; }
         juce::StringArray names, tips; juce::Colour onCol; int hover = -1, groupEnd = -1;
-        juce::Array<int> icons; juce::Array<float> weights;
+        juce::Array<int> icons, vmap; juce::Array<float> weights;
         std::unique_ptr<juce::ParameterAttachment> att;
     };
 

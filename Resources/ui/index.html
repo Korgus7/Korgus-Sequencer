@@ -296,7 +296,7 @@ body:not(.native) .ph{display:none}
 .dse2-ft button{flex:1;height:30px;background:#141b25;border:1px solid #33435a;border-radius:3px;color:#aab5c3;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
 .dse2-ft button:hover{background:#1b2532}
 .dse2-ft button.on{background:#2d4362;border-color:#46628a;color:#fff}
-.dse2-ft button svg{width:28px;height:16px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.dse2-ft button svg{width:20px;height:13px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 .dse2-ft button.sl{flex:0 0 58px;font-size:12.5px;margin-left:5px}
 .dse2-ft button.sl:disabled{opacity:.4;cursor:default;background:#141b25;border-color:#33435a;color:#aab5c3}
 .dse2-sw{display:flex;align-items:center;gap:8px;font-size:13.5px;color:#aab5c3;cursor:pointer;white-space:nowrap}
@@ -337,6 +337,8 @@ body:not(.native) .ph{display:none}
 .dnum.scur{background:#4f7a5a;color:#fff}
 .dnum{cursor:pointer}
 #bRec{color:#8e3a2c;font-size:14px}
+#trWin .bar .tpi{display:inline-flex;align-items:center;justify-content:center}
+#trWin .bar .tpi svg{width:15px;height:15px;fill:currentColor}
 #lyrBox{position:fixed;left:50%;transform:translateX(-50%);bottom:64px;min-width:420px;max-width:70vw;background:rgba(27,37,51,.94);border:1px solid #161d27;border-radius:3px;padding:8px 18px 10px;z-index:55;color:#e4e9ef;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.4);cursor:move;user-select:none}
 #lyrBox .sec{font-size:11px;color:#8d9aab;height:14px;letter-spacing:.5px}
 #lyrBox .pv{font-size:14px;color:#7d8a9b;min-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -631,9 +633,9 @@ window.addEventListener('load',()=>{ try{ if(typeof nat==='function') nat('lang'
 <div class="win" id="trWin">
   <div class="bar">
     <button id="bRew" title="Na začiatok">|◄◄</button>
-    <button id="bStop" title="Stop (Num 0)">■</button>
-    <button id="bPlay" title="Play (medzerník)">►</button>
-    <button id="bRec" title="Nahrávanie (Num *)">●</button>
+    <button id="bStop" class="tpi" title="Stop (Num 0)"><svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="1"/></svg></button>
+    <button id="bPlay" class="tpi" title="Play (medzerník)"><svg viewBox="0 0 16 16"><path d="M4 2.2v11.6L13.6 8z"/></svg></button>
+    <button id="bRec" class="tpi" title="Nahrávanie (Num *)"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/></svg></button>
     <button id="bLoop" class="ico" title="Cyklus (Num /)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9V7.5a3 3 0 0 1 3-3H13"/><path d="M11 2.5l2 2-2 2"/><path d="M13.5 7v1.5a3 3 0 0 1-3 3H3"/><path d="M5 13.5l-2-2 2-2"/></svg></button>
     <div class="lcd" id="lcd">001.1.1</div>
     <span class="sep"></span>
@@ -991,6 +993,7 @@ const ICO_GLUE='<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stro
 const ICO_ERASE='<svg width="14" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9.5 1.5l5 5-6.5 6.5H4.5L1.5 10z"/><path d="M5.5 5.5l5 5"/><path d="M4.5 13h10"/></svg>';
 const ICO_PEN='<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/><path d="M9 4l3 3"/></svg>';
 const ICO_WIN='<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1" y="1.5" width="10" height="9" rx="1"/><path d="M1 4h10"/><path d="M3.5 6.5h2M3.5 8.2h5"/></svg>';
+const ICO_WIN_L='<svg width="17" height="17" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"><rect x="1" y="1.5" width="10" height="9" rx="1"/><path d="M1 4h10"/><path d="M3.5 6.5h2M3.5 8.2h5"/></svg>';
 const KEYS=['KeyA','KeyW','KeyS','KeyE','KeyD','KeyF','KeyT','KeyG','KeyY','KeyH','KeyU','KeyJ','KeyK','KeyO','KeyL','KeyP','Semicolon'];
 const uid=()=>Math.random().toString(36).slice(2,10);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -1622,7 +1625,7 @@ function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','
 /* ---------------- stopy ---------------- */
 const ICO_WAVE='<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8h1M5 5v6M8 2.5v11M11 4.5v7M14 7v2"/></svg>';
 const ICO_PIANO='<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="13" height="10" rx="1"/><path d="M5.5 8v5M10.5 8v5M4 3v5h3V3M9 3v5h3V3"/></svg>';
-const ICO_KBD='<svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="13" height="10" rx="1"/><path d="M5.5 8v5M10.5 8v5M4 3v5h3V3M9 3v5h3V3"/></svg>';
+const ICO_KBD='<svg class="ic" width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="13" height="10" rx="1"/><path d="M5.5 8v5M10.5 8v5M4 3v5h3V3M9 3v5h3V3"/></svg>';
 const ICO_IN='<svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h7M6.5 5l3 3-3 3M13 3v10"/></svg>';
 const ICO_FXB='<svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 4.5h11M2.5 11.5h11"/><circle cx="6" cy="4.5" r="1.6"/><circle cx="10.5" cy="11.5" r="1.6"/></svg>';
 const ICO_MON='<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 1a5 5 0 0 1 0 10z" fill="currentColor"/></svg>';
@@ -1657,7 +1660,7 @@ function renderTracksNative(L){
   const fxRow=tr=>{ const fx=((natTrackPlugins[tr.id]||{}).fx||[])[0], r=el('div','r');
     const d=dd(ICO_FXB,fxOpts,fx?fx.uid:'',fx?fx.name+' (dvojklik = okno efektu)':'Efekt na stope',(v,sl)=>{ if(v==='__scan'){ sl.value=fx?fx.uid:''; nat('showPlugins'); return; } nat('trackFx',{track:tr.id,idx:0,uid:v,name:tr.name}); });
     d.ondblclick=()=>{ if(fx) nat('openFx',{track:tr.id,idx:0,name:tr.name}); }; r.appendChild(d);
-    if(fx){ const op=el('button','tg',ICO_WIN); op.title='Otvoriť okno efektu '+fx.name; op.onmousedown=e=>e.stopPropagation(); op.onclick=()=>nat('openFx',{track:tr.id,idx:0,name:tr.name}); r.appendChild(op); }
+    if(fx){ const op=el('button','tg',ICO_WIN_L); op.title='Otvoriť okno efektu '+fx.name; op.onmousedown=e=>e.stopPropagation(); op.onclick=()=>nat('openFx',{track:tr.id,idx:0,name:tr.name}); r.appendChild(op); }
     return r; };
   song.tracks.forEach((tr,i)=>{
     const audio=tr.type==='audio', r=el('div','ntr'+(i===selT?' sel':'')); r.dataset.i=i; r.style.height=ROWH+'px'; r.style.boxShadow='inset 8px 0 0 '+trColor(tr);
@@ -3039,7 +3042,7 @@ function drumEdit(tr,l){
   const den=(k,t)=>{const [a,b,,lg]=C[k]; return lg?a*Math.pow(b/a,t):a+t*(b-a);};
   const COL={a:'#7fb38a',p:'#8fb3d9',f:'#c9a35a'}, TABN={a:'Hlasitosť',p:'Výška',f:'Filter'};
   // typ filtra: 3 ikony (dolna/pasmova/horna) + 12/24 dB; povaha (ladder/cisty) ostava podla doterajsej hodnoty
-  const FTI=['M2 5h10c2.5 0 3.5 1 5 3.5L21 13','M2 13C8 13 9 3 12 3s4 10 10 10','M3 13l4-4.5C8.5 6 9.5 5 12 5h10'];
+  const FTI=['M2 5.5h10.5c2 0 3.2.8 4.4 2.8L22 14','M2 14C7.5 14 9.5 3 12 3s4.5 11 10 11','M22 5.5H11.5c-2 0-3.2.8-4.4 2.8L2 14'];
   const FTN=['Dolná priepusť – stmavuje','Pásmová priepusť – nechá len stred','Horná priepusť – zoslabí basy'];
   const ftKind=t=>[3,6].includes(t)?1:([4,7].includes(t)?2:0), ft24=t=>t===0||t===1, ftLad=t=>[0,2,3,4].includes(t);
   const ftMake=(k,s24,lad)=>k===1?(lad?3:6):k===2?(lad?4:7):(s24?(lad?0:1):(lad?2:5));
@@ -3050,7 +3053,7 @@ function drumEdit(tr,l){
     p:`<div class="dse2-row">${KB('tr','Transpozícia',1,'Transpozícia – ladenie v poltónoch')}${KB('tune','Jemné ladenie',1,'Jemné ladenie v centoch')}${KB('pEnv','Ohyb tónu',1,'Ohyb tónu – o koľko poltónov tón na začiatku skočí (hore +, dole −) a vráti sa')}${KB('pVel','Sila úderu',1,'Sila úderu – silnejší úder = väčší ohyb')}</div><div class="dse2-row sm">${ENVK('p')}</div>`,
     f:`<div class="dse2-row">${KB('cut','Cutoff',1,'Cutoff – kde filter reže výšky')}${KB('res','Rezonancia',1)}${KB('fEnv','Pohyb',1,'Pohyb – o koľko sa filter pri údere otvorí (+) alebo zatvorí (−)')}${KB('fVel','Sila úderu',1,'Sila úderu – silnejší úder = väčší pohyb filtra')}</div>
        <div class="dse2-row sm">${ENVK('f')}${KB('drive','Drive',0,'Drive – skreslenie')}${KB('punch','Punch',0,'Punch – zvýrazní začiatok úderu')}</div>
-       <div class="dse2-frow"><label class="dse2-sw" data-t="fOn" title="Zapnúť / vypnúť filter"><i></i>Filter zapnutý</label><div class="dse2-ft" id="dse2Type">${FTI.map((d,k)=>`<button data-k="${k}" title="${FTN[k]}"><svg viewBox="0 0 24 14"><path d="${d}"/></svg></button>`).join('')}<button class="sl" id="dse2Slope" title="Strmosť filtra: 24 dB = ostrejší, 12 dB = mäkší (len pre dolnú priepusť)">24 dB</button></div><label class="dse2-sw" data-t="soft" title="Mäkké skreslenie (Drive); vypnuté = tvrdé"><i></i>Mäkké skreslenie</label></div>`};
+       <div class="dse2-frow"><label class="dse2-sw" data-t="fOn" title="Zapnúť / vypnúť filter"><i></i>Filter zapnutý</label><div class="dse2-ft" id="dse2Type">${FTI.map((d,k)=>`<button data-k="${k}" title="${FTN[k]}"><svg viewBox="0 0 24 16"><path d="${d}"/></svg></button>`).join('')}<button class="sl" id="dse2Slope" title="Strmosť filtra: 24 dB = ostrejší, 12 dB = mäkší (len pre dolnú priepusť)">24 dB</button></div><label class="dse2-sw" data-t="soft" title="Mäkké skreslenie (Drive); vypnuté = tvrdé"><i></i>Mäkké skreslenie</label></div>`};
   const el=document.createElement('div'); el.id='dsePanel'; el.className='dse2'; el.title='';
   el.innerHTML=`<div class="dse2-head"><div class="dse2-name"><b>${esc(base)}</b><span>pad ${PAD_ORDER.indexOf(l)+1} · ${padNote(l)}${smp?' · '+esc(smp.name):''}</span></div>
       <button id="dse2Play" class="pri" title="Zahrať zvuk (alebo klik do grafu)">▶</button><button id="dse2Smp" title="Načítať iný zvuk (sampel)">Sampel…</button><button id="dse2Reset" title="Vráti pôvodný zvuk bez úprav">Pôvodný</button><button id="dse2X" title="Zavrieť">×</button></div>
