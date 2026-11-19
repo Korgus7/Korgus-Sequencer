@@ -3145,7 +3145,8 @@ function analyzed(e){
   if(j.kind==='chords'){
     const ch=e.chords||[]; if(!ch.length){ toast('Akordy sa nepodarilo rozpoznať.'); return; }
     pushUndo(); const a=p.start*SPB, b=a+p.len*SPB; song.chords=(song.chords||[]).filter(c=>c.s<a||c.s>=b);
-    let last=null; ch.forEach(c=>{ const st=Math.max(0,Math.round(clipTimeToStep(p,c.t))); if(st>=b) return; if(last&&last.c===c.c) return; last={s:st,c:c.c}; song.chords.push(last); });
+    // ten isty akord znova zahrany ostava (noty potom udieraju spolu s nahravkou); len nie dva na tom istom kroku
+    let last=null; ch.forEach(c=>{ const st=Math.max(0,Math.round(clipTimeToStep(p,c.t))); if(st>=b) return; if(last&&last.s===st){ last.c=c.c; return; } last={s:st,c:c.c}; song.chords.push(last); });
     if(j.then){ drawArrange(); save(); j.then(); return; }
     // MIDI stopa s akordmi hned pod pesnickou (Korgus Inspiria)
     const t=mkTrack('synth'); t.name='Akordy – '+String(p.name||tr.name).slice(0,14);
@@ -3669,7 +3670,8 @@ function parseChord(t){
   const root=pc(m[1],m[2]); if(root==null) return null;
   let q=m[3].toLowerCase().replace(/\s/g,''), iv;
   const has=x=>q.includes(x);
-  if(q.startsWith('maj7')||q==='m7+'||q==='Δ') iv=[0,4,7,11];
+  if(q==='5') iv=[0,7];
+  else if(q.startsWith('maj7')||q==='m7+'||q==='Δ') iv=[0,4,7,11];
   else if(q.startsWith('m7b5')||q.startsWith('ø')) iv=[0,3,6,10];
   else if(q.startsWith('dim')||q==='o') iv=has('7')?[0,3,6,9]:[0,3,6];
   else if(q.startsWith('aug')||q==='+') iv=[0,4,8];

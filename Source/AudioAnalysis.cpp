@@ -412,7 +412,7 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
           if (keyMin) for (int q : MN) inScale[(keyK + q) % 12] = true; else for (int q : MJ) inScale[(keyK + q) % 12] = true; }
         struct Ty { const char* nm; std::vector<int> iv; double pen; };
         static const std::vector<Ty> TY { { "", { 0, 4, 7 }, 0.0 }, { "m", { 0, 3, 7 }, 0.0 }, { "7", { 0, 4, 7, 10 }, 0.08 }, { "m7", { 0, 3, 7, 10 }, 0.1 },
-                                          { "maj7", { 0, 4, 7, 11 }, 0.12 }, { "sus4", { 0, 5, 7 }, 0.06 }, { "dim", { 0, 3, 6 }, 0.08 } };
+                                          { "maj7", { 0, 4, 7, 11 }, 0.12 }, { "sus4", { 0, 5, 7 }, 0.06 }, { "dim", { 0, 3, 6 }, 0.08 }, { "5", { 0, 7 }, 0.02 } };
         const int nT = (int) TY.size(), S = 12 * nT + 1;
         double emax = 0; for (double e : E) emax = juce::jmax (emax, e);
         std::vector<std::vector<double>> em ((size_t) ns, std::vector<double> ((size_t) S, 0.0));
@@ -431,6 +431,12 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
                     {
                         const int q = (root + TY[(size_t) t].iv[j]) % 12;
                         dot += W[j] * ct[(size_t) q]; ww += W[j] * W[j]; if (! inScale[q]) dia = false;
+                    }
+                    // kvintakord (power chord, gitara): len ked tercia nezaznie vobec
+                    if (TY[(size_t) t].iv.size() == 2)
+                    {
+                        double cm = 0; for (int q = 0; q < 12; ++q) cm = juce::jmax (cm, ct[(size_t) q]);
+                        if (juce::jmax (ct[(size_t) ((root + 3) % 12)], ct[(size_t) ((root + 4) % 12)]) > 0.3 * cm) { em[(size_t) i][(size_t) (root * nT + t)] = -9; continue; }
                     }
                     // septima len ked naozaj znie (nie len ako vyssia harmonicka)
                     if (TY[(size_t) t].iv.size() == 4)
@@ -471,12 +477,18 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
         // kratky osamely usek bez uderu -> k susedom
         for (int i = 1; i + 1 < ns; ++i)
             if (! sg[(size_t) i].on && path[(size_t) i] != path[(size_t) i - 1] && path[(size_t) i - 1] == path[(size_t) i + 1] && sg[(size_t) i].b - sg[(size_t) i].a < 0.6) path[(size_t) i] = path[(size_t) i - 1];
-        static const char* NM[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "H" };
+        // nazvy podla toniny: v b-toninach Db, Gb…, inak C#, F#…
+        static const char* NMs[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "H" };
+        static const char* NMb[12] = { "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "H" };
+        const int majTonic = keyMin ? (keyK + 3) % 12 : keyK;
+        const bool flats = majTonic == 5 || majTonic == 10 || majTonic == 3 || majTonic == 8 || majTonic == 1 || majTonic == 6;
+        const char* const* NM = flats ? NMb : NMs;
         int cur = -1;
         for (int i = 0; i < ns; ++i)
         {
             const int q = path[(size_t) i];
-            if (q == cur) continue;
+            // ten isty akord znova zahrany (novy uder) sa zapise znova - noty potom sedia s udermi v nahravke
+            if (q == cur && ! (sg[(size_t) i].on && onsetAt (sg[(size_t) i].a) > 0.15)) continue;
             cur = q;
             if (q == S - 1) continue;
             const int root = q / nT, t = q % nT;
