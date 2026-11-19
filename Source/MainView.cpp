@@ -58,6 +58,86 @@ namespace
 }
 
 
+// "Napodob ustami": nahravka z audio stopy sa tvari ako nastroj - pri note zahra nahravku preladenu podla vysky
+// (zakladny ton sa zisti z nahravky), aby ju "Nauc sa zvuk" mohol porovnavat rovnako ako cudzi plugin
+class ClipInstrument final : public juce::AudioPluginInstance
+{
+public:
+    ClipInstrument (juce::AudioBuffer<float> b, double sr, int rootNote)
+        : AudioPluginInstance (BusesProperties().withOutput ("Out", juce::AudioChannelSet::stereo(), true)),
+          clip (std::move (b)), clipSr (sr), root (rootNote) {}
+    void fillInPluginDescription (juce::PluginDescription& d) const override { d.name = "Clip"; d.pluginFormatName = "Internal"; d.isInstrument = true; }
+    const juce::String getName() const override { return "Clip"; }
+    void prepareToPlay (double sr, int) override { outSr = sr; pos = -1; }
+    void releaseResources() override {}
+    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer& m) override
+    {
+        b.clear();
+        int start = 0;
+        auto render = [&] (int from, int to)
+        {
+            if (pos < 0) return;
+            const int n = clip.getNumSamples(), nch = clip.getNumChannels();
+            for (int i = from; i < to; ++i)
+            {
+                const int i0 = (int) pos; if (i0 + 1 >= n) { pos = -1; return; }
+                const float fr = (float) (pos - i0);
+                for (int c = 0; c < juce::jmin (2, b.getNumChannels()); ++c)
+                {
+                    const float* src = clip.getReadPointer (juce::jmin (c, nch - 1));
+                    b.setSample (c, i, src[i0] + fr * (src[i0 + 1] - src[i0]));
+                }
+                pos += step;
+            }
+        };
+        for (const auto meta : m)
+        {
+            const auto msg = meta.getMessage();
+            render (start, meta.samplePosition); start = meta.samplePosition;
+            if (msg.isNoteOn()) { pos = 0; step = clipSr / outSr * std::pow (2.0, (msg.getNoteNumber() - root) / 12.0); }
+        }
+        render (start, b.getNumSamples());
+    }
+    double getTailLengthSeconds() const override { return 0; }
+    bool acceptsMidi() const override { return true; }
+    bool producesMidi() const override { return false; }
+    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+    bool hasEditor() const override { return false; }
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram (int) override {}
+    const juce::String getProgramName (int) override { return {}; }
+    void changeProgramName (int, const juce::String&) override {}
+    void getStateInformation (juce::MemoryBlock&) override {}
+    void setStateInformation (const void*, int) override {}
+    void reset() override { pos = -1; }
+
+    // zakladny ton nahravky (autokorelacia v strede); bez vyrazneho tonu (sum, sykavky) = 60
+    static int detectRoot (const juce::AudioBuffer<float>& b, double sr)
+    {
+        const int n = b.getNumSamples(); if (n < (int) (sr * 0.2)) return 60;
+        // najhlasnejsie miesto, okno 80 ms
+        const int W = (int) (sr * 0.08); int best = 0; float bestE = 0;
+        for (int a = 0; a + W < n; a += W / 2) { float e = 0; for (int i = a; i < a + W; ++i) { const float x = b.getSample (0, i); e += x * x; } if (e > bestE) { bestE = e; best = a; } }
+        const int lo = (int) (sr / 1000.0), hi = juce::jmin (W - 1, (int) (sr / 50.0));
+        double e0 = 0; for (int i = 0; i < W; ++i) { const double x = b.getSample (0, best + i); e0 += x * x; }
+        if (e0 <= 1e-9) return 60;
+        int bl = -1; double bc = 0;
+        for (int L = lo; L < hi; ++L)
+        {
+            double c = 0, e1 = 0;
+            for (int i = 0; i + L < W; ++i) { const double x = b.getSample (0, best + i), y = b.getSample (0, best + i + L); c += x * y; e1 += y * y; }
+            c /= std::sqrt (e0 * e1 + 1e-12);
+            if (c > bc) { bc = c; bl = L; }
+        }
+        if (bl < 0 || bc < 0.6) return 60;
+        const double f0 = sr / bl;
+        return juce::jlimit (24, 96, (int) std::round (69.0 + 12.0 * std::log2 (f0 / 440.0)));
+    }
+private:
+    juce::AudioBuffer<float> clip; double clipSr, outSr = 48000; int root; double pos = -1, step = 1;
+};
+
 struct MainView::LearnJob : juce::Thread
 {
     LearnJob() : juce::Thread ("Korgus learn sound") {}
@@ -4325,6 +4405,35 @@ void MainView::onLearnSound (const juce::var& v)
     auto fail = [this] (const juce::String& m) { auto o = obj(); put (o, "ok", false); put (o, "error", m); emit ("learnDone", o); };
     if (learnJob != nullptr) { fail (sk ("Učenie zvuku už prebieha.")); return; }
     const auto target = v["target"].toString(), source = v["source"].toString();
+    // zdroj = nahravka z audio stopy (napr. zvuk napodobeny ustami)
+    if (v["aid"].toString().isNotEmpty())
+    {
+        auto dt2 = trackDesc.find (target);
+        auto* pt2 = engine.getPlugin (engine.getOrCreateSlot (target));
+        auto buf = store != nullptr ? store->get (v["aid"].toString()) : nullptr;
+        if (dt2 == trackDesc.end() || pt2 == nullptr) { fail (sk ("Stopa nemá nástroj.")); return; }
+        if (buf == nullptr || buf->getNumSamples() == 0) { fail (sk ("Nahrávka sa nedá prečítať.")); return; }
+        const double sr = store->getSampleRate();
+        const int off = juce::jlimit (0, buf->getNumSamples() - 1, (int) ((double) v.getProperty ("off", 0.0) * sr));
+        const int len = juce::jlimit (1, buf->getNumSamples() - off, (int) (juce::jmin (4.0, (double) v.getProperty ("dur", 4.0)) * sr));
+        juce::AudioBuffer<float> clip (juce::jmin (2, buf->getNumChannels()), len);
+        for (int c = 0; c < clip.getNumChannels(); ++c) clip.copyFrom (c, 0, *buf, c, off, len);
+        const float pk = clip.getMagnitude (0, len); if (pk < 1.0e-4f) { fail (sk ("Nahrávka je tichá.")); return; }
+        clip.applyGain (0.7f / pk);
+        juce::MemoryBlock mt2; pt2->getStateInformation (mt2);
+        auto job = std::make_unique<LearnJob>();
+        job->src = std::make_unique<ClipInstrument> (clip, sr, ClipInstrument::detectRoot (clip, sr));
+        job->ins = createInstance (dt2->second, &mt2, true);
+        if (job->ins == nullptr) { fail (sk ("Nástroj sa nepodarilo pripraviť.")); return; }
+        for (auto* p : { job->src.get(), job->ins.get() })
+        {
+            p->releaseResources(); p->setNonRealtime (true); p->enableAllBuses();
+            p->setRateAndBufferSizeDetails (SoundMatch::kSR, SoundMatch::kBS); p->prepareToPlay (SoundMatch::kSR, SoundMatch::kBS);
+        }
+        job->state = mt2; job->allowSample = false; job->srcName = v["name"].toString(); job->sp = this;
+        learnPrev = mt2; learnTarget = target; learnJob = std::move (job); learnJob->startThread();
+        return;
+    }
     auto dt = trackDesc.find (target), ds = trackDesc.find (source);
     auto* pt = engine.getPlugin (engine.getOrCreateSlot (target));
     auto* ps = engine.getPlugin (engine.getOrCreateSlot (source));

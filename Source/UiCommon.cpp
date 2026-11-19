@@ -45,6 +45,7 @@ juce::String skTranslate (const char* utf8)
         { "Novú verziu sa nepodarilo spustiť. Spusti Korgus Sequencer znova.", "Couldn't start the new version. Start Korgus Sequencer again." },
         { "Učenie zvuku už prebieha.", "Sound learning is already running." },
         { "Stopa nemá nástroj.", "The track has no instrument." },
+        { "Nahrávka sa nedá prečítať.", "The recording cannot be read." }, { "Nahrávka je tichá.", "The recording is silent." },
         { "Nástroj sa nepodarilo pripraviť.", "Couldn't prepare the instrument." },
         { " krokov", " steps" },
         { " stôp)", " tracks)" },
