@@ -5460,7 +5460,7 @@ function zoomArr(dh,dv,ax,ay){
   const mx=ax==null?sc.clientWidth/2+sc.getBoundingClientRect().left:ax, my=ay==null?b.top+RULH:ay;
   const bar=(mx-b.left)/zoomA, row=(my-b.top-RULH)/ROWH;
   if(dh) zoomA=clamp(Math.round(zoomA*(dh>0?1.25:.8)),8,160);
-  if(dv) ROWH=clamp(ROWH+(dv>0?8:-8),28,140);
+  if(dv) ROWH=clamp(ROWH+(dv>0?(ROWH>=140?20:8):(ROWH>140?-20:-8)),28,400);
   if(dv) renderTracks(); drawArrange();
   if(dh) sc.scrollLeft+=bar*zoomA-(mx-b.left);
   if(dv&&ay!=null) sc.scrollTop+=Math.max(0,row)*ROWH-(my-b.top-RULH);
@@ -5851,7 +5851,7 @@ function renderAll(){renderTracks(); drawArrange(); if(ed) renderEditor(); updTr
   $('tbInfo').textContent=song.tracks.length+' '+(song.tracks.length===1?'stopa':song.tracks.length<5?'stopy':'stôp');}
 try{const s=localStorage.getItem(LS); if(s) song=normalize(JSON.parse(s));}catch(e){song=null;}
 try{const x=localStorage.getItem(LSS); if(x) sampleStore=JSON.parse(x)||{};}catch(e){sampleStore={};}
-try{const v=JSON.parse(localStorage.getItem(LSV)||'null'); if(v){if(['low','normal','safe'].includes(v.latMode)) latMode=v.latMode; sinkId=v.sinkId||''; inId=v.inId||''; zoomA=clamp(+v.zoomA||28,8,160); ROWH=clamp(+v.ROWH||28,28,140); zoomK=clamp(+v.zoomK||20,6,80); KH=clamp(+v.KH||12,8,28);}}catch(e){}
+try{const v=JSON.parse(localStorage.getItem(LSV)||'null'); if(v){if(['low','normal','safe'].includes(v.latMode)) latMode=v.latMode; sinkId=v.sinkId||''; inId=v.inId||''; zoomA=clamp(+v.zoomA||28,8,160); ROWH=clamp(+v.ROWH||28,28,400); zoomK=clamp(+v.zoomK||20,6,80); KH=clamp(+v.KH||12,8,28);}}catch(e){}
 if(!song) song=demoSong();
 if(NATIVE){ SECH=16; CHH=16; RULH=58; if(energyShown()){ ENH=EN_LANE_H; RULH=SECH+CHH+ENH+26; } try{ if(localStorage.getItem('korgus.rows')!=='2'){ ROWH=140; localStorage.setItem('korgus.rows','2'); saveView(); } }catch(e){}
   setupNative(); renderAll(); requestAnimationFrame(frame); pushSong(true); natSel(); nat('ready'); natNeedPeaks(); }

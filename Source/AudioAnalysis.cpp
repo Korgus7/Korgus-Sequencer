@@ -313,15 +313,55 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
             isBass[(size_t) b] = fq >= 38.0 && fq <= 300.0; isTre[(size_t) b] = fq >= 150.0 && fq <= 2400.0;
             wTre[(size_t) b] = fq > 1000.0 ? (float) (1000.0 / fq) : 1.0f;
         }
-        // useky: doby, pri pomalom tempe polovice dob
+        // useky: hranice na kazdom udere v nahravke (nezavisle od tempa) + doby (pri pomalom tempe aj polovice)
+        //        - akord sa tak moze zmenit presne tam, kde nieco zaznie, aj ked tempo nie je rozpoznane presne
         const bool half = med > 0.7;
-        struct Seg { double a, b; };
-        std::vector<Seg> sg;
+        struct Seg { double a, b; bool on; };
+        std::vector<std::pair<double, bool>> cut;   // cas, je to uder
+        {   // tonovy nabeh: pribudnu vrcholy spektra (noty), nie sum bicich
+            std::vector<float> tf ((size_t) cs2.frames, 0.0f);
+            for (int f = 1; f < cs2.frames; ++f)
+            {
+                double a = 0;
+                for (int b = 1; b < maxB; ++b)
+                {
+                    const float d = P[(size_t) f * (size_t) maxB + (size_t) b] - P[(size_t) (f - 1) * (size_t) maxB + (size_t) b];
+                    if (d > 0 && (isBass[(size_t) b] || isTre[(size_t) b])) a += d;
+                }
+                tf[(size_t) f] = (float) a;
+            }
+            const double tfps = asr / H;
+            for (auto& pk : pickPeaks (tf, tfps, 0.12, 1.5f, 0.12f))
+            {
+                // presny cas: najsilnejsi nabeh (jemny krok ~12 ms) v okoli
+                const double t0 = pk.first + N * 0.5 / asr - 0.5 * H / asr;
+                int bestF = -1; float bv = 0;
+                for (int f = juce::jmax (0, (int) ((t0 - 0.18) * fps)); f < juce::jmin ((int) env.size(), (int) ((t0 + 0.1) * fps)); ++f)
+                    if (env[(size_t) f] > bv) { bv = env[(size_t) f]; bestF = f; }
+                cut.push_back ({ bestF >= 0 ? (bestF * sp.hop + sp.nfft * 0.5) / asr : t0, true });
+            }
+        }
         for (int i = 0; i < nb; ++i)
         {
             const double t0 = r.beats[(size_t) i], t1 = i + 1 < nb ? r.beats[(size_t) i + 1] : t0 + med;
-            if (half) { sg.push_back ({ t0, 0.5 * (t0 + t1) }); sg.push_back ({ 0.5 * (t0 + t1), t1 }); } else sg.push_back ({ t0, t1 });
+            cut.push_back ({ t0, false }); if (half) cut.push_back ({ 0.5 * (t0 + t1), false });
         }
+        const double tEnd = x.size() / asr;
+        cut.push_back ({ 0.0, false });
+        std::sort (cut.begin(), cut.end(), [] (const auto& p, const auto& q) { return p.first < q.first; });
+        std::vector<std::pair<double, bool>> bd;
+        for (auto& c : cut)
+        {
+            if (c.first < 0 || c.first >= tEnd - 0.05) continue;
+            if (! bd.empty() && c.first - bd.back().first < 0.12)
+            {
+                if (c.second && ! bd.back().second) bd.back() = c;   // uder ma prednost pred dobou
+                continue;
+            }
+            bd.push_back (c);
+        }
+        std::vector<Seg> sg;
+        for (size_t i = 0; i < bd.size(); ++i) sg.push_back ({ bd[i].first, i + 1 < bd.size() ? bd[i + 1].first : tEnd, bd[i].second });
         const int ns = (int) sg.size();
         std::vector<std::array<double, 12>> CT ((size_t) ns), CB ((size_t) ns);
         std::vector<double> E ((size_t) ns, 0.0);
@@ -339,6 +379,20 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
                     if (isTre[(size_t) b]) ct[(size_t) q] += v * wTre[(size_t) b];
                     if (isBass[(size_t) b]) cb[(size_t) q] += v;
                 }
+            // pri udere: nove noty (co pribudlo oproti stavu pred uderom) maju vacsiu vahu nez doznievajuci predosly akord
+            if (sg[(size_t) i].on && f0 >= 4)
+            {
+                const int fb = f0 - 4, nf = f1 - f0;   // ramec cely pred uderom vs. ramce cele po udere
+                for (int k = 2; k < juce::jmin (6, nf + 2) && f0 + k < cs2.frames; ++k)
+                    for (int b = 1; b < maxB; ++b)
+                    {
+                        const float d = P[(size_t) (f0 + k) * (size_t) maxB + (size_t) b] - P[(size_t) fb * (size_t) maxB + (size_t) b];
+                        if (d <= 0) continue;
+                        const int q = pcB[(size_t) b], w = juce::jmax (1, juce::jmin (4, nf));
+                        if (isTre[(size_t) b]) ct[(size_t) q] += 1.5 * d * wTre[(size_t) b] * nf / w;
+                        if (isBass[(size_t) b]) cb[(size_t) q] += 1.5 * d * nf / w;
+                    }
+            }
             for (int q = 0; q < 12; ++q) { E[(size_t) i] += ct[(size_t) q] + cb[(size_t) q]; g[(size_t) q] += ct[(size_t) q] + cb[(size_t) q]; }
         }
         // tonina (Krumhansl): akordy z toniny dostanu maly bonus
@@ -357,8 +411,8 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
         { static const int MJ[7] = { 0, 2, 4, 5, 7, 9, 11 }, MN[8] = { 0, 2, 3, 5, 7, 8, 10, 11 };
           if (keyMin) for (int q : MN) inScale[(keyK + q) % 12] = true; else for (int q : MJ) inScale[(keyK + q) % 12] = true; }
         struct Ty { const char* nm; std::vector<int> iv; double pen; };
-        static const std::vector<Ty> TY { { "", { 0, 4, 7 }, 0.0 }, { "m", { 0, 3, 7 }, 0.0 }, { "7", { 0, 4, 7, 10 }, 0.06 }, { "m7", { 0, 3, 7, 10 }, 0.07 },
-                                          { "maj7", { 0, 4, 7, 11 }, 0.08 }, { "sus4", { 0, 5, 7 }, 0.06 }, { "dim", { 0, 3, 6 }, 0.08 } };
+        static const std::vector<Ty> TY { { "", { 0, 4, 7 }, 0.0 }, { "m", { 0, 3, 7 }, 0.0 }, { "7", { 0, 4, 7, 10 }, 0.08 }, { "m7", { 0, 3, 7, 10 }, 0.1 },
+                                          { "maj7", { 0, 4, 7, 11 }, 0.12 }, { "sus4", { 0, 5, 7 }, 0.06 }, { "dim", { 0, 3, 6 }, 0.08 } };
         const int nT = (int) TY.size(), S = 12 * nT + 1;
         double emax = 0; for (double e : E) emax = juce::jmax (emax, e);
         std::vector<std::vector<double>> em ((size_t) ns, std::vector<double> ((size_t) S, 0.0));
@@ -367,6 +421,7 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
             const auto& ct = CT[(size_t) i]; const auto& cb = CB[(size_t) i];
             double nrm = 0, bm = 0; for (int q = 0; q < 12; ++q) { nrm += ct[(size_t) q] * ct[(size_t) q]; bm = juce::jmax (bm, cb[(size_t) q]); }
             nrm = std::sqrt (nrm) + 1e-9; bm += 1e-9;
+            const double dw = juce::jlimit (0.3, 2.0, (sg[(size_t) i].b - sg[(size_t) i].a) / 0.5);   // kratky usek = slabsi dokaz
             for (int root = 0; root < 12; ++root)
                 for (int t = 0; t < nT; ++t)
                 {
@@ -381,9 +436,9 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
                     if (TY[(size_t) t].iv.size() == 4)
                     {
                         double cm = 0; for (int q = 0; q < 12; ++q) cm = juce::jmax (cm, ct[(size_t) q]);
-                        if (ct[(size_t) ((root + TY[(size_t) t].iv[3]) % 12)] < 0.4 * cm) { em[(size_t) i][(size_t) (root * nT + t)] = -9; continue; }
+                        if (ct[(size_t) ((root + TY[(size_t) t].iv[3]) % 12)] < 0.55 * cm) { em[(size_t) i][(size_t) (root * nT + t)] = -9; continue; }
                     }
-                    em[(size_t) i][(size_t) (root * nT + t)] = dot / (std::sqrt (ww) * nrm) + 0.35 * cb[(size_t) root] / bm - TY[(size_t) t].pen + (dia ? 0.05 : 0.0);
+                    em[(size_t) i][(size_t) (root * nT + t)] = (dot / (std::sqrt (ww) * nrm) + 0.35 * cb[(size_t) root] / bm - TY[(size_t) t].pen + (dia ? 0.05 : 0.0)) * dw;
                 }
             em[(size_t) i][(size_t) S - 1] = E[(size_t) i] < emax * 0.01 ? 0.5 : -1.0;
         }
@@ -391,11 +446,15 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
         std::vector<std::vector<int>> bk ((size_t) ns, std::vector<int> ((size_t) S, 0));
         // akord sa meni tam, kde v nahravke nieco zaznie (uder, nova nota); bez nabehu je zmena drahsia
         const float eMax = juce::jmax (1.0e-9f, robustMax (env));
-        auto onsetAt = [&] (double t) { const int f = (int) std::round (t * fps - sp.nfft * 0.5 / sp.hop); float m = 0;
-            for (int k = -3; k <= 3; ++k) m = juce::jmax (m, env[(size_t) juce::jlimit (0, (int) env.size() - 1, f + k)]); return m / eMax; };
+        auto onsetAt = [&] (double t)
+        {
+            const int f = (int) std::round (t * fps - sp.nfft * 0.5 / sp.hop); float m = 0;
+            for (int k = -3; k <= 3; ++k) m = juce::jmax (m, env[(size_t) juce::jlimit (0, (int) env.size() - 1, f + k)]);
+            return m / eMax;
+        };
         for (int i = 1; i < ns; ++i)
         {
-            const double change = 0.08 + 0.4 * (1.0 - juce::jlimit (0.0, 1.0, (double) onsetAt (sg[(size_t) i].a) / 0.3));
+            const double change = sg[(size_t) i].on ? 0.06 : 0.08 + 0.4 * (1.0 - juce::jlimit (0.0, 1.0, (double) onsetAt (sg[(size_t) i].a) / 0.3));
             int bp = 0; for (int q = 1; q < S; ++q) if (sc[(size_t) q] > sc[(size_t) bp]) bp = q;
             std::vector<double> nx ((size_t) S);
             for (int q = 0; q < S; ++q)
@@ -409,7 +468,9 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
         std::vector<int> path ((size_t) ns);
         int st = 0; for (int q = 1; q < S; ++q) if (sc[(size_t) q] > sc[(size_t) st]) st = q;
         for (int i = ns - 1; i >= 0; --i) { path[(size_t) i] = st; st = bk[(size_t) i][(size_t) st]; }
-        if (half) for (int i = 1; i + 1 < ns; ++i) if (path[(size_t) i] != path[(size_t) i - 1] && path[(size_t) i - 1] == path[(size_t) i + 1]) path[(size_t) i] = path[(size_t) i - 1];
+        // kratky osamely usek bez uderu -> k susedom
+        for (int i = 1; i + 1 < ns; ++i)
+            if (! sg[(size_t) i].on && path[(size_t) i] != path[(size_t) i - 1] && path[(size_t) i - 1] == path[(size_t) i + 1] && sg[(size_t) i].b - sg[(size_t) i].a < 0.6) path[(size_t) i] = path[(size_t) i - 1];
         static const char* NM[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "H" };
         int cur = -1;
         for (int i = 0; i < ns; ++i)
