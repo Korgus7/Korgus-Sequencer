@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "NovaSamples.h"
 #include "PluginEditor.h"
 #include "Lang.h"
 
@@ -73,7 +74,7 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
         L.aa = g (p + "aa"); L.ad = g (p + "ad"); L.as = g (p + "as"); L.ar = g (p + "ar");
         L.lshape = (int) g (p + "lshape"); L.ltgt = (int) g (p + "ltgt"); L.lrate = g (p + "lrate"); L.ldepth = g (p + "ldepth"); L.ldelay = g (p + "ldelay");
         L.src = (int) g (p + "src"); L.root = (int) g (p + "root"); L.loop = g (p + "loop") > 0.5f; L.wt = (int) g (p + "wt");
-        L.penv = g (p + "penv"); L.ptime = g (p + "ptime"); L.ktrk = g (p + "ktrk"); L.fvel = g (p + "fvel"); L.noise = g (p + "noise");
+        L.penv = g (p + "penv"); L.ptime = g (p + "ptime"); L.ktrk = g (p + "ktrk"); L.fvel = g (p + "fvel"); L.noise = g (p + "noise"); L.lsync = (int) g (p + "lsync");
         L.eqLow = g (p + "eql"); L.eqMid = g (p + "eqm"); L.eqMidF = g (p + "eqmf"); L.eqHigh = g (p + "eqh"); L.eqEnabled = g (p + "eqon") > 0.5f;
     }
     auto& f = s.fx;
@@ -714,9 +715,57 @@ void NovaProcessor::newSound (const juce::String& category)
 }
 
 // ------------------------------------------------------------- vlastne WAV
+// ------------------------------------------------------------- zabudovane vzorky
+namespace
+{
+    struct BuiltinSmp { const char* res; const char* sk; const char* en; int root; };
+    const BuiltinSmp kBuiltin[] = {
+        { "smp01_piano_flac", "Piano", "Piano", 60 }, { "smp02_epiano_flac", "Elektrické piano", "Electric piano", 60 },
+        { "smp03_acgtr_flac", "Akustická gitara", "Acoustic guitar", 48 }, { "smp04_clgtr_flac", "Klasická gitara", "Classical guitar", 48 },
+        { "smp05_elgtr_flac", "Elektrická gitara", "Electric guitar", 48 }, { "smp06_distgtr_flac", "Skreslená gitara", "Distorted guitar", 48 },
+        { "smp07_bassgtr_flac", "Basgitara", "Bass guitar", 36 }, { "smp08_dblbass_flac", "Kontrabas", "Double bass", 36 },
+        { "smp09_subbass_flac", "Subbas", "Sub bass", 36 }, { "smp10_organ_flac", "Organ", "Organ", 60 },
+        { "smp11_violin_flac", "Husle", "Violin", 60 }, { "smp12_cello_flac", "Violončelo", "Cello", 48 },
+        { "smp13_flute_flac", "Flauta", "Flute", 60 }, { "smp14_clarinet_flac", "Klarinet", "Clarinet", 60 },
+        { "smp15_sax_flac", "Saxofón", "Saxophone", 48 }, { "smp16_trumpet_flac", "Trúbka", "Trumpet", 60 },
+        { "smp17_choir_flac", "Zbor „á“", "Choir \"aah\"", 48 }, { "smp18_bell_flac", "Zvon", "Bell", 60 },
+        { "smp19_marimba_flac", "Marimba", "Marimba", 60 }, { "smp20_vibes_flac", "Vibrafón", "Vibraphone", 60 },
+        { "smp21_synlead_flac", "Synth lead", "Synth lead", 60 }, { "smp22_synpad_flac", "Synth pad", "Synth pad", 60 } };
+    constexpr int kNumBuiltin = (int) (sizeof (kBuiltin) / sizeof (kBuiltin[0]));
+    int builtinByName (const juce::String& n)
+    {
+        for (int i = 0; i < kNumBuiltin; ++i)
+            if (n == juce::String::fromUTF8 (kBuiltin[i].sk) || n == juce::String::fromUTF8 (kBuiltin[i].en)) return i;
+        return -1;
+    }
+}
+
+int NovaProcessor::builtinSampleCount() { return kNumBuiltin; }
+juce::String NovaProcessor::builtinSampleName (int i)
+{
+    if (! juce::isPositiveAndBelow (i, kNumBuiltin)) return {};
+    return juce::String::fromUTF8 (lang() == 1 ? kBuiltin[i].en : kBuiltin[i].sk);
+}
+
+bool NovaProcessor::loadBuiltinSample (int layer, int idx)
+{
+    if (! juce::isPositiveAndBelow (idx, kNumBuiltin)) return false;
+    int size = 0;
+    const char* data = NovaSamples::getNamedResource (kBuiltin[idx].res, size);
+    if (data == nullptr || size <= 0) return false;
+    setSample (layer, juce::MemoryBlock (data, (size_t) size), builtinSampleName (idx));
+    smpFile[layer & 1] = juce::File();
+    const juce::String p = layer == 0 ? "a_" : "b_";
+    auto set = [this] (const juce::String& id, float v) { if (auto* prm = params.getParameter (id)) prm->setValueNotifyingHost (prm->convertTo0to1 (v)); };
+    set (p + "on", 1); set (p + "wave", 7); set (p + "src", 1); set (p + "root", (float) kBuiltin[idx].root); set (p + "loop", 0);
+    if (onPatchChanged) onPatchChanged();
+    return true;
+}
+
 void NovaProcessor::setSample (int layer, const juce::MemoryBlock& flac, const juce::String& name)
 {
     smpFlac[layer] = flac; smpName[layer] = name;
+    smpBuiltin[layer & 1] = flac.getSize() > 0 ? builtinByName (name) : -1;
     if (flac.getSize() == 0) { synth.setUserSample (layer, nullptr); return; }
     juce::FlacAudioFormat fmt;
     std::unique_ptr<juce::AudioFormatReader> r (fmt.createReaderFor (new juce::MemoryInputStream (flac, false), true));
@@ -760,6 +809,8 @@ juce::String NovaProcessor::sampleName (int layer) const { return smpName[layer 
 bool NovaProcessor::stepSample (int layer, int dir, juce::String& error)
 {
     const auto cur = smpFile[layer & 1];
+    if (cur == juce::File() && smpBuiltin[layer & 1] >= 0)   // zabudovane vzorky: dalsia / predosla v zozname
+        return loadBuiltinSample (layer, (smpBuiltin[layer & 1] + dir + kNumBuiltin) % kNumBuiltin);
     const auto folder = cur.getParentDirectory();
     if (cur == juce::File() || ! folder.isDirectory()) { error = T ("Najprv načítaj zvuk zo súboru – potom prepínaš ďalšie z toho istého priečinka."); return false; }
     auto files = folder.findChildFiles (juce::File::findFiles, false, "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");

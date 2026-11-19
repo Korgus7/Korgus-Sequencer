@@ -47,6 +47,11 @@ if(WIN32)
     target_sources(KorgusNova_VST3 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nova_res.rc")
 endif()
 
+# zabudovane vzorky nastrojov (FLAC) - vyber "Vzorky" vo vrstve
+file(GLOB NOVA_SAMPLES "${CMAKE_CURRENT_SOURCE_DIR}/Resources/samples/*.flac")
+juce_add_binary_data(NovaSamples HEADER_NAME NovaSamples.h NAMESPACE NovaSamples SOURCES ${NOVA_SAMPLES})
+set_target_properties(NovaSamples PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 target_compile_definitions(KorgusNova PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
@@ -55,6 +60,7 @@ target_compile_definitions(KorgusNova PUBLIC
     INSPIRE_BUILD=${KORGUS_BUILD})
 
 target_link_libraries(KorgusNova PRIVATE
+    NovaSamples
     juce::juce_dsp
     juce::juce_audio_utils
     juce::juce_audio_processors
@@ -69,7 +75,7 @@ if(NOVA_TEST)
     juce_add_console_app(NovaTest PRODUCT_NAME "NovaTest")
     target_sources(NovaTest PRIVATE Test/test.cpp Source/Synth.cpp Source/PianoBank.cpp Source/Params.cpp Source/PresetStore.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/Lang.cpp)
     target_compile_definitions(NovaTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Korgus Nova" JucePlugin_IsSynth=1)
-    target_link_libraries(NovaTest PRIVATE juce::juce_dsp juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_formats)
+    target_link_libraries(NovaTest PRIVATE NovaSamples juce::juce_dsp juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_formats)
 endif()
 
 if(NOVA_HOSTTEST)

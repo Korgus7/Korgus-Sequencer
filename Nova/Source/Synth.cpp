@@ -413,10 +413,13 @@ namespace nova
             wtNew = wtb->frame (wtTab, wtMip, 0); wtLenNew = wtb->len[wtMip]; wtStrNew = wtLenNew + 4;
             wtOld = wtb->frame (lv.wtTab, lv.wtMip, 0); wtLenOld = wtb->len[lv.wtMip]; wtStrOld = wtLenOld + 4;
         }
+        // LFO podla tempa piesne (doby na jeden cyklus)
+        static const float syncBeats[9] = { 0, 4, 2, 1, 0.5f, 0.25f, 2.0f / 3.0f, 1.0f / 3.0f, 1.0f / 6.0f };
+        const float lfoRate = s.lsync > 0 && s.lsync < 9 ? (float) (juce::jmax (20.0, st.fx.bpm) / 60.0) / syncBeats[s.lsync] : s.lrate;
         for (int i = 0; i < n; ++i)
         {
             // LFO
-            lv.lfoPh += s.lrate * invSr;
+            lv.lfoPh += lfoRate * invSr;
             if (lv.lfoPh >= 1) { lv.lfoPh -= 1; lv.lfoHold = v.rng.next(); }
             float lfo;
             switch (s.lshape)

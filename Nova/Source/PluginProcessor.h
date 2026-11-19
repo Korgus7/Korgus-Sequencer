@@ -96,6 +96,11 @@ public:
     bool loadSampleFile (int layer, const juce::File& f, juce::String& error);
     // predchadzajuci / dalsi zvuk z toho isteho priecinka (prehadzovac samplov); vrati false, ak nie je odkial
     bool stepSample (int layer, int dir, juce::String& error);
+    // zabudovane vzorky nastrojov
+    static int builtinSampleCount();
+    static juce::String builtinSampleName (int i);
+    bool loadBuiltinSample (int layer, int idx);
+    int builtinSample (int layer) const { return smpBuiltin[layer & 1]; }
     juce::File sampleFile (int layer) const { return smpFile[layer & 1]; }
     void copyLayer (int from, int to);   // skopiruje celu vrstvu (oscilator, filter, obalky, LFO, sampel)
     juce::String sampleName (int layer) const;
@@ -145,6 +150,7 @@ private:
     std::atomic<float>* rp (const char* id) { return raw[id]; }
     juce::MemoryBlock smpFlac[2]; juce::String smpName[2];
     juce::File smpFile[2];   // odkial bol zvuk nacitany (pre prehadzovac)
+    int smpBuiltin[2] { -1, -1 };   // cislo zabudovanej vzorky (-1 = vlastny zvuk)
     std::atomic<int> pendingPreset { -1 };
     std::atomic<int> pendingAction { 0 };   // 1 = prekvap ma, 2 = obmena (zo Sequencera)
     // ukazka

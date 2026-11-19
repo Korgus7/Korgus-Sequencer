@@ -604,10 +604,23 @@ int main (int argc, char** argv)
             auto lo = renderN (36, 0.6), hi = renderN (84, 0.6);
             printf ("pila cut 600, kláves %.1f: C2 %.1f dB, C6 %.1f dB\n", kt, rms (lo), rms (hi));
         }
-        q.uiMode = 1; int k = 0;
-        for (int w : { 2, 7, 9 })
+        // zabudovane vzorky: 5 s drzany ton, hlasitost na zaciatku a v 4. sekunde
+        for (int i = 0; i < NovaProcessor::builtinSampleCount(); ++i)
         {
-            base(); setParam (q, "a_wave", (float) w);
+            base(); q.loadBuiltinSample (0, i);
+            auto b = renderN (i == 6 || i == 7 || i == 8 ? 36 : 60, 5.0);
+            auto rmsAt = [&] (double t0) { double s2 = 0; const int a0 = (int) (t0 * sr), n0 = (int) (0.2 * sr); for (int j = a0; j < a0 + n0; ++j) s2 += b.getSample (0, j) * b.getSample (0, j); return Decibels::gainToDecibels ((float) std::sqrt (s2 / n0), -120.0f); };
+            printf ("vzorka %-20s 0.3s %6.1f dB  2.5s %6.1f dB  4.5s %6.1f dB  zc %.0f Hz\n", NovaProcessor::builtinSampleName (i).toRawUTF8(), rmsAt (0.3), rmsAt (2.5), rmsAt (4.5), zc (b, 0.5, 1.0));
+        }
+        // LFO podla tempa: 1/8 pri 120 BPM = 4 Hz
+        base(); setParam (q, "a_wave", 0); setParam (q, "a_ltgt", 2); setParam (q, "a_ldepth", 1.0f); setParam (q, "a_lsync", argc > 2 ? 0.0f : 4.0f); setParam (q, "a_lrate", 4);
+        { auto b = renderN (69, 2.0); const int h = (int) (0.01 * sr); std::vector<float> e; for (int j = 0; j + h < b.getNumSamples(); j += h) { double s2 = 0; for (int u = 0; u < h; ++u) s2 += b.getSample (0, j + u) * b.getSample (0, j + u); e.push_back ((float) std::sqrt (s2 / h)); }
+          float mean = 0; for (float v : e) mean += v; mean /= (float) e.size(); int cr = 0; for (size_t j = 21; j < e.size(); ++j) if (e[j - 1] < mean && e[j] >= mean) ++cr;
+          printf ("LFO 1/8 pri 120 BPM: %.1f vlnení za sekundu\n", cr / ((e.size() - 21) * 0.005)); }
+        q.uiMode = 1; int k = 0;
+        for (int w : { 2, 7, 9, 77 })
+        {
+            base(); if (w == 77) q.loadBuiltinSample (0, 12); else setParam (q, "a_wave", (float) w);
             std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);
             auto img = ed->createComponentSnapshot (ed->getLocalBounds());
             File f ("/home/claude/shp/shot_" + String (k++) + ".png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);

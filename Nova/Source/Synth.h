@@ -31,6 +31,7 @@ namespace nova
         float penv = 0, ptime = 0.08f;  // poltony, s
         float ktrk = 0.5f, fvel = 0.5f; // 0..1 (0.5 = povodne spravanie)
         float noise = 0;                // 0..1
+        int lsync = 0;                  // LFO podla tempa: 0 volne, inak 1/1 1/2 1/4 1/8 1/16 1/4T 1/8T 1/16T
     };
 
     struct Settings

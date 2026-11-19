@@ -681,7 +681,7 @@ namespace
         auto v = [&] (const char* id) { for (size_t i = 0; i < D.size(); ++i) if (juce::String (D[i].id) == id) return decode (D[i], x[i]); return 0.0f; };
         const std::pair<const char*, float> fixed[] = {
             { "a_on", 1 }, { "a_level", 0.8f }, { "a_semi", 0 }, { "a_fine", 0 }, { "a_pan", 0 },
-            { "a_lshape", 0 }, { "a_src", 0 }, { "a_fvel", 0.5f },
+            { "a_lshape", 0 }, { "a_src", 0 }, { "a_fvel", 0.5f }, { "a_lsync", 0 }, { "b_lsync", 0 },
             { "b_penv", 0 }, { "b_ptime", 0.08f }, { "b_fvel", 0.5f }, { "b_noise", 0 },
             { "b_fine", 0 }, { "b_pan", 0 }, { "b_ftype", 0 }, { "b_f24", 0 }, { "b_ldepth", 0 }, { "b_src", 0 }, { "b_root", 60 }, { "b_loop", 0 },
             { "bright", 0.5f }, { "attack", 0.5f }, { "release", 0.5f }, { "space", 0.5f }, { "width", 0.5f }, { "volume", 0 }, { "p_gain", gainDb }, { "veltrack", 0.7f },

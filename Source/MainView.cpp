@@ -3177,6 +3177,8 @@ void MainView::onAnalyze (const juce::var& v)
 juce::var readMidiFile (const juce::File& f)
 {
     auto res = obj();
+    put (res, "file", f.getFileNameWithoutExtension());
+    put (res, "path", f.getFullPathName());
     juce::MidiFile mf;
     juce::FileInputStream in (f);
     if (! in.openedOk() || ! mf.readFrom (in)) { put (res, "error", sk ("Súbor sa nedá prečítať ako MIDI.")); return res; }

@@ -62,6 +62,7 @@ namespace nova
                 F (p + "lrate", "Rýchlosť", 0.05f, 20, 5, "Hz", 0.4f);
                 F (p + "ldepth", "Hĺbka", 0, 1, 0, "%");
                 F (p + "ldelay", "Oneskorenie", 0, 3, 0, "s", 0.5f);
+                C (p + "lsync", "LFO tempo", "Voľne|1/1|1/2|1/4|1/8|1/16|1/4T|1/8T|1/16T", 0);
                 C (p + "src", "Zdroj", "Klavír|Vlastný WAV", 0);
                 F (p + "root", "Základný tón", 0, 127, 60, "note");
                 B (p + "loop", "Opakovať", false);
