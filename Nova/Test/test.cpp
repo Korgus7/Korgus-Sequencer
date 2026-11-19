@@ -576,6 +576,18 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "savename")
+    {
+        NovaProcessor q;
+        q.loadPreset (String ("f:") + nova::factoryPatches()[0].name);
+        auto k1 = q.savePreset ("Test zvuk Z", q.currentCategory); auto n1 = q.currentName;
+        auto k1b = q.savePreset ("Test zvuk Z", q.currentCategory);           // ten isty zvuk -> prepis
+        q.loadPreset (String ("f:") + nova::factoryPatches()[1].name);
+        auto k2 = q.savePreset ("Test zvuk Z", q.currentCategory); auto n2 = q.currentName;   // iny zvuk -> cislo
+        printf ("%s | %s | same=%d | %s | %s\n", k1.toRawUTF8(), n1.toRawUTF8(), (int) (k1 == k1b), k2.toRawUTF8(), n2.toRawUTF8());
+        for (auto k : { k1, k2 }) q.presets.remove (k);
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "shapes")
     {
         // nove parametre vrstvy: skok vysky, sum, filter podla klavesu + snimky editora -> /home/claude/shp/

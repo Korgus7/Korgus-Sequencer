@@ -317,9 +317,13 @@ bool NovaProcessor::loadPreset (const juce::String& key)
 juce::String NovaProcessor::savePreset (const juce::String& name, const juce::String& category)
 {
     auto p = currentPatch();
-    p.name = name; p.category = category;
+    // rovnaky nazov ako iny vlastny zvuk: prida cislo (Moj bas 2, 3…); ten isty zvuk sa len prepise
+    juce::String nm = name.trim();
+    auto fileOf = [this] (const juce::String& n) { return presets.folder().getChildFile (juce::File::createLegalFileName (n) + ".knova"); };
+    for (int i = 2; fileOf (nm).existsAsFile() && "u:" + fileOf (nm).getFileName() != currentKey; ++i) nm = name.trim() + " " + juce::String (i);
+    p.name = nm; p.category = category;
     currentKey = presets.save (p);
-    currentName = name; currentCategory = category;
+    currentName = nm; currentCategory = category;
     if (onPatchChanged) onPatchChanged();
     return currentKey;
 }
