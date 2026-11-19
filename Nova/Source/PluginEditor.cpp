@@ -247,12 +247,14 @@ namespace
                 for (int i = 0; i < n; ++i) catButtons[(size_t) i]->setBounds (cr.getX() + i * (cw + g2), cr.getY(), cw, 26);
             }
             r.removeFromTop (8);
-            const int cols = 5, gap = 6, bh = 42;
+            // 2 riadky po 5; ak je v kategorii viac zvukov, 3 nizsie riadky v tom istom mieste
+            int nVis = 0; for (auto& b : buttons) if (b->isVisible()) ++nVis;
+            const int cols = 5, gap = 6, rows = juce::jmax (2, (nVis + cols - 1) / cols), bh = (2 * (42 + gap) - gap * rows) / rows;
             const int bw = (r.getWidth() - gap * (cols - 1)) / cols;
             int k = 0;
             for (auto& b : buttons)
                 if (b->isVisible()) { b->setBounds (r.getX() + (k % cols) * (bw + gap), r.getY() + (k / cols) * (bh + gap), bw, bh); ++k; }
-            r.removeFromTop (2 * (bh + gap) + 6);
+            r.removeFromTop (2 * (42 + gap) + 6);
             auto kr = r.removeFromTop (140);
             const int kw = kr.getWidth() / 6;
             for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (12, 0));

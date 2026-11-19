@@ -12,6 +12,9 @@ namespace nova
             static const std::unordered_map<std::string, const char*> t = {
                 // vseobecne
                 // prepinace s ikonami, tvarovanie zvuku
+                { "Vocoder Robo zbor", "Vocoder Robo Choir" }, { "Vocoder Vesmír", "Vocoder Space" }, { "Vocoder Sklo", "Vocoder Glass" },
+                { "Flauta", "Flute" }, { "Gitara s trsatkom", "Picked Guitar" }, { "Elektronický tom", "Electronic Tom" }, { "Kopák", "Kick" },
+                { "Laserový lead", "Laser Lead" }, { "Vzdušný pad", "Airy Pad" },
                 { "Chorus = širší zvuk", "Chorus = wider sound" }, { "Ensemble = sláčikový ensemble", "Ensemble = string ensemble" },
                 { "Flanger = „lietadlo“", "Flanger = \"jet plane\"" }, { "Phaser = „lietadlo“, jemnejšie", "Phaser = softer \"jet plane\"" },
                 { "Tremolo = kolísanie hlasitosti", "Tremolo = volume wobble" }, { "Modulácia zap / vyp", "Modulation on / off" },

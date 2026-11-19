@@ -3968,7 +3968,7 @@ void MainView::onSeparate (const juce::var& v)
 
 //==============================================================================
 // automaticke aktualizacie: verejny repozitar Korgus7/Korgus-Download, subor latest.json
-// {"version":"1.0.N","url":"https://.../KorgusSequencer-Setup.exe","notes":"..."}
+// {"version":"1.0.N","url":"https://.../KorgusSequencer-Setup.exe","notes":"...","notes_en":"..."}
 namespace
 {
     const char* updApi = "https://raw.githubusercontent.com/Korgus7/Korgus-Download/main/latest.json";
@@ -4012,7 +4012,9 @@ void MainView::checkForUpdate()
         if (tag.isEmpty() || ! verNewer (tag, cur)) return;
         const auto url = j["url"].toString();
         if (! url.startsWith ("https://")) return;
-        const auto notes = j["notes"].toString();
+        // popis novej verzie v jazyku programu (notes_en pre anglictinu, inak slovensky)
+        const auto notesEn = j["notes_en"].toString();
+        const auto notes = (appLang() == 1 && notesEn.isNotEmpty()) ? notesEn : j["notes"].toString();
         const auto files = j["files"];
         juce::MessageManager::callAsync ([sp, tag, url, notes, files]
         {

@@ -118,6 +118,41 @@ namespace GCol
 }
 
 //==============================================================================
+// prepinac namiesto rozbalovacieho zoznamu (2-4 kratke volby): rad tlacidiel, zvolene je ocelove
+class ChoiceSeg final : public Component, public SettableTooltipClient
+{
+public:
+    explicit ChoiceSeg (const StringArray& names) : items (names) {}
+    static int neededWidth (const StringArray& names)
+    {
+        int w = 0; const Font f (FontOptions (13.0f));
+        for (auto& n : names) w += GlyphArrangement::getStringWidthInt (f, n) + 14;
+        return w + 3 * (names.size() - 1);
+    }
+    std::function<void (int)> onPick;
+    void setSelected (int i) { if (i != sel) { sel = i; repaint(); } }
+    void paint (Graphics& g) override
+    {
+        const int n = items.size(); if (n == 0) return;
+        const float gap = 3.0f, w = ((float) getWidth() - gap * (float) (n - 1)) / (float) n;
+        for (int i = 0; i < n; ++i)
+        {
+            auto rc = Rectangle<float> ((float) i * (w + gap), 0.0f, w, (float) getHeight());
+            g.setColour (i == sel ? Colour (0xff46628a) : (i == hover ? Colour (0xff34496a) : Colour (0xff2d4362).withAlpha (0.55f)));
+            g.fillRoundedRectangle (rc, 3.0f);
+            g.setColour (i == sel ? Colours::white : Colour (0xffc9d2dc));
+            g.setFont (FontOptions (13.0f));
+            g.drawFittedText (items[i], rc.toNearestInt().reduced (3, 0), Justification::centred, 1, 0.75f);
+        }
+    }
+    int at (Point<int> p) const { const int n = items.size(); return n == 0 ? -1 : jlimit (0, n - 1, p.x * n / jmax (1, getWidth())); }
+    void mouseDown (const MouseEvent& e) override { const int i = at (e.getPosition()); if (i >= 0 && onPick) { setSelected (i); onPick (i); } }
+    void mouseMove (const MouseEvent& e) override { const int i = at (e.getPosition()); if (i != hover) { hover = i; repaint(); } }
+    void mouseExit (const MouseEvent&) override { hover = -1; repaint(); }
+private:
+    StringArray items; int sel = -1, hover = -1;
+};
+
 class FxBase;
 
 class KnobEditor final : public AudioProcessorEditor, private Timer
@@ -157,7 +192,8 @@ public:
     }
 
 private:
-    int colWidth (size_t i) const { return params[i]->wide ? 128 : 92; }
+    int colWidth (size_t i) const { return segW[i] > 0 ? segW[i] : (params[i]->wide ? 128 : 92); }
+    std::vector<int> segW;    // sirka stlpca pre prepinac (0 = bezny stlpec)
     void buildHeader();
     void layoutHeader();
     void paintHeader (Graphics& g);
@@ -174,6 +210,8 @@ private:
             }
             else if (auto* c = dynamic_cast<ComboBox*> (comps[i].get()))
                 c->setSelectedId (roundToInt (p->get()) + 1, dontSendNotification);
+            else if (auto* sg = dynamic_cast<ChoiceSeg*> (comps[i].get()))
+                sg->setSelected (roundToInt (p->get()));
             else if (auto* t = dynamic_cast<ToggleButton*> (comps[i].get()))
                 t->setToggleState (p->get() > 0.5f, dontSendNotification);
         }
@@ -354,6 +392,7 @@ KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProce
     for (auto* prm : params)
     {
         std::unique_ptr<Component> comp;
+        int segWidth = 0;
         if (prm->toggle)
         {
             auto t = std::make_unique<ToggleButton> (prm->name);
@@ -363,6 +402,15 @@ KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProce
             auto* raw = t.get();
             t->onClick = [prm, raw] { prm->setValueNotifyingHost (raw->getToggleState() ? 1.0f : 0.0f); };
             comp = std::move (t);
+        }
+        else if (! prm->choices.isEmpty() && prm->choices.size() <= 4 && ! prm->choices.contains (String())
+                 && ChoiceSeg::neededWidth (prm->choices) <= 230)
+        {
+            auto c = std::make_unique<ChoiceSeg> (prm->choices);
+            c->setSelected (roundToInt (prm->get()));
+            c->onPick = [prm] (int i) { prm->setValueNotifyingHost (prm->range.convertTo0to1 ((float) i)); };
+            segWidth = jmax (92, ChoiceSeg::neededWidth (prm->choices) + 8);
+            comp = std::move (c);
         }
         else if (! prm->choices.isEmpty())
         {
@@ -402,6 +450,7 @@ KnobEditor::KnobEditor (FxBase& p, const std::vector<FxParam*>& ps) : AudioProce
         addAndMakeVisible (*comp);
         labels.push_back (prm->name);
         comps.push_back (std::move (comp));
+        segW.push_back (segWidth);
     }
     if (p.showHeader()) { head = 34; buildHeader(); }
     display = p.makeDisplay();

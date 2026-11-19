@@ -555,6 +555,25 @@ namespace
                 break;
             }
         }
+        // obcas sum (vzduch, dych, sláčik) alebo skok vysky (brnknutie, uder) - pestrejsie zvuky
+        {
+            const float w = v.count ("a_wave") ? v["a_wave"] : 2.0f;
+            const bool decays = v.count ("a_as") && v["a_as"] < 0.05f;
+            switch (type)
+            {
+                case 0: if (chance (0.3f)) v["a_noise"] = R (0.12f, 0.3f); break;
+                case 1: if (chance (0.35f)) { v["a_penv"] = R (0.3f, 1.5f); v["a_ptime"] = R (0.01f, 0.03f); }
+                        if (decays && w != 5 && chance (0.3f)) v["a_noise"] = R (0.1f, 0.25f); break;
+                case 3: if (chance (0.3f)) { v["a_penv"] = R (4, 12); v["a_ptime"] = R (0.02f, 0.06f); } break;
+                case 4: if (chance (0.25f)) v["a_noise"] = R (0.08f, 0.2f);
+                        if (chance (0.2f)) { const bool laser = chance (0.4f); v["a_penv"] = laser ? 12.0f : -R (1, 2); v["a_ptime"] = laser ? R (0.08f, 0.15f) : R (0.06f, 0.1f); }
+                        break;
+                case 5: if (chance (0.2f)) { v["a_penv"] = R (0.2f, 0.8f); v["a_ptime"] = 0.02f; } break;
+                case 6: if (chance (0.25f)) v["a_noise"] = R (0.05f, 0.12f); break;
+                default: break;
+            }
+            if (v.count ("a_cut") && w != 7 && chance (0.4f)) v["a_ktrk"] = R (0.3f, 0.9f);
+        }
         // Roj: velky rozptyl pri minimalnom Focuse len pre zvony
         if (v.count ("a_wave") && v["a_wave"] == 8 && v["a_spread"] > 40.0f && v["a_color"] < 0.1f && type != 5) v["a_spread"] = 40.0f;
         if (chance (0.4f)) v["eq_high"] = R (-4, 3);
