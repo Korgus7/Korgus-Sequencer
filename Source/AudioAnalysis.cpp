@@ -151,7 +151,6 @@ std::vector<int> trackBeats (const std::vector<float>& env, double period)
     return beats;
 }
 
-const char* pcName (int pc) { static const char* n[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "B", "H" }; return n[(pc % 12 + 12) % 12]; }
 
 // "maximum" bez extremov (99. percentil nenulovych hodnot)
 float robustMax (const std::vector<float>& e)
@@ -272,56 +271,157 @@ AnalysisResult analyzeAudio (const juce::AudioBuffer<float>& in, double sr, int 
     }
     if (! prog (0.7)) return r;
 
-    // 2) akordy: chroma po dobach, sablony dur/mol, Viterbi
+    // 2) akordy: spektralne vrcholy (bez sumu bicich), ladenie, basova a horna chroma, tonina,
+    //    sablony dur/mol/7/m7/maj7/sus4/dim, bas = koren alebo obrat, Viterbi po dobach (pri pomalom tempe po polovicach dob)
     if (what & 2)
     {
-        double emax = 0; for (double e : energy) emax = juce::jmax (emax, e);
-        // 24 akordov + ticho
-        const int S = 25;
-        auto emit = [&] (int i, int s) -> double
+        const int N = 8192, H = 1024;
+        const auto cs2 = stft (x, N, H, progress, 0.7, 0.72);
+        const int bins = cs2.bins, maxB = juce::jmin (bins - 1, (int) (2400.0 / asr * N) + 2);
+        std::vector<float> P ((size_t) cs2.frames * (size_t) maxB, 0.0f);
+        std::vector<float> Lf ((size_t) maxB), win;
+        for (int f = 0; f < cs2.frames; ++f)
         {
-            if (s == 24) return energy[(size_t) i] < emax * 0.002 ? 1.0 : 0.0;
-            const int root = s % 12; const bool minor = s >= 12;
-            const int iv3 = minor ? 3 : 4;
-            const auto& c = chroma[(size_t) i];
-            double dot = 0, nt = 0;
-            for (int k = 0; k < 12; ++k)
+            for (int b = 0; b < maxB; ++b) Lf[(size_t) b] = std::log1p (100.0f * cs2.at (f, b));
+            for (int b = 2; b < maxB - 2; ++b)
             {
-                const int rel = (k - root + 12) % 12;
-                const double w = rel == 0 ? 1.0 : rel == iv3 ? 0.9 : rel == 7 ? 0.8 : 0.0;
-                dot += w * c[(size_t) k]; nt += w * w;
-            }
-            return dot / std::sqrt (nt);
-        };
-        std::vector<std::vector<double>> sc ((size_t) nb, std::vector<double> (S));
-        std::vector<std::vector<int>> bk ((size_t) nb, std::vector<int> (S, 0));
-        const double change = 0.18;
-        for (int s = 0; s < S; ++s) sc[0][(size_t) s] = emit (0, s);
-        for (int i = 1; i < nb; ++i)
-        {
-            int bestPrev = 0;
-            for (int s = 1; s < S; ++s) if (sc[(size_t) i - 1][(size_t) s] > sc[(size_t) i - 1][(size_t) bestPrev]) bestPrev = s;
-            for (int s = 0; s < S; ++s)
-            {
-                const double stay = sc[(size_t) i - 1][(size_t) s], sw = sc[(size_t) i - 1][(size_t) bestPrev] - change;
-                if (stay >= sw) { sc[(size_t) i][(size_t) s] = stay + emit (i, s); bk[(size_t) i][(size_t) s] = s; }
-                else { sc[(size_t) i][(size_t) s] = sw + emit (i, s); bk[(size_t) i][(size_t) s] = bestPrev; }
+                const float v = Lf[(size_t) b];
+                if (v < Lf[(size_t) b - 1] || v < Lf[(size_t) b + 1] || v < Lf[(size_t) b - 2] || v < Lf[(size_t) b + 2]) continue;
+                win.clear();
+                for (int k = juce::jmax (0, b - 20); k <= juce::jmin (maxB - 1, b + 20); ++k) win.push_back (Lf[(size_t) k]);
+                std::nth_element (win.begin(), win.begin() + (long) win.size() / 2, win.end());
+                if (v > 1.5f * win[win.size() / 2] + 0.3f) P[(size_t) f * (size_t) maxB + (size_t) b] = v;
             }
         }
-        std::vector<int> path ((size_t) nb);
-        int s = 0; for (int k = 1; k < S; ++k) if (sc[(size_t) nb - 1][(size_t) k] > sc[(size_t) nb - 1][(size_t) s]) s = k;
-        for (int i = nb - 1; i >= 0; --i) { path[(size_t) i] = s; s = bk[(size_t) i][(size_t) s]; }
-        // zmeny (akord aspon 2 doby)
-        int cur = -1;
+        // ladenie nahravky (odchylka od 440 Hz v zlomkoch poltonu)
+        std::vector<double> midiOf ((size_t) maxB, 0.0);
+        double re = 0, im = 0;
+        for (int b = 1; b < maxB; ++b)
+        {
+            const double fq = b * asr / N; midiOf[(size_t) b] = 12.0 * std::log2 (fq / 440.0) + 69.0;
+            if (fq < 80.0 || fq > 2000.0) continue;
+            double w = 0; for (int f = 0; f < cs2.frames; ++f) w += P[(size_t) f * (size_t) maxB + (size_t) b];
+            const double d = midiOf[(size_t) b] - std::round (midiOf[(size_t) b]);
+            re += w * std::cos (2.0 * juce::MathConstants<double>::pi * d); im += w * std::sin (2.0 * juce::MathConstants<double>::pi * d);
+        }
+        const double tune = std::atan2 (im, re) / (2.0 * juce::MathConstants<double>::pi);
+        std::vector<int> pcB ((size_t) maxB, -1); std::vector<char> isBass ((size_t) maxB, 0), isTre ((size_t) maxB, 0); std::vector<float> wTre ((size_t) maxB, 1.0f);
+        for (int b = 1; b < maxB; ++b)
+        {
+            const double fq = b * asr / N;
+            pcB[(size_t) b] = (((int) std::lround (midiOf[(size_t) b] - tune)) % 12 + 12) % 12;
+            isBass[(size_t) b] = fq >= 38.0 && fq <= 220.0; isTre[(size_t) b] = fq >= 180.0 && fq <= 2400.0;
+            wTre[(size_t) b] = fq > 1000.0 ? (float) (1000.0 / fq) : 1.0f;
+        }
+        // useky: doby, pri pomalom tempe polovice dob
+        const bool half = med > 0.7;
+        struct Seg { double a, b; };
+        std::vector<Seg> sg;
         for (int i = 0; i < nb; ++i)
         {
-            const int st = path[(size_t) i];
-            if (st == cur) continue;
-            int runLen = 1; while (i + runLen < nb && path[(size_t) (i + runLen)] == st) ++runLen;
-            if (runLen < 2 && cur >= 0) continue;
-            cur = st;
-            if (st == 24) continue;
-            r.chords.push_back ({ r.beats[(size_t) i], juce::String (pcName (st % 12)) + (st >= 12 ? "m" : "") });
+            const double t0 = r.beats[(size_t) i], t1 = i + 1 < nb ? r.beats[(size_t) i + 1] : t0 + med;
+            if (half) { sg.push_back ({ t0, 0.5 * (t0 + t1) }); sg.push_back ({ 0.5 * (t0 + t1), t1 }); } else sg.push_back ({ t0, t1 });
+        }
+        const int ns = (int) sg.size();
+        std::vector<std::array<double, 12>> CT ((size_t) ns), CB ((size_t) ns);
+        std::vector<double> E ((size_t) ns, 0.0);
+        std::array<double, 12> g {}; g.fill (0.0);
+        for (int i = 0; i < ns; ++i)
+        {
+            auto& ct = CT[(size_t) i]; auto& cb = CB[(size_t) i]; ct.fill (0.0); cb.fill (0.0);
+            int f0 = (int) std::floor ((sg[(size_t) i].a * asr - N * 0.5) / H), f1 = (int) std::ceil ((sg[(size_t) i].b * asr - N * 0.5) / H);
+            f0 = juce::jlimit (0, juce::jmax (0, cs2.frames - 1), f0); f1 = juce::jlimit (f0 + 1, juce::jmax (f0 + 1, cs2.frames), f1);
+            for (int f = f0; f < f1 && f < cs2.frames; ++f)
+                for (int b = 1; b < maxB; ++b)
+                {
+                    const float v = P[(size_t) f * (size_t) maxB + (size_t) b]; if (v <= 0) continue;
+                    const int q = pcB[(size_t) b];
+                    if (isTre[(size_t) b]) ct[(size_t) q] += v * wTre[(size_t) b];
+                    if (isBass[(size_t) b]) cb[(size_t) q] += v;
+                }
+            for (int q = 0; q < 12; ++q) { E[(size_t) i] += ct[(size_t) q] + cb[(size_t) q]; g[(size_t) q] += ct[(size_t) q] + cb[(size_t) q]; }
+        }
+        // tonina (Krumhansl): akordy z toniny dostanu maly bonus
+        static const double KM[12] = { 6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88 };
+        static const double Km[12] = { 6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17 };
+        auto corr = [&] (const double* prof, int k)
+        {
+            double mx = 0, mp = 0; for (int q = 0; q < 12; ++q) { mx += g[(size_t) q] / 12; mp += prof[q] / 12; }
+            double a = 0, b2 = 0, c = 0;
+            for (int q = 0; q < 12; ++q) { const double u = g[(size_t) ((q + k) % 12)] - mx, v = prof[q] - mp; a += u * v; b2 += u * u; c += v * v; }
+            return b2 > 0 && c > 0 ? a / std::sqrt (b2 * c) : 0.0;
+        };
+        int keyK = 0; bool keyMin = false; double kb = -2;
+        for (int k = 0; k < 12; ++k) { const double a = corr (KM, k), b2 = corr (Km, k); if (a > kb) { kb = a; keyK = k; keyMin = false; } if (b2 > kb) { kb = b2; keyK = k; keyMin = true; } }
+        bool inScale[12] = {};
+        { static const int MJ[7] = { 0, 2, 4, 5, 7, 9, 11 }, MN[8] = { 0, 2, 3, 5, 7, 8, 10, 11 };
+          if (keyMin) for (int q : MN) inScale[(keyK + q) % 12] = true; else for (int q : MJ) inScale[(keyK + q) % 12] = true; }
+        struct Ty { const char* nm; std::vector<int> iv; double pen; };
+        static const std::vector<Ty> TY { { "", { 0, 4, 7 }, 0.0 }, { "m", { 0, 3, 7 }, 0.0 }, { "7", { 0, 4, 7, 10 }, 0.06 }, { "m7", { 0, 3, 7, 10 }, 0.07 },
+                                          { "maj7", { 0, 4, 7, 11 }, 0.08 }, { "sus4", { 0, 5, 7 }, 0.06 }, { "dim", { 0, 3, 6 }, 0.08 } };
+        const int nT = (int) TY.size(), S = 12 * nT + 1;
+        double emax = 0; for (double e : E) emax = juce::jmax (emax, e);
+        std::vector<std::vector<double>> em ((size_t) ns, std::vector<double> ((size_t) S, 0.0));
+        for (int i = 0; i < ns; ++i)
+        {
+            const auto& ct = CT[(size_t) i]; const auto& cb = CB[(size_t) i];
+            double nrm = 0, bm = 0; for (int q = 0; q < 12; ++q) { nrm += ct[(size_t) q] * ct[(size_t) q]; bm = juce::jmax (bm, cb[(size_t) q]); }
+            nrm = std::sqrt (nrm) + 1e-9; bm += 1e-9;
+            for (int root = 0; root < 12; ++root)
+                for (int t = 0; t < nT; ++t)
+                {
+                    static const double W[4] = { 1.0, 0.9, 0.8, 0.7 };
+                    double dot = 0, ww = 0; bool dia = true;
+                    for (size_t j = 0; j < TY[(size_t) t].iv.size(); ++j)
+                    {
+                        const int q = (root + TY[(size_t) t].iv[j]) % 12;
+                        dot += W[j] * ct[(size_t) q]; ww += W[j] * W[j]; if (! inScale[q]) dia = false;
+                    }
+                    // septima len ked naozaj znie (nie len ako vyssia harmonicka)
+                    if (TY[(size_t) t].iv.size() == 4)
+                    {
+                        double cm = 0; for (int q = 0; q < 12; ++q) cm = juce::jmax (cm, ct[(size_t) q]);
+                        if (ct[(size_t) ((root + TY[(size_t) t].iv[3]) % 12)] < 0.4 * cm) { em[(size_t) i][(size_t) (root * nT + t)] = -9; continue; }
+                    }
+                    em[(size_t) i][(size_t) (root * nT + t)] = dot / (std::sqrt (ww) * nrm) + 0.35 * cb[(size_t) root] / bm - TY[(size_t) t].pen + (dia ? 0.05 : 0.0);
+                }
+            em[(size_t) i][(size_t) S - 1] = E[(size_t) i] < emax * 0.01 ? 0.5 : -1.0;
+        }
+        std::vector<double> sc = em[0];
+        std::vector<std::vector<int>> bk ((size_t) ns, std::vector<int> ((size_t) S, 0));
+        const double change = 0.12;
+        for (int i = 1; i < ns; ++i)
+        {
+            int bp = 0; for (int q = 1; q < S; ++q) if (sc[(size_t) q] > sc[(size_t) bp]) bp = q;
+            std::vector<double> nx ((size_t) S);
+            for (int q = 0; q < S; ++q)
+            {
+                const double stay = sc[(size_t) q], sw = sc[(size_t) bp] - change;
+                if (stay >= sw) { nx[(size_t) q] = stay + em[(size_t) i][(size_t) q]; bk[(size_t) i][(size_t) q] = q; }
+                else { nx[(size_t) q] = sw + em[(size_t) i][(size_t) q]; bk[(size_t) i][(size_t) q] = bp; }
+            }
+            sc.swap (nx);
+        }
+        std::vector<int> path ((size_t) ns);
+        int st = 0; for (int q = 1; q < S; ++q) if (sc[(size_t) q] > sc[(size_t) st]) st = q;
+        for (int i = ns - 1; i >= 0; --i) { path[(size_t) i] = st; st = bk[(size_t) i][(size_t) st]; }
+        if (half) for (int i = 1; i + 1 < ns; ++i) if (path[(size_t) i] != path[(size_t) i - 1] && path[(size_t) i - 1] == path[(size_t) i + 1]) path[(size_t) i] = path[(size_t) i - 1];
+        static const char* NM[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "H" };
+        int cur = -1;
+        for (int i = 0; i < ns; ++i)
+        {
+            const int q = path[(size_t) i];
+            if (q == cur) continue;
+            cur = q;
+            if (q == S - 1) continue;
+            const int root = q / nT, t = q % nT;
+            juce::String nm = juce::String (NM[root]) + TY[(size_t) t].nm;
+            std::array<double, 12> cb {}; cb.fill (0.0);
+            for (int j = i; j < ns && path[(size_t) j] == q; ++j) for (int k = 0; k < 12; ++k) cb[(size_t) k] += CB[(size_t) j][(size_t) k];
+            int bpc = 0; for (int k = 1; k < 12; ++k) if (cb[(size_t) k] > cb[(size_t) bpc]) bpc = k;
+            bool tone = false; for (int iv : TY[(size_t) t].iv) if ((root + iv) % 12 == bpc) tone = true;
+            if (bpc != root && tone && cb[(size_t) bpc] > 1.6 * cb[(size_t) root]) nm << "/" << NM[bpc];
+            r.chords.push_back ({ sg[(size_t) i].a, nm });
         }
         if (! prog (0.75)) return r;
     }
