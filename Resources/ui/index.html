@@ -483,6 +483,9 @@ svg.mi{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.4;str
 
 .ntr .cstrip{position:absolute;left:0;top:0;bottom:0;width:8px;cursor:pointer;z-index:2}
 .ntr .cstrip:hover{background:rgba(255,255,255,.25)}
+
+/* bubliny so spravami hore vpravo pod menu, nezakryvaju mriezku ani transport */
+#toast{top:84px;bottom:auto}
 </style>
 <script>
 /* ---------------- jazyk rozhrania (slovencina / anglictina) ----------------
@@ -951,6 +954,7 @@ const PRESETS={
   'Struny': {osc:[['sawtooth',-5,1,.4],['sawtooth',5,1,.4]],cut:2600,fenv:400,fdec:.6,q:.7,a:.25,d:.5,s:.85,r:.6}
 };
 const ICO_REC='<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="currentColor"/></svg>';
+const ICO_MIC='<svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5"/><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2"/></svg>';
 const ICO_SNOW='<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 1.5v13M2.4 4.8l11.2 6.4M2.4 11.2l11.2-6.4M6 2.8L8 4.6l2-1.8M6 13.2l2-1.8 2 1.8"/></svg>';
 const ICO_SPK='<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6h2.5l3.5-3v10L5 10H2.5z"/><path d="M11 5.5a3.5 3.5 0 0 1 0 5"/></svg>';
 const ICO_KEYS='<svg width="20" height="12" viewBox="0 0 20 12"><rect x=".5" y=".5" width="19" height="11" rx="1" fill="#fff" stroke="currentColor"/><path d="M4.5 1v10M8.5 1v10M12 1v10M15.5 1v10" stroke="currentColor"/><path d="M3 1h3v6H3zM7 1h3v6H7zM13.8 1h3v6h-3z" fill="currentColor"/></svg>';
@@ -1595,8 +1599,8 @@ const ICO_KBD='<svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="
 const ICO_IN='<svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h7M6.5 5l3 3-3 3M13 3v10"/></svg>';
 const ICO_FXB='<svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 4.5h11M2.5 11.5h11"/><circle cx="6" cy="4.5" r="1.6"/><circle cx="10.5" cy="11.5" r="1.6"/></svg>';
 const ICO_MON='<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 1a5 5 0 0 1 0 10z" fill="currentColor"/></svg>';
-const ICO_ST='<svg width="22" height="12" viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="6" r="4.5"/><circle cx="15" cy="6" r="4.5"/></svg>';
-const ICO_MO='<svg width="22" height="12" viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="6" r="4.5"/></svg>';
+const ICO_ST='<svg width="20" height="12" viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="6" r="4.5"/><circle cx="15" cy="6" r="4.5"/></svg>';
+const ICO_MO='<svg width="20" height="12" viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="11" cy="6" r="4.5"/></svg>';
 function trackIn(tr){ const v=tr.inp||'0', st=v.includes('+'), opts=[];
   if(st){ for(let i=0;i+1<natIns.length;i+=2) opts.push([i+'+'+(i+1),natIns[i]+' + '+natIns[i+1]]); if(!opts.length) opts.push(['0+1','Vstup 1 + 2']); }
   else { natIns.forEach((n,i)=>opts.push([String(i),n])); if(!opts.length) opts.push(['0','Vstup 1']); }
@@ -1676,7 +1680,7 @@ function renderTracksNative(L){
     const rows=[r0,r1,vb];
     if(audio){
       const r3=el('div','r'), st=(tr.inp||'0').includes('+');
-      const di=dd('',trackIn(tr),tr.inp||'0','Vstup zvukovky',v=>{tr.inp=v; save();});
+      const di=dd(ICO_MIC,trackIn(tr),tr.inp||'0','Vstup zvukovky',v=>{tr.inp=v; save();});
       const tg=el('button','tg'+(st?' on':''),st?ICO_ST:ICO_MO); tg.title=st?'Stereo (klik = mono)':'Mono (klik = stereo)'; tg.onmousedown=e=>e.stopPropagation();
       tg.onclick=()=>{ const a=parseInt(tr.inp||'0')||0; tr.inp=st?String(a):(a-a%2)+'+'+(a-a%2+1); save(); renderTracks(); };
       const ia=el('button','tg','<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.5 4.5h4.5l1.5 1.5h7v7.5h-13z"/><path d="M8 7.5v4M6.2 9.8L8 11.6l1.8-1.8"/></svg>');
@@ -5101,7 +5105,7 @@ function helpDialog(){ dialog('Pomoc – Korgus Sequencer',`${appVer?'<p style="
 <li>Ctrl+C / Ctrl+V = kopírovať / vložiť na pozíciu prehrávania, Ctrl+D = zdvojiť za výber.</li></ul>
 <h4>Krokový sekvencer (bicie)</h4><ul>
 <li>Bicia súprava (808, 909, Akustická) sa vyberá v stĺpci Zvuk pri stope bicích.</li>
-<li>Tlačidlo ♪ pred nástrojom načíta vlastný zvuk (WAV / MP3, max. 4 MB), × ho odstráni. Vlastné zvuky sa ukladajú aj do súboru .s92.</li>
+<li><b>Pady</b>: klik na pad zahrá zvuk, ✎ otvorí editor zvuku (Hlasitosť, Výška, Filter), M / S = stlmiť / sólo. V editore načítaš iný zvuk tlačidlom Sampel…</li>
 <li>Klik = úder, druhý klik = dôraz (červený), tretí = zmazať. Ťahaním kreslíš, pravé tlačidlo maže.</li>
 <li>Vzor sa opakuje po celej dĺžke časti. Klik na názov nástroja ho prehrá. Ctrl+D = zdvojiť vzor.</li></ul>
 <h4>Krokový vstup (MIDI klávesy)</h4><ul>
@@ -5110,6 +5114,15 @@ function helpDialog(){ dialog('Pomoc – Korgus Sequencer',`${appVer?'<p style="
 <li>Silný úder (sila nad 108) = dôraz. → alebo sustain pedál = pauza, ← = späť, Backspace = zmazať krok, Home = na začiatok. V bicích nastavíš kurzor aj klikom na číslo kroku.</li></ul>
 <h4>Key editor (syntezátor)</h4><ul>
 <li>Klik = nová nota, ťahaním do strany jej dĺžka. Ťahaním noty ju presunieš, ťahaním jej konca meníš dĺžku. Pravé tlačidlo = zmazať.</li></ul>
+<h4>Hlavička stopy</h4><ul>
+<li><b>M</b> = stlmiť, <b>S</b> = sólo, <b>●</b> = pripraviť na nahrávanie, <b>reproduktor</b> = hrať spolu s inými stopami.</li>
+<li><b>R / W</b> = čítať / zapisovať automatizáciu, <b>A</b> = otvoriť automatizáciu stopy, <b>SC</b> = kľúčová stopa (sidechain), <b>vločka</b> = zmraziť stopu (nahrá ju do audia a šetrí procesor, ďalší klik rozmrazí).</li>
+<li>Farebný pásik vľavo = zmeniť farbu stopy. Dvojklik na názov = premenovať.</li>
+<li>Výber so šípkou = MIDI vstup; v tom istom výbere je aj MIDI kanál do nástroja (potrebný len pri viachlasových pluginoch).</li>
+<li>Pri Inspirii: <b>✦</b> = Prekvap ma, pravý klik = Obmena, Shift + klik = Nauč Inspiriu zvuk z inej stopy.</li>
+<li>Pravý klik na hlavičku: Pridať objekt z knižnice, <b>Duplikovať stopu</b>, <b>Nahrať do novej audio stopy</b> (trvalá audio kópia; zmrazenie je dočasné), Zmazať stopu.</li>
+<li>Výstup stopy do skupiny alebo na Master nastavíš v mixpulte (F3).</li>
+<li>Pravý klik do prázdneho miesta v aranžmáne = <b>prechodový efekt</b> (riser, reverse činel, whoosh, impact, downlifter) na to miesto.</li></ul>
 <h4>Lokátory a cyklus</h4><ul>
 <li>Pravítko: klik = pozícia, Ctrl + klik = ľavý lokátor L, Alt + klik = pravý lokátor R, ťahanie = rozsah cyklu.</li>
 <li>Pravý klik na pravítko: L / R sem a Nahrávať len medzi L a R (punch in / out).</li>
@@ -5130,15 +5143,15 @@ function helpDialog(){ dialog('Pomoc – Korgus Sequencer',`${appVer?'<p style="
 <li>Ctrl+S = uložiť, Ctrl+O = otvoriť, F3 = mixpult, Ctrl+I = AI asistent, B = referenčná pesnička A/B.</li></ul>
 <h4>Šablóny, vzory, mastering, video, zálohy</h4><ul>
 <li>Súbor → Nový: vyber šablónu (Pop, Spev s gitarou, Elektronika, Nahrávanie hlasu) – stopy aj efekty sa pripravia samé.</li>
-<li>Pravý klik na hlavičku stopy bicích / nástroja → Vložiť rytmus / basovú linku z knižnice (bas ide podľa akordovej stopy alebo zvolenej tóniny).</li>
+<li>Pravý klik na hlavičku stopy → <b>Pridať objekt z knižnice</b>: rytmy, melódie, akordy, basy a arpeggiá, pri audio stope slučky a samply. Melódie sa posunú do tóniny piesne.</li>
 <li>Export → Export videa (MP4): video na výšku alebo na šírku s názvom, vizualizáciou a tvojím obrázkom.</li>
 <li>Súbor → Obnoviť zálohu: program každých 5 minút uloží verziu piesne (posledných 60).</li>
 <li>Pravý klik na audio klip: <b>Zarovnať na takty</b> (tempo a mriežka podľa nahrávky), <b>Rozpoznať akordy</b> (vyplní akordovú stopu), <b>Bicie z nahrávky</b> (rytmus do krokového sekvencera – najlepšie na stope Bicie po rozložení na 4 stopy).</li>
 <li>Efekt <b>Korgus Dvojhlas</b>: zhrubne spev (Dvojhlas) alebo pridá druhý hlas o zvolený interval (Harmonizér).</li>
 <li>Mixpult → REF A/B na Mastri (pravý klik = výber pesničky): kláves B prepína počas prehrávania medzi referenciou a tvojím mixom pri rovnakej hlasitosti.</li>
 <li>Ozubené koliesko vedľa metronómu: hlasitosť, zvuk, klikanie na osminy či šestnástiny, zvýraznenie prvej doby a predpočítanie pred nahrávaním.</li>
-<li>Nastavenia: zvuková karta a latencia, metronóm, MIDI ovládače, zakázané pluginy a jazyk.</li>
-<li>Pravý klik na hlavičku nástrojovej stopy → Pridať arpeggiátor (Korgus Arp): smer, oktávy, rýchlosť, swing, podržanie a 16-krokový vzor so silou a oktávou na krok. ARP v hlavičke ho otvorí.</li></ul>
+<li><b>Nastavenia</b>: Nastavenia zvuku (zvuková karta, latencia), Správa pluginov (ktoré pluginy používaš, hľadanie nových, zakázané), MIDI ovládače a jazyk.</li>
+<li>Tlačidlo <b>ARP</b> v hlavičke nástrojovej stopy zapne arpeggiátor (Korgus Arp), pravý klik naň otvorí jeho okno: smer, oktávy, rýchlosť, swing, podržanie a 16-krokový vzor.</li></ul>
 <h4>Výber nôt (Key editor)</h4><ul>
 <li><b>Pravé tlačidlo + ťahanie = označiť noty</b> (so Shiftom pridáš k výberu). Pravý klik na notu = zmazať, do prázdna = zrušiť výber. Nástroj Výber (šípka) označuje aj ľavým tlačidlom.</li>
 <li>Shift+klik = pridať / odobrať notu z výberu, Ctrl+A = všetko, Esc = zrušiť výber.</li>
