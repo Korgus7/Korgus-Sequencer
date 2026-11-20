@@ -56,6 +56,14 @@ void NovaProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 void NovaProcessor::fillSettings (Settings& s)
 {
     settingsFrom (s, [this] (const juce::String& id) { return raw[id]->load(); });
+    if (raw["fx_all"]->load() < 0.5f)   // FX vypnute: suchy zvuk na porovnanie (len na pocuvanie)
+    {
+        auto& f = s.fx;
+        f.tube = 0; f.compOn = false; f.driveOn = false; f.chOn = false; f.dlOn = false; f.rvOn = false;
+        f.eqEnabled = false; f.dlEqEnabled = false; f.rvEqEnabled = false;
+        for (auto& L : s.L) L.eqEnabled = false;
+        s.arpOn = false;
+    }
     for (auto& L : s.L) if (L.on && L.wave == 7 && L.src == 0 && L.inst > 0) synth.requestInstr (L.inst);   // nastroj nacitat vopred
     s.fx.bpm = 120; s.playing = false; s.ppq = 0;
     if (auto* ph = getPlayHead())

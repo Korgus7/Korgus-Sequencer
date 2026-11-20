@@ -793,6 +793,13 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 const int slot = engine.getOrCreateSlot (v["track"].toString());
                                 auto* p = engine.getPlugin (slot);
                                 if (p == nullptr) return;
+                                if (v["what"].toString() == "fx")   // FX v Inspirii zap / vyp
+                                {
+                                    const int fi = inspFxIndex (p);
+                                    if (fi >= 0) { auto* prm = p->getParameters()[fi]; prm->setValueNotifyingHost (prm->getValue() > 0.5f ? 0.0f : 1.0f); }
+                                    sendTrackPlugins();
+                                    return;
+                                }
                                 if (v["what"].toString() == "vocOn")   // zapnut vocoder v Inspirii
                                 {
                                     for (auto* prm : p->getParameters())
@@ -1803,6 +1810,7 @@ void MainView::sendPluginList()
 
 void MainView::sendTrackPlugins()
 {
+    if (booting) return;   // pri starte sa posle raz na konci (krok Hotovo)
     auto o = obj();
     auto entry = [&o] (const juce::String& id) -> juce::var
     {
@@ -1813,6 +1821,11 @@ void MainView::sendTrackPlugins()
     {
         auto t = entry (id);
         put (t, "name", d.name); put (t, "uid", d.createIdentifierString());
+        if (auto* p = engine.getPlugin (engine.getOrCreateSlot (id)))
+        {
+            const int fi = inspFxIndex (p);
+            if (fi >= 0) put (t, "fxOff", p->getParameters()[fi]->getValue() < 0.5f);
+        }
     }
     for (const auto& [id, m] : fxDesc)
     {
@@ -1950,6 +1963,7 @@ void MainView::restorePluginStates (const juce::var& vst)
 
 void MainView::saveSession()
 {
+    if (booting) return;   // pri starte sa relacia nemeni - ulozenie po kazdom nastroji spomalovalo start
     auto st = collectPluginStates();
     mergeHeld (st);
     dataDir.getChildFile ("session.json").replaceWithText (juce::JSON::toString (st));
@@ -3528,6 +3542,9 @@ void MainView::watchPlugin (const juce::String& track, int which, juce::AudioPro
                 if (id == "learn_req" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("learn_req", true))
                     || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("learn_req", false)))
                     w->learnIdx = hp->getParameterIndex();
+                if (id == "fx_all" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("fx_all", true))
+                    || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("fx_all", false)))
+                    w->fxIdx = hp->getParameterIndex();
                 if (id == "vc_src" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("vc_src", true))
                     || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("vc_src", false)))
                     w->vocSrcIdx = hp->getParameterIndex();
@@ -3535,6 +3552,26 @@ void MainView::watchPlugin (const juce::String& track, int which, juce::AudioPro
     }
     p->addListener (w.get());
     watches[track + "#" + juce::String (which)] = std::move (w);
+}
+
+int MainView::inspFxIndex (juce::AudioProcessor* p)
+{
+    if (p == nullptr) return -1;
+    for (auto* pr : p->getParameters())
+        if (auto* hp = dynamic_cast<juce::AudioPluginInstance::HostedParameter*> (pr))
+        {
+            const auto id = hp->getParameterID();
+            if (id == "fx_all" || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("fx_all", true))
+                || id == juce::String (juce::VST3ClientExtensions::convertJuceParameterId ("fx_all", false)))
+                return hp->getParameterIndex();
+        }
+    return -1;
+}
+
+void MainView::inspFxChanged()
+{
+    juce::Component::SafePointer<MainView> sp (this);
+    juce::MessageManager::callAsync ([sp] { if (sp != nullptr) sp->sendTrackPlugins(); });
 }
 
 void MainView::unwatchPlugin (const juce::String& track, int which)

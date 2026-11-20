@@ -4,9 +4,12 @@ Koncertný klavír / Concert grand: Salamander Grand Piano V3, Alexander Holm �
 Rhodes: jRhodes3d, Jeffrey Learman – samples CC BY-NC 4.0 (https://github.com/sfzinstruments/jlearman.jRhodes3d)
 Pianíno, čembalo, tenor saxofón, harmonika, harfa, okarína, zobcová flauta, kalimba, mallets, zvony / upright piano, harpsichord, tenor sax, harmonica, harp, ocarina, recorder, kalimba, mallets, bells:
   Versilian Community Sample Library (VCSL), Versilian Studios LLC – CC0 1.0
-Sláčiky, husle, violončelá, kontrabas, dychy, plechy, organ / strings, violin, cellos, double bass, woodwinds, brass, organ:
+Sláčiky, husle, violončelá, dychy, plechy, organ / strings, violin, cellos, woodwinds, brass, organ:
   VSCO 2 Community Edition, Versilian Studios LLC – CC0 1.0
-Gitary, basgitara / guitars, bass guitar: Karoryfer Samples – Shinyguitar, Emilyguitar, Growlybass – CC0 1.0
+Akustická gitara / acoustic guitar: Martin HD28, Jeff Learman (Discord SFZ GM Bank) – CC0 1.0
+Jazzová a elektrická gitara / jazz and electric guitar: Karoryfer Samples – Shinyguitar, Emilyguitar – CC0 1.0 (pridaný zosilňovač / amp simulation added)
+Basgitara / bass guitar: Karoryfer Samples – Black And Blue Basses (Darkblack) – CC0 1.0
+Kontrabas / double bass: Karoryfer Samples – Meatbass (1958 Otto Rubner, D. Smolken) – CC0 1.0
 
 Vzorky boli orezané, zaslučkované, vyrovnané v hlasitosti a skomprimované (OGG) pre Korgus Inspiria.
 The samples were trimmed, looped, level-matched and compressed (OGG) for Korgus Inspiria.

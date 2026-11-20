@@ -166,6 +166,8 @@ namespace nova
             // spustace pre hostitela (Korgus Sequencer): kazda zmena = novy nahodny zvuk / obmena
             B ("x_rnd", "Surprise / Prekvap ma", false);
             B ("x_mut", "Vary / Obmena", false);
+            // FX: len na pocuvanie - vypne efekty bez zmeny zvuku (nie je sucastou zvuku/predvolby)
+            B ("fx_all", "FX", true);
             return v;
         }
 
@@ -477,10 +479,10 @@ namespace nova
             v.push_back (I ("Rhodes", "Klávesy", 2, 0.0015f, 0.35f).s ("eq_low", 1).s ("a_ltgt", 3).s ("a_lrate", 3.6f).s ("a_ldepth", 0.3f)
                          .s ("rv_mix", 0.14f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -12.8f).f);
             v.push_back (I ("Čembalo", "Klávesy", 3, 0.001f, 0.15f).s ("rv_mix", 0.2f).s ("rv_size", 0.55f).s ("rv_damp", 0.4f).s ("p_gain", -14.1f).f);
-            v.push_back (I ("Akustická gitara", "Gitary", 4, 0.001f, 0.3f).s ("eq_low", -1).s ("eq_high", 1).s ("rv_mix", 0.12f).s ("rv_size", 0.35f).s ("rv_damp", 0.45f).s ("p_gain", -12.6f).f);
-            v.push_back (I ("Jazzová gitara", "Gitary", 5, 0.001f, 0.25f).s ("eq_low", 1).s ("eq_high", -3).s ("rv_mix", 0.14f).s ("rv_size", 0.4f).s ("rv_damp", 0.55f).s ("p_gain", -14.1f).f);
+            v.push_back (I ("Akustická gitara", "Gitary", 4, 0.001f, 0.3f).s ("rv_mix", 0.12f).s ("rv_size", 0.35f).s ("rv_damp", 0.45f).s ("p_gain", -9.6f).f);
+            v.push_back (I ("Jazzová gitara", "Gitary", 5, 0.001f, 0.25f).s ("rv_mix", 0.14f).s ("rv_size", 0.4f).s ("rv_damp", 0.55f).s ("p_gain", -14.4f).f);
             v.push_back (I ("Basgitara", "Basy", 6, 0.001f, 0.12f).s ("eq_low", 1).s ("comp_on", 1).s ("comp", 0.3f).s ("rv_on", 0).s ("p_gain", -8.3f).f);
-            v.push_back (I ("Jazzový kontrabas", "Basy", 7, 0.001f, 0.35f).s ("eq_low", 1.5f).s ("rv_mix", 0.08f).s ("rv_size", 0.35f).s ("rv_damp", 0.5f).s ("p_gain", -9.2f).f);
+            v.push_back (I ("Jazzový kontrabas", "Basy", 7, 0.001f, 0.35f).s ("eq_low", 1.5f).s ("rv_mix", 0.08f).s ("rv_size", 0.35f).s ("rv_damp", 0.5f).s ("p_gain", -9.5f).f);
             v.push_back (I ("Sláčiková sekcia", "Sláčiky", 8, 0.08f, 0.6f).s ("rv_mix", 0.3f).s ("rv_size", 0.7f).s ("rv_damp", 0.5f).s ("fx_width", 1.3f).s ("p_gain", -9.2f).f);
             v.push_back (I ("Sólové husle", "Sláčiky", 9, 0.03f, 0.4f).s ("rv_mix", 0.26f).s ("rv_size", 0.6f).s ("rv_damp", 0.5f).s ("p_gain", 0.8f).f);
             v.push_back (I ("Violončelá", "Sláčiky", 10, 0.06f, 0.5f).s ("rv_mix", 0.28f).s ("rv_size", 0.65f).s ("rv_damp", 0.5f).s ("p_gain", -9.8f).f);
@@ -500,7 +502,7 @@ namespace nova
             v.push_back (I ("Sláčiky staccato", "Sláčiky", 29, 0.001f, 0.2f).s ("rv_mix", 0.24f).s ("rv_size", 0.6f).s ("rv_damp", 0.5f).s ("fx_width", 1.2f).s ("p_gain", -10.8f).f);
             v.push_back (I ("Koncertná harfa", "Sláčiky", 22, 0.001f, 1.2f).s ("rv_mix", 0.26f).s ("rv_size", 0.65f).s ("rv_damp", 0.45f).s ("p_gain", -6.7f).f);
             v.push_back (I ("Píšťalový organ", "Klávesy", 23, 0.03f, 0.5f).s ("rv_mix", 0.38f).s ("rv_size", 0.85f).s ("rv_damp", 0.4f).s ("p_gain", -8.3f).f);
-            v.push_back (I ("Elektrická gitara", "Gitary", 33, 0.001f, 0.25f).s ("drive_on", 1).s ("drive", 0.15f).s ("rv_mix", 0.14f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -19.8f).f);
+            v.push_back (I ("Elektrická gitara", "Gitary", 33, 0.001f, 0.25f).s ("rv_mix", 0.14f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -12.7f).f);
             v.push_back (I ("Ústna harmonika", "Dychy", 21, 0.01f, 0.15f).s ("rv_mix", 0.16f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -0.4f).f);
             v.push_back (I ("Lesný roh", "Dychy", 24, 0.02f, 0.35f).s ("rv_mix", 0.3f).s ("rv_size", 0.7f).s ("rv_damp", 0.5f).s ("p_gain", -0.3f).f);
             v.push_back (I ("Hoboj", "Dychy", 25, 0.01f, 0.2f).s ("rv_mix", 0.24f).s ("rv_size", 0.55f).s ("rv_damp", 0.5f).s ("p_gain", -5.1f).f);
@@ -536,7 +538,7 @@ namespace nova
 
     bool isPatchParam (const juce::String& id)
     {
-        static const juce::StringArray macros { "preset", "bright", "attack", "release", "space", "width", "volume", "x_rnd", "x_mut" };
+        static const juce::StringArray macros { "preset", "bright", "attack", "release", "space", "width", "volume", "x_rnd", "x_mut", "fx_all" };
         return ! macros.contains (id);
     }
 

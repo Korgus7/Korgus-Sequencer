@@ -8,15 +8,38 @@ def midi(name):
     m = re.match(r'([A-Ga-g][#b]?)(-?\d)$', name)
     return 12 * (int(m.group(2)) + 1) + NN[m.group(1).lower()]
 
+OCT_BB = -1; OCT_MB = 0   # nazvy Black And Blue Basses su o oktavu vyssie
+
+# --- jednoduchy zosilnovac a reprobox pre gitary nahrane priamo z snimaca (bez zosilnovaca znia nerealne)
+def _bq(kind, f, sr, q=0.707, db=0.0):
+    A = 10 ** (db / 40); w = 2 * np.pi * f / sr; al = np.sin(w) / (2 * q); c = np.cos(w)
+    if kind == 'lp': b = [(1 - c) / 2, 1 - c, (1 - c) / 2]; a = [1 + al, -2 * c, 1 - al]
+    elif kind == 'hp': b = [(1 + c) / 2, -(1 + c), (1 + c) / 2]; a = [1 + al, -2 * c, 1 - al]
+    else: b = [1 + al * A, -2 * c, 1 - al * A]; a = [1 + al / A, -2 * c, 1 - al / A]
+    return np.array(b) / a[0], np.array(a) / a[0]
+def amp(x, sr, kind):
+    from scipy.signal import lfilter
+    def f(y, *a): b, aa = _bq(*a[:2], sr, *a[2:]); return lfilter(b, aa, y, axis=0)
+    pk = np.abs(x).max() + 1e-9; y = x / pk
+    if kind == 'jazz':    # teply jazzovy zosilnovac, snimac pri krku
+        y = f(y, 'hp', 70); y = f(y, 'pk', 220, 0.9, 3.5); y = f(y, 'pk', 1100, 1.0, -2.5)
+        g = 1.4; y = np.tanh(g * y) / np.tanh(g)
+        y = f(y, 'lp', 3400, 0.6); y = f(y, 'lp', 4200, 0.7); y = f(y, 'pk', 110, 0.8, 1.5)
+    else:                 # cisty zosilnovac (Fender), reprobox 1x12
+        y = f(y, 'hp', 85); y = f(y, 'pk', 110, 0.8, 2.0); y = f(y, 'pk', 480, 0.8, -3.5); y = f(y, 'pk', 2400, 1.0, 3.0)
+        g = 1.6; y = np.tanh(g * y) / np.tanh(g)
+        y = f(y, 'lp', 5200, 0.6); y = f(y, 'lp', 6500, 0.7); y = f(y, 'pk', 3200, 1.5, 1.5)
+    return (y * pk).astype(np.float32)
+
 # id, nazov, zdroje [(glob, regex so skupinami note a vel)], poradie sil uderu, drzany ton, max. dlzka (s), oktavovy posun nazvov
 I = [
  dict(id=1, name='Pianino', src=[('vcsl/Chordophones/Zithers/Upright Piano, Yamaha/Sustains/*.wav', r'_Sus_([A-G]#?-?\d)_vl(\d)_rr1')], vel=['1','2','3'], sus=False, maxlen=7, oct=1),
  dict(id=2, name='Rhodes', src=[('jlearman.jRhodes3d/jRhodes3d-mono/*.flac', r'__([A-G][b#]?\d)_(\d)')], vel=['5','4','3','2','1'], sus=False, maxlen=6.5, lf=[0.4,0.55,0.7,0.85,1.0]),
  dict(id=3, name='Cembalo', src=[('vcsl/Chordophones/Zithers/Harpsichord, French/Sustains/*.wav', r'_Normal_([A-G]#?\d)_rr1_')], vel=[None], sus=False, maxlen=6, oct=1),
- dict(id=4, name='Akusticka gitara', src=[('karoryfer.shinyguitar/Samples/acoustic/*.wav', r'/([a-g]b?\d)_vl(\d)_rr1_1')], vel=['1','2','3','4'], sus=False, maxlen=6),
- dict(id=5, name='Jazzova gitara', src=[('karoryfer.shinyguitar/Samples/electric/*.wav', r'/([a-g]b?\d)_vl(\d)_rr1_2')], vel=['1','2','3','4'], sus=False, maxlen=6),
- dict(id=6, name='Basgitara', src=[('karoryfer.growlybass/sustain/*.wav', r'/([a-g]b?\d)_(pp|p|f|ff)_rr1')], vel=['pp','p','f','ff'], sus=False, maxlen=5, oct=-1),
- dict(id=7, name='Kontrabas', src=[('VSCO-2-CE/Strings/Solo Contrabass/Pizz/*.wav', r'_Pizz_([A-G]#?\d)_v(\d)_rr1')], vel=['1','3'], sus=False, maxlen=3.5, oct=1),
+ dict(id=4, name='Akusticka gitara', src=[('martin/*.wav', r'MartinGM2_\d{3}_+([A-G]b?\d)_1\.wav')], vel=[None], sus=False, maxlen=6),
+ dict(id=5, name='Jazzova gitara', src=[('karoryfer.shinyguitar/Samples/electric/*.wav', r'/([a-g]b?\d)_vl(\d)_rr1_2')], vel=['1','2','3','4'], sus=False, maxlen=6, amp='jazz', mic=0.25),
+ dict(id=6, name='Basgitara', src=[('bbbass/Samples/darkblack/reg/*.wav', r'darkblack_([a-g]b?\d)_(p|mp|mf|f)_rr1')], vel=['p','mp','mf','f'], sus=False, maxlen=5, oct=OCT_BB),
+ dict(id=7, name='Kontrabas', src=[('meatbass/Samples/pizz/*.wav', r'/([a-g]b?\d)_vl(\d)_rr1')], vel=['1','2','3','4'], sus=False, maxlen=4, oct=OCT_MB),
  dict(id=8, name='Slacikova sekcia', src=[('VSCO-2-CE/Strings/Cello Section/susvib/*.wav', r'susvib_([A-G]#?\d)_v(\d)_1', 0, 55),
                                           ('VSCO-2-CE/Strings/Viola Section/susvib/*.wav', r'_susvib_([A-G]#?\d)_v(\d)_1', 56, 64),
                                           ('VSCO-2-CE/Strings/Violin Section/susVib/*.wav', r'_susVib_([A-G]#?\d)_v(\d)', 65, 127)], vel=['1','2|3'], sus=True, maxlen=5, oct=1),
@@ -53,7 +76,7 @@ I += [
  dict(id=30, name='Kalimba', src=[('vcsl/Idiophones/Plucked Idiophones/Kalimba, Tanzania/*.wav', r'_Main_([A-G]#?\d)_k')], vel=[None], sus=False, maxlen=4, oct=1, notune=1),
  dict(id=31, name='Ruerkove zvony', src=[('vcsl/Idiophones/Struck Idiophones/Tubular Bells 2/*.wav', r'TB_hit_([A-G]#?\d)_v(\d)_1')], vel=['1|2','3|4'], sus=False, maxlen=8, oct=1, notune=1),
  dict(id=32, name='Xylofon', src=[('vcsl/Idiophones/Struck Idiophones/Xylophone/Medium Mallets/*.wav', r'Xylo_Medium_([A-G]#?\d)_(pp|p|mf|f|ff)_01')], vel=['pp','p','mf','f','ff'], sus=False, maxlen=2, oct=1, notune=1),
- dict(id=33, name='Elektricka gitara', src=[('karoryfer.emilyguitar/notes/*.wav', r'/([a-g]b?\d)_(p|mp|mf|f)_rr1')], vel=['p','mp','mf','f'], sus=False, maxlen=6),
+ dict(id=33, name='Elektricka gitara', src=[('karoryfer.emilyguitar/notes/*.wav', r'/([a-g]b?\d)_(p|mp|mf|f)_rr1')], vel=['p','mp','mf','f'], sus=False, maxlen=6, amp='clean'),
  dict(id=34, name='Okarina', src=[('vcsl/Aerophones/Edge-blown Aerophones/Ocarina, Typical/Sustains/Sus/*.wav', r'_Sus_([A-G]#?\d)\.wav')], vel=[None], sus=True, maxlen=4, oct=1),
  dict(id=35, name='Zobcova flauta', src=[('vcsl/Aerophones/Edge-blown Aerophones/Baroque Alto Recorder/Sustain/*.wav', r'_Sus_([A-G]#?\d)_rr1')], vel=[None], sus=True, maxlen=4, oct=1),
 ]
@@ -160,6 +183,14 @@ def process(ins, outdir):
     for n, l, f in items:
         x, sr = sf.read(f, dtype='float32', always_2d=True)
         if x.shape[1] > 2: x = x[:, :2]
+        if ins.get('amp'):
+            x = amp(x, sr, ins['amp'])
+            if ins.get('mic'):   # trochu mikrofonu pri gitare (ta ista nahravka)
+                fm = f.replace('/electric/', '/acoustic/').replace('_2.wav', '_1.wav')
+                if os.path.exists(fm):
+                    m, _ = sf.read(fm, dtype='float32', always_2d=True); m = m[:, :x.shape[1]] if m.shape[1] >= x.shape[1] else np.repeat(m[:, :1], x.shape[1], 1)
+                    n2 = min(len(m), len(x)); rx = np.sqrt(np.mean(x[:n2] ** 2)) + 1e-9; rm = np.sqrt(np.mean(m[:n2] ** 2)) + 1e-9
+                    x = x[:n2] + ins['mic'] * m[:n2] * (rx / rm)
         mono = x.mean(axis=1)
         pk = np.abs(mono).max() + 1e-9
         # ladenie

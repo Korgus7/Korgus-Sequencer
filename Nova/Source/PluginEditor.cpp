@@ -46,6 +46,19 @@ namespace
         mut.onClick = [&p, after] { p.mutate(); if (after) after(); };
     }
 
+    // FX: vsetky efekty zap / vyp - len na pocuvanie, zvuk sa nemeni
+    void setupFx (NovaProcessor& p, juce::TextButton& b, std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>& att)
+    {
+        b.setButtonText ("FX");
+        b.setClickingTogglesState (true);
+        b.setTooltip (T ("Efekty zap / vyp: delay, dozvuk, EQ, modulácia, drive, Tube a arpeggiátor. Len na počúvanie – zvuk sa nemení."));
+        b.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a2029));
+        b.setColour (juce::TextButton::buttonOnColourId, steel);
+        b.setColour (juce::TextButton::textColourOffId, dim);
+        b.setColour (juce::TextButton::textColourOnId, text);
+        att = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.params, "fx_all", b);
+    }
+
     // "Nauc sa zvuk": v Korgus Sequenceri otvori okno ucenia zvuku z inej stopy
     void setupLearn (NovaProcessor& p, juce::TextButton& b)
     {
@@ -203,6 +216,7 @@ namespace
             setupSurprise (p, surprise, surCat, mutateB, [this] { tick(); });
             addAndMakeVisible (surprise); addAndMakeVisible (surCat); addAndMakeVisible (mutateB);
             setupLearn (p, learnB); addAndMakeVisible (learnB);
+            setupFx (p, fxB, fxAtt); addAndMakeVisible (fxB);
             addAndMakeVisible (insp);
             setSize (SW, SH);
             setSection (juce::jmax (0, section), false);   // tlacidla syntezatora pridane az po vybere kategorie
@@ -269,7 +283,8 @@ namespace
         void resized() override
         {
             ext.setBounds (getWidth() - 16 - 96, 9, 96, 26);
-            mutateB.setBounds (ext.getX() - 8 - 84, 9, 84, 26);
+            fxB.setBounds (ext.getX() - 8 - 40, 9, 40, 26);
+            mutateB.setBounds (fxB.getX() - 8 - 84, 9, 84, 26);
             surCat.setBounds (mutateB.getX() - 6 - 22, 9, 22, 26);
             surprise.setBounds (surCat.getX() - 2 - 104, 9, 104, 26);
             learnB.setBounds (surprise.getX() - 8 - 104, 9, 104, 26);
@@ -309,7 +324,8 @@ namespace
         int section = -1;
         std::vector<std::unique_ptr<Knob>> knobs;
         juce::String curCat, lastKey;
-        juce::TextButton ext, surprise, surCat, mutateB, learnB;
+        juce::TextButton ext, surprise, surCat, mutateB, learnB, fxB;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> fxAtt;
         juce::String status;
     };
 
@@ -1889,6 +1905,7 @@ namespace
             undoB.setButtonText (T ("Späť")); redoB.setButtonText (T ("Znova"));
             undoB.onClick = [this] { p.undo.undo(); }; redoB.onClick = [this] { p.undo.redo(); };
             setupSurprise (p, surprise, surCat, mutateB, [this] { br.list.repaint(); });
+            setupFx (p, fxB, fxAtt);
             for (int s : { 75, 90, 100, 110, 125, 150 }) size.addItem (juce::String (s) + " %", s);
             size.setWantsKeyboardFocus (false);
             size.setSelectedId (juce::roundToInt (p.uiScale * 100.0f), juce::dontSendNotification);
@@ -1897,7 +1914,7 @@ namespace
             vol.setSliderStyle (juce::Slider::LinearHorizontal); vol.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             volAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.params, "volume", vol);
             vol.setDoubleClickReturnValue (true, 0.0);
-            for (auto* c : std::initializer_list<juce::Component*> { &advanced, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &learnB, &size, &vol }) addAndMakeVisible (c);
+            for (auto* c : std::initializer_list<juce::Component*> { &advanced, &fxB, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &learnB, &size, &vol }) addAndMakeVisible (c);
             tick();
         }
         void saveDialog()
@@ -1963,6 +1980,7 @@ namespace
         {
             const int y = 12, h = 28;
             advanced.setBounds (12, y, 96, h);
+            fxB.setBounds (172, y, 40, h);
             prev.setBounds (220, y, 30, h);
             nameBox = { 254, y, 220, h };
             next.setBounds (478, y, 30, h);
@@ -1973,7 +1991,8 @@ namespace
             size.setBounds (vol.getX() - 76 - 78, y + 2, 78, h - 4);
         }
         NovaEditor& ed; NovaProcessor& p; Browser& br;
-        juce::TextButton advanced, prev, next, save, undoB, redoB, surprise, surCat, mutateB, learnB;
+        juce::TextButton advanced, prev, next, save, undoB, redoB, surprise, surCat, mutateB, learnB, fxB;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> fxAtt;
         juce::ComboBox size; juce::Slider vol;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> volAtt;
         juce::Rectangle<int> nameBox; juce::String shownName, shownCat, lastKey;

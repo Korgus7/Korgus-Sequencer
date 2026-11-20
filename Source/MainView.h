@@ -76,16 +76,19 @@ private:
             if (i == captureIdx) mv.inspireCaptured (track);
             if (i == learnIdx) mv.inspireLearnReq (track);     // tlacidlo "Nauc sa zvuk" v Inspirii   // "Inspiracia" v Korgus Inspire (skryty parameter capture_seq)
             if (i == vocSrcIdx) mv.vocSrcChanged (track, v);   // vocoder v Inspirii: vybrana spevova stopa
+            if (i == fxIdx) mv.inspFxChanged();                // FX v Inspirii zap / vyp - tlacidlo v hlavicke stopy
             mv.paramTouched (track, which, i, v, 0);
         }
         void audioProcessorChanged (juce::AudioProcessor*, const ChangeDetails&) override {}
         void audioProcessorParameterChangeGestureBegin (juce::AudioProcessor*, int i) override { mv.paramTouched (track, which, i, -1, 1); }
         void audioProcessorParameterChangeGestureEnd (juce::AudioProcessor*, int i) override { mv.paramTouched (track, which, i, -1, 2); }
-        MainView& mv; juce::String track; int which; juce::AudioProcessor* proc; int captureIdx = -1, vocSrcIdx = -1, learnIdx = -1;
+        MainView& mv; juce::String track; int which; juce::AudioProcessor* proc; int captureIdx = -1, vocSrcIdx = -1, learnIdx = -1, fxIdx = -1;
     };
     void inspireCaptured (const juce::String& track);
     void inspireLearnReq (const juce::String& track);          // z ktoreho kolvek vlakna; spracuje sa na hlavnom
     void vocSrcChanged (const juce::String& track, float v01);
+    void inspFxChanged();
+    static int inspFxIndex (juce::AudioProcessor* p);   // parameter "fx_all" v Inspirii, inak -1
     juce::String vocTracksTxt;
     void onInspireCapture (const juce::String& track);
     std::map<juce::String, int> inspLast;
