@@ -626,7 +626,7 @@ int main (int argc, char** argv)
         for (int idx = 0; idx < (int) fp.size(); ++idx)
         {
             const auto& f = fp[(size_t) idx];
-            if (f.category == String::fromUTF8 ("Roztriediť")) continue;
+            if (nova::categorySection (f.category) != 0) continue;
             q.loadPreset ("f:" + f.name);
             const int inst = (int) f.values.at ("a_inst");
             q.synth.requestInstr (inst);
@@ -712,7 +712,7 @@ int main (int argc, char** argv)
             File f ("/home/claude/shp/shot_" + String (k++) + ".png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
         }
         q.uiMode = 0;
-        for (const char* nm : { "Koncertný klavír", "Trúbka s dusítkom", "Jazzový vibrafón" })
+        for (const char* nm : { "Koncertný klavír", "Trúbka s dusítkom", "Teplý pad", "Synth pluck" })
         {
             q.loadPreset (String ("f:") + String::fromUTF8 (nm));
             std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);

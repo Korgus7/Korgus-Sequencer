@@ -8,7 +8,7 @@ using namespace nova::ui;
 
 namespace
 {
-    constexpr int SW = 780, SH = 412;       // jednoducha verzia
+    constexpr int SW = 780, SH = 446;       // jednoducha verzia
     constexpr int EW = 1322, EH = 886;      // rozsirena verzia
     const juce::Colour arcB (0xff9d93c4);
 
@@ -167,13 +167,20 @@ namespace
             // kategorie (tovarenske, bez "Moje zvuky")
             for (int i = 0; i < categories().size() - 1; ++i)
             {
-                if (categories()[i] == juce::String::fromUTF8 ("Roztriediť")) continue;   // na triedenie len v rozšírenej verzii
                 auto c = std::make_unique<PresetButton>();
                 c->name = T (categories()[i]); c->key = categories()[i]; c->small = true;
                 auto cat = c->key;
                 c->onClick = [this, cat] { setCat (cat); };
                 addAndMakeVisible (*c);
                 catButtons.push_back (std::move (c));
+            }
+            // dve casti: Nastroje (nahrate) a Syntezator
+            for (int sct = 0; sct < 2; ++sct)
+            {
+                auto& b = secButtons[sct];
+                b.name = T (sct == 0 ? "Nástroje" : "Syntezátor");
+                b.onClick = [this, sct] { setSection (sct, true); };
+                addAndMakeVisible (b);
             }
             {
                 const auto* e = p.presets.find (p.currentKey);
@@ -198,11 +205,32 @@ namespace
             setupLearn (p, learnB); addAndMakeVisible (learnB);
             addAndMakeVisible (insp);
             setSize (SW, SH);
+            setSection (juce::jmax (0, section), false);   // tlacidla syntezatora pridane az po vybere kategorie
             tick();
+        }
+        void setSection (int sct, bool pickCat)
+        {
+            section = sct;
+            for (int i = 0; i < 2; ++i) { secButtons[i].selected = i == sct; secButtons[i].repaint(); }
+            for (auto& cb : catButtons) cb->setVisible (categorySection (cb->key) == sct);
+            // Prekvap ma, Obmena a Nauc sa zvuk patria k syntezatoru
+            for (auto* c : { (juce::Component*) &surprise, (juce::Component*) &surCat, (juce::Component*) &mutateB, (juce::Component*) &learnB }) c->setVisible (sct == 1);
+            if (pickCat && categorySection (curCat) != sct)
+            {
+                const auto saved = p.presets.setting (sct == 0 ? "simpleCatI" : "simpleCatS");
+                juce::String c = categorySection (saved) == sct ? saved : juce::String();
+                if (c.isEmpty()) for (auto& cb : catButtons) if (categorySection (cb->key) == sct) { c = cb->key; break; }
+                setCat (c);
+                return;
+            }
+            resized();
         }
         void setCat (const juce::String& c)
         {
             curCat = c; p.presets.setSetting ("simpleCat", c);
+            const int sc = categorySection (c);
+            if (sc >= 0) p.presets.setSetting (sc == 0 ? "simpleCatI" : "simpleCatS", c);
+            if (sc >= 0 && sc != section) { setSection (sc, false); }
             for (auto& cb : catButtons) { cb->selected = cb->key == c; cb->repaint(); }
             for (auto& b : buttons) b->setVisible (b->cat == c);
             resized();
@@ -248,9 +276,17 @@ namespace
             auto r = getLocalBounds().reduced (16, 0);
             r.removeFromTop (44 + 10);
             {
+                auto sr = r.removeFromTop (28);
+                const int sw = (sr.getWidth() - 6) / 2;
+                secButtons[0].setBounds (sr.getX(), sr.getY(), sw, 28);
+                secButtons[1].setBounds (sr.getX() + sw + 6, sr.getY(), sw, 28);
+                r.removeFromTop (8);
+            }
+            {
                 auto cr = r.removeFromTop (26);
-                const int n = (int) catButtons.size(), g2 = 4, cw = (cr.getWidth() - g2 * (n - 1)) / juce::jmax (1, n);
-                for (int i = 0; i < n; ++i) catButtons[(size_t) i]->setBounds (cr.getX() + i * (cw + g2), cr.getY(), cw, 26);
+                std::vector<PresetButton*> vis; for (auto& cb : catButtons) if (cb->isVisible()) vis.push_back (cb.get());
+                const int n = (int) vis.size(), g2 = 4, cw = (cr.getWidth() - g2 * (n - 1)) / juce::jmax (1, n);
+                for (int i = 0; i < n; ++i) vis[(size_t) i]->setBounds (cr.getX() + i * (cw + g2), cr.getY(), cw, 26);
             }
             r.removeFromTop (8);
             // 2 riadky po 5; ak je v kategorii viac zvukov, 3 nizsie riadky v tom istom mieste
@@ -269,6 +305,8 @@ namespace
         NovaEditor& ed; NovaProcessor& p;
         InspireButton insp { p };
         std::vector<std::unique_ptr<PresetButton>> buttons, catButtons;
+        PresetButton secButtons[2];
+        int section = -1;
         std::vector<std::unique_ptr<Knob>> knobs;
         juce::String curCat, lastKey;
         juce::TextButton ext, surprise, surCat, mutateB, learnB;

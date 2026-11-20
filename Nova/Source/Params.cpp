@@ -180,8 +180,14 @@ namespace nova
 
     const juce::StringArray& categories()
     {
-        static const juce::StringArray c = split ("Klavír|Klávesy|Gitary|Basy|Sláčiky|Dychy|Zvonky|Roztriediť|Moje zvuky");
+        static const juce::StringArray c = split ("Klavír|Klávesy|Gitary|Basy|Sláčiky|Dychy|Zvonky|Synth klávesy|Pady|Synth sláčiky|Plucky|Synth basy|Leady|Moje zvuky");
         return c;
+    }
+
+    int categorySection (const juce::String& c)
+    {
+        const int i = categories().indexOf (c);
+        return i < 0 || i == categories().size() - 1 ? -1 : (i < 7 ? 0 : 1);
     }
 
     const std::vector<FactoryPatch>& factoryPatches()
@@ -451,8 +457,13 @@ namespace nova
                          .s ("a_ltgt", 1).s ("a_lrate", 0.15f).s ("a_ldepth", 0.25f)
                          .s ("b_on", 1).s ("b_wave", 0).s ("b_oct", -1).s ("b_level", 0.3f).s ("b_aa", 1).s ("b_ad", 1.5f).s ("b_as", 0.9f).s ("b_ar", 2)
                          .s ("ch_on", 1).s ("ch_mix", 0.4f).s ("rv_mix", 0.45f).s ("rv_size", 0.85f).s ("p_gain", -13.6f).s ("veltrack", 0.6f).f);
-            // doterajsie zvuky (poradie ostava kvoli Sequenceru a starym projektom) – na roztriedenie
-            for (auto& f : v) f.category = juce::String::fromUTF8 ("Roztriediť");
+            // syntezatorove zvuky (poradie ostava kvoli Sequenceru a starym projektom) – cast Syntezator
+            for (auto& f : v)
+            {
+                const auto c = f.category.toStdString();
+                const char* to = (c == "Klavír" || c == "Klávesy") ? "Synth klávesy" : c == "Sláčiky" ? "Synth sláčiky" : c == "Zvonky" ? "Plucky" : c == "Basy" ? "Synth basy" : nullptr;
+                if (to != nullptr) f.category = juce::String::fromUTF8 (to);
+            }
             // realisticke nastroje (InstrBank): a_inst = cislo nastroja, 0 = koncertny klavir
             auto I = [] (const char* n, const char* c, int inst, float aa, float ar)
             {

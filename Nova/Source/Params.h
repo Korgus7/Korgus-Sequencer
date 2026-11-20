@@ -29,6 +29,7 @@ namespace nova
     };
     const std::vector<FactoryPatch>& factoryPatches();
     const juce::StringArray& categories();      // poradie kategorii (posledna "Moje zvuky")
+    int categorySection (const juce::String& c); // 0 = Nastroje, 1 = Syntezator, -1 = ina (moje zvuky…)
 
     // ID parametrov, ktore patria zvuku (nie makra jednoduchej verzie)
     bool isPatchParam (const juce::String& id);

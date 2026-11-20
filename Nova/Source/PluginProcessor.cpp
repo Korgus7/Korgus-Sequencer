@@ -451,7 +451,7 @@ namespace
             }
             case 2:   // klavesy (FM)
             {
-                noun = chance (0.5f) ? "klavírik" : "tón"; cat = "Klávesy";
+                noun = chance (0.5f) ? "klavírik" : "tón"; cat = "Synth klávesy";
                 v["a_wave"] = 6; v["a_ratio"] = pick ({ 1, 1, 3, 5 }); v["a_color"] = R (0.25f, 0.55f); v["a_fenv"] = R (0.5f, 0.9f);
                 v["a_fa"] = 0.001f; v["a_fd"] = R (0.6f, 1.8f); v["a_fs"] = 0; v["a_aa"] = 0.002f; v["a_ad"] = R (2, 6); v["a_as"] = R (0, 0.25f); v["a_ar"] = R (0.3f, 0.6f); v["a_level"] = 1;
                 if (chance (0.3f)) { v["a_ltgt"] = 3; v["a_lrate"] = R (3, 6); v["a_ldepth"] = R (0.1f, 0.3f); }
@@ -461,7 +461,7 @@ namespace
             }
             case 3:   // bas
             {
-                noun = chance (0.5f) ? "bas" : "basák"; cat = "Basy";
+                noun = chance (0.5f) ? "bas" : "basák"; cat = "Synth basy";
                 if (chance (0.25f)) { v["a_wave"] = 6; v["a_ratio"] = pick ({ 0, 1 }); v["a_color"] = R (0.2f, 0.5f); v["a_fenv"] = R (0.4f, 0.8f); v["a_fd"] = 0.3f; v["a_fs"] = 0.1f; }
                 else if (chance (0.3f))
                 {
@@ -526,7 +526,7 @@ namespace
             }
             case 5:   // zvonky (FM)
             {
-                noun = chance (0.5f) ? "zvonček" : "kryštál"; cat = "Zvonky";
+                noun = chance (0.5f) ? "zvonček" : "kryštál"; cat = "Plucky";
                 if (chance (0.35f))
                 {
                     // Roj: zvony - nizky Focus, velky rozptyl, rychly nabeh, dlhe doznievanie
@@ -545,7 +545,7 @@ namespace
             }
             case 6:   // slaciky
             {
-                noun = chance (0.5f) ? "sláčik" : "orchester"; cat = "Sláčiky";
+                noun = chance (0.5f) ? "sláčik" : "orchester"; cat = "Synth sláčiky";
                 v["a_wave"] = 2; v["a_uni"] = I (4, 7); v["a_spread"] = R (8, 16);
                 v["a_cut"] = LR (1500, 4500); v["a_reso"] = R (0.05f, 0.25f); v["a_fenv"] = R (0.05f, 0.2f);
                 v["a_fa"] = R (0.2f, 0.6f); v["a_fd"] = 1; v["a_fs"] = 0.7f; v["a_fr"] = 0.6f;
@@ -558,7 +558,7 @@ namespace
             }
             default:  // klavir + pad
             {
-                noun = chance (0.5f) ? "klavír" : "koncert"; cat = "Klavír";
+                noun = chance (0.5f) ? "klavír" : "koncert"; cat = "Synth klávesy";
                 v["a_wave"] = 7; v["a_src"] = 0; v["a_color"] = R (0.25f, 0.7f); v["a_level"] = 1; v["a_aa"] = 0.0015f; v["a_ar"] = 0.4f;
                 v["b_on"] = 1; v["b_wave"] = pick ({ 2, 1, 0, 3 }); v["b_uni"] = I (3, 5); v["b_spread"] = 10; v["b_cut"] = LR (800, 3000);
                 v["b_aa"] = R (0.4f, 1.5f); v["b_ad"] = 1.5f; v["b_as"] = 0.9f; v["b_ar"] = R (1, 2.5f); v["b_level"] = R (0.12f, 0.3f); v["b_oct"] = pick ({ 0, -1, 1 });
@@ -609,7 +609,7 @@ namespace
     // cielova hlasitost podla tovarenskych zvukov: drzane zvuky okolo -19.5 dB, uderove okolo -16 dB
     float targetLevelDb (const juce::String& cat)
     {
-        for (auto c : { "Pady", "Sláčiky", "Leady", "Basy" }) if (cat == juce::String::fromUTF8 (c)) return -19.5f;
+        for (auto c : { "Pady", "Synth sláčiky", "Leady", "Synth basy" }) if (cat == juce::String::fromUTF8 (c)) return -19.5f;
         return -16.0f;
     }
 }

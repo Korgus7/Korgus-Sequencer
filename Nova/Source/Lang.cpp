@@ -16,7 +16,7 @@ namespace nova
                 { "Realistické nahraté nástroje – klavír, Rhodes, gitary, basy, sláčiky, dychy, mallets", "Realistic recorded instruments – piano, Rhodes, guitars, basses, strings, winds, mallets" },
                 { "Jednoduché vzorky – organ, zbor, zvon, synth…", "Simple samples – organ, choir, bell, synth…" },
                 { "Klik = zoznam nástrojov", "Click = list of instruments" }, { " (načítavam…)", " (loading…)" },
-                { "Gitary", "Guitars" }, { "Dychy", "Winds" }, { "Roztriediť", "To sort" },
+                { "Gitary", "Guitars" }, { "Dychy", "Winds" }, { "Synth klávesy", "Synth Keys" }, { "Synth sláčiky", "Synth Strings" }, { "Synth basy", "Synth Bass" }, { "Nástroje", "Instruments" }, { "Syntezátor", "Synthesizer" },
                 { "Koncertný klavír", "Concert Grand" }, { "Pianíno", "Upright Piano" }, { "Rhodes", "Rhodes" }, { "Čembalo", "Harpsichord" },
                 { "Akustická gitara", "Acoustic Guitar" }, { "Jazzová gitara", "Jazz Guitar" }, { "Basgitara", "Bass Guitar" }, { "Jazzový kontrabas", "Jazz Upright Bass" },
                 { "Sláčiková sekcia", "String Section" }, { "Sólové husle", "Solo Violin" }, { "Violončelá", "Cellos" }, { "Trúbka s dusítkom", "Muted Trumpet" },
