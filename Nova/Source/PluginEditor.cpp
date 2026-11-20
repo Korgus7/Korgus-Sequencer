@@ -1520,6 +1520,15 @@ namespace
             folderBtn.setTooltip (T ("Nový priečinok na zvuky, nový zvuk, zvuk z WAV, import zvukov"));
             folderBtn.onClick = [this] { addMenu(); };
             addAndMakeVisible (importBtn); addAndMakeVisible (folderBtn);
+            // dve casti ako v jednoduchej verzii: Nastroje (nahrate) a Syntezator
+            if (section() < 0) section() = juce::jmax (0, categorySection (p.currentCategory));
+            for (int i = 0; i < 2; ++i)
+            {
+                secB[i].setButtonText (T (i == 0 ? "Nástroje" : "Syntezátor"));
+                secB[i].setClickingTogglesState (false);
+                secB[i].onClick = [this, i] { setSection (i); };
+                addAndMakeVisible (secB[i]);
+            }
             addAndMakeVisible (chips);
             vp.setViewedComponent (&list, false); vp.setScrollBarsShown (true, false); vp.setScrollBarThickness (8);
             addAndMakeVisible (vp);
@@ -1529,6 +1538,14 @@ namespace
             refresh();
         }
         static juce::String& filterCat() { static juce::String c; return c; }
+        static int& section() { static int s = -1; return s; }
+        void setSection (int i)
+        {
+            if (i < 0 || i > 1) return;
+            section() = i;
+            if (filterCat().isNotEmpty() && categorySection (filterCat()) >= 0 && categorySection (filterCat()) != i) filterCat() = {};
+            resized();
+        }
         void textEditorTextChanged (juce::TextEditor&) override { refresh(); }
         void refresh()
         {
@@ -1537,6 +1554,7 @@ namespace
             const auto q = search.getText().trim().toLowerCase();
             for (auto& e : p.presets.entries())
             {
+                if (section() >= 0 && categorySection (e.category) >= 0 && categorySection (e.category) != section()) continue;   // druha cast
                 if (filterCat() == juce::String::charToString (0x2605)) { if (! p.presets.isFav (e.key)) continue; }
                 else if (filterCat().isNotEmpty() && e.category != filterCat()) continue;
                 if (q.isNotEmpty() && ! e.name.toLowerCase().contains (q) && ! e.category.toLowerCase().contains (q)
@@ -1545,6 +1563,7 @@ namespace
             }
             list.setSize (juce::jmax (10, vp.getMaximumVisibleWidth()), (int) shown.size() * PresetList::rowH + 4);
             list.repaint(); chips.repaint();
+            for (int i = 0; i < 2; ++i) secB[i].setToggleState (i == section(), juce::dontSendNotification);
         }
         void step (int d)
         {
@@ -1726,6 +1745,12 @@ namespace
         {
             auto r = getLocalBounds().reduced (10, 0);
             r.removeFromTop (32);
+            {
+                auto sr = r.removeFromTop (28);
+                const int w = (sr.getWidth() - 6) / 2;
+                secB[0].setBounds (sr.removeFromLeft (w)); secB[1].setBounds (sr.removeFromRight (w));
+                r.removeFromTop (8);
+            }
             search.setBounds (r.removeFromTop (26)); r.removeFromTop (6);
             auto br = r.removeFromTop (24);
             importBtn.setBounds (br.removeFromLeft (br.getWidth() / 2 + 20).withTrimmedRight (3)); folderBtn.setBounds (br.withTrimmedLeft (3));
@@ -1737,7 +1762,7 @@ namespace
             refresh();
         }
         NovaProcessor& p;
-        juce::TextEditor search; juce::TextButton importBtn, folderBtn;
+        juce::TextEditor search; juce::TextButton importBtn, folderBtn, secB[2];
         CategoryChips chips; PresetList list; juce::Viewport vp; juce::Label hint;
         std::vector<PresetStore::Entry> shown;
         std::unique_ptr<juce::FileChooser> chooser;
@@ -1745,7 +1770,10 @@ namespace
 
     juce::StringArray CategoryChips::cats() const
     {
-        juce::StringArray c; c.add (T ("Všetko")); c.add (juce::String::charToString (0x2605)); c.addArray (br.p.presets.allCategories()); c.add ("+");
+        juce::StringArray c; c.add (T ("Všetko")); c.add (juce::String::charToString (0x2605));
+        for (auto& k : br.p.presets.allCategories())   // kategorie zvolenej casti + vlastne priecinky
+            if (categorySection (k) < 0 || categorySection (k) == Browser::section()) c.add (k);
+        c.add ("+");
         return c;
     }
     void CategoryChips::mouseDown (const juce::MouseEvent& e)
@@ -1902,6 +1930,16 @@ namespace
         }
         void tick()
         {
+            if (p.currentKey != lastKey)
+            {
+                lastKey = p.currentKey;
+                const int sc = categorySection (p.currentCategory);
+                if (sc >= 0 && sc != Browser::section()) br.setSection (sc);
+            }
+            {
+                const bool syn = Browser::section() != 0;   // Prekvap ma, Obmena a Nauc sa zvuk patria k syntezatoru
+                for (auto* c : std::initializer_list<juce::Component*> { &surprise, &surCat, &mutateB, &learnB }) if (c->isVisible() != syn) c->setVisible (syn);
+            }
             undoB.setEnabled (p.undo.canUndo()); redoB.setEnabled (p.undo.canRedo());
             if (p.currentName != shownName || p.currentCategory != shownCat) { shownName = p.currentName; shownCat = p.currentCategory; repaint(); }
         }
@@ -1938,7 +1976,7 @@ namespace
         juce::TextButton advanced, prev, next, save, undoB, redoB, surprise, surCat, mutateB, learnB;
         juce::ComboBox size; juce::Slider vol;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> volAtt;
-        juce::Rectangle<int> nameBox; juce::String shownName, shownCat;
+        juce::Rectangle<int> nameBox; juce::String shownName, shownCat, lastKey;
     };
 
     // ===================================================================== rozsirena verzia
