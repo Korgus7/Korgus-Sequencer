@@ -15,9 +15,15 @@ NovaProcessor::NovaProcessor()
     params.addParameterListener ("preset", this);
     params.addParameterListener ("x_rnd", this);
     params.addParameterListener ("x_mut", this);
-    // na zaciatku tovarensky zvuk 0
+    // na zaciatku koncertny klavir
     PatchData p;
-    if (presets.load ("f:" + factoryPatches()[0].name, p)) { applyPatch (p); currentKey = "f:" + p.name; }
+    const juce::String first = "f:" + juce::String::fromUTF8 ("Koncertný klavír");
+    if (presets.load (first, p) || presets.load ("f:" + factoryPatches()[0].name, p))
+    {
+        applyPatch (p); currentKey = "f:" + p.name;
+        if (const auto* e = presets.find (currentKey); e != nullptr && e->factory)
+            if (auto* prm = params.getParameter ("preset")) { lastPresetParam = e->factoryIndex; pendingPreset = -2; prm->setValueNotifyingHost (prm->convertTo0to1 ((float) e->factoryIndex)); }
+    }
     undo.clearUndoHistory();
     startTimer (400);
     for (auto& m : ccMap) m.store (-1);
@@ -50,6 +56,7 @@ void NovaProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 void NovaProcessor::fillSettings (Settings& s)
 {
     settingsFrom (s, [this] (const juce::String& id) { return raw[id]->load(); });
+    for (auto& L : s.L) if (L.on && L.wave == 7 && L.src == 0 && L.inst > 0) synth.requestInstr (L.inst);   // nastroj nacitat vopred
     s.fx.bpm = 120; s.playing = false; s.ppq = 0;
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
@@ -73,7 +80,7 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
         L.fa = g (p + "fa"); L.fd = g (p + "fd"); L.fs = g (p + "fs"); L.fr = g (p + "fr");
         L.aa = g (p + "aa"); L.ad = g (p + "ad"); L.as = g (p + "as"); L.ar = g (p + "ar");
         L.lshape = (int) g (p + "lshape"); L.ltgt = (int) g (p + "ltgt"); L.lrate = g (p + "lrate"); L.ldepth = g (p + "ldepth"); L.ldelay = g (p + "ldelay");
-        L.src = (int) g (p + "src"); L.root = (int) g (p + "root"); L.loop = g (p + "loop") > 0.5f; L.wt = (int) g (p + "wt");
+        L.src = (int) g (p + "src"); L.inst = (int) g (p + "inst"); L.root = (int) g (p + "root"); L.loop = g (p + "loop") > 0.5f; L.wt = (int) g (p + "wt");
         L.penv = g (p + "penv"); L.ptime = g (p + "ptime"); L.ktrk = g (p + "ktrk"); L.fvel = g (p + "fvel"); L.noise = g (p + "noise"); L.lsync = (int) g (p + "lsync");
         L.eqLow = g (p + "eql"); L.eqMid = g (p + "eqm"); L.eqMidF = g (p + "eqmf"); L.eqHigh = g (p + "eqh"); L.eqEnabled = g (p + "eqon") > 0.5f;
     }
@@ -723,18 +730,11 @@ void NovaProcessor::newSound (const juce::String& category)
 namespace
 {
     struct BuiltinSmp { const char* res; const char* sk; const char* en; int root; };
+    // jednoduche vzorky (realisticke nastroje su v InstrBank – zdroj "Nastroj")
     const BuiltinSmp kBuiltin[] = {
-        { "smp01_piano_flac", "Piano", "Piano", 60 }, { "smp02_epiano_flac", "Elektrické piano", "Electric piano", 60 },
-        { "smp03_acgtr_flac", "Akustická gitara", "Acoustic guitar", 48 }, { "smp04_clgtr_flac", "Klasická gitara", "Classical guitar", 48 },
-        { "smp05_elgtr_flac", "Elektrická gitara", "Electric guitar", 48 }, { "smp06_distgtr_flac", "Skreslená gitara", "Distorted guitar", 48 },
-        { "smp07_bassgtr_flac", "Basgitara", "Bass guitar", 36 }, { "smp08_dblbass_flac", "Kontrabas", "Double bass", 36 },
-        { "smp09_subbass_flac", "Subbas", "Sub bass", 36 }, { "smp10_organ_flac", "Organ", "Organ", 60 },
-        { "smp11_violin_flac", "Husle", "Violin", 60 }, { "smp12_cello_flac", "Violončelo", "Cello", 48 },
-        { "smp13_flute_flac", "Flauta", "Flute", 60 }, { "smp14_clarinet_flac", "Klarinet", "Clarinet", 60 },
-        { "smp15_sax_flac", "Saxofón", "Saxophone", 48 }, { "smp16_trumpet_flac", "Trúbka", "Trumpet", 60 },
-        { "smp17_choir_flac", "Zbor „á“", "Choir \"aah\"", 48 }, { "smp18_bell_flac", "Zvon", "Bell", 60 },
-        { "smp19_marimba_flac", "Marimba", "Marimba", 60 }, { "smp20_vibes_flac", "Vibrafón", "Vibraphone", 60 },
-        { "smp21_synlead_flac", "Synth lead", "Synth lead", 60 }, { "smp22_synpad_flac", "Synth pad", "Synth pad", 60 } };
+        { "smp06_distgtr_flac", "Skreslená gitara", "Distorted guitar", 48 }, { "smp09_subbass_flac", "Subbas", "Sub bass", 36 },
+        { "smp10_organ_flac", "Organ", "Organ", 60 }, { "smp17_choir_flac", "Zbor „á“", "Choir \"aah\"", 48 },
+        { "smp18_bell_flac", "Zvon", "Bell", 60 }, { "smp21_synlead_flac", "Synth lead", "Synth lead", 60 }, { "smp22_synpad_flac", "Synth pad", "Synth pad", 60 } };
     constexpr int kNumBuiltin = (int) (sizeof (kBuiltin) / sizeof (kBuiltin[0]));
     int builtinByName (const juce::String& n)
     {
@@ -1175,6 +1175,7 @@ nova::Settings NovaProcessor::currentSettings()
 {
     nova::Settings s;
     settingsFrom (s, [this] (const juce::String& id) { return raw[id]->load(); });
+    for (auto& L : s.L) if (L.on && L.wave == 7 && L.src == 0 && L.inst > 0) synth.requestInstr (L.inst);   // nastroj nacitat vopred
     s.fx.bpm = 120; s.playing = false; s.ppq = 0;
     return s;
 }

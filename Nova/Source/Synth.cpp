@@ -3,7 +3,7 @@
 
 namespace nova
 {
-    Synth::Synth() { bank = PianoBank::get(); }
+    Synth::Synth() { bank = PianoBank::get(); ibank = InstrBank::get(); }
 
     void Synth::prepare (double rate, int maxBlock)
     {
@@ -136,7 +136,26 @@ namespace nova
         else if (s.wave == 6) { lv.cPh = lv.mPh = 0; }
         else
         {
-            if (s.src == 0)
+            if (s.src == 0 && s.inst > 0)
+            {
+                // realisticky nastroj: vrstvy podla sily uderu, slucka pri drzanych tonoch
+                ibank->request (s.inst);
+                const auto* I = ibank->find (s.inst);
+                if (I == nullptr) return;
+                const int nl = I->nLayers;
+                const int sn = juce::jlimit (0, 127, juce::roundToInt ((float) v.note + noteShift));
+                const float lpos = v.vel * (float) nl - 1.0f + (s.color - 0.5f) * 2.0f;
+                const int layer = juce::jlimit (0, nl - 1, (int) std::lround (lpos));
+                lv.smp = I->map[(size_t) sn][(size_t) layer];
+                if (lv.smp == nullptr) return;
+                const float center = (float) (layer + 1) / (float) nl;
+                lv.velGain = clampf (std::pow (v.vel / center, 0.9f), 0.08f, 2.0f) * std::pow (0.15f + 0.85f * v.vel, 1.6f) * I->gain;
+                lv.noDamper = false;
+                lv.gain = 1.0f / 0.3f;   // doznenie = gombik Doznenie
+                lv.atk = 0; lv.atkInc = 1.0f / (std::max (0.0005f, s.aa * atkScale) * (float) sr);
+                lv.amp.stage = Env::sustain; lv.amp.s = 1; lv.amp.v = 1;
+            }
+            else if (s.src == 0)
             {
                 static const float centers[4] = { 0.25f, 0.5f, 0.75f, 1.0f };
                 const int sn = juce::jlimit (0, 127, juce::roundToInt ((float) v.note + noteShift));
@@ -595,8 +614,10 @@ namespace nova
             else if (isPiano)
             {
                 const auto* sm = lv.smp;
+                const int le = sm->loopEnd, ll = sm->loopEnd - sm->loopStart;
+                if (le > 0 && lv.pos >= (double) le) lv.pos -= (double) ll;   // slucka drzaneho tonu
                 const int ip = (int) lv.pos;
-                if (ip + 3 >= sm->length) { lv.active = false; break; }
+                if (le <= 0 && ip + 3 >= sm->length) { lv.active = false; break; }
                 const float fr = (float) (lv.pos - ip);
                 auto herm = [fr] (float xm1, float x0, float x1, float x2)
                 {
@@ -604,10 +625,12 @@ namespace nova
                     return ((a3 * fr + b) * fr + c) * fr + x0;
                 };
                 const int16_t* d = sm->data.data();
-                const int im = ip > 0 ? ip - 1 : 0;
-                l = herm (d[im * 2], d[ip * 2], d[(ip + 1) * 2], d[(ip + 2) * 2]) * (1.0f / 32768.0f);
-                r = herm (d[im * 2 + 1], d[ip * 2 + 1], d[(ip + 1) * 2 + 1], d[(ip + 2) * 2 + 1]) * (1.0f / 32768.0f);
-                const double step = std::pow (2.0, (v.curNote + shift - (float) sm->root) / 12.0) * sm->rate / sr * pitchMul;
+                const int ch = sm->ch;
+                auto at = [le, ll] (int k) { return le > 0 && k >= le ? k - ll : k; };
+                const int im = ip > 0 ? ip - 1 : 0, i1 = at (ip + 1), i2 = at (ip + 2);
+                l = herm (d[im * ch], d[ip * ch], d[i1 * ch], d[i2 * ch]) * (1.0f / 32768.0f);
+                r = ch > 1 ? herm (d[im * 2 + 1], d[ip * 2 + 1], d[i1 * 2 + 1], d[i2 * 2 + 1]) * (1.0f / 32768.0f) : l;
+                const double step = std::pow (2.0, (v.curNote + shift - (float) sm->root - sm->tune) / 12.0) * sm->rate / sr * pitchMul;
                 lv.pos += step;
                 if (lv.atk < 1.0f) lv.atk = std::min (1.0f, lv.atk + lv.atkInc);
                 if (lv.damping) lv.level *= lv.dampCoef;

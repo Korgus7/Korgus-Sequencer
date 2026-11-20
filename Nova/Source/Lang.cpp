@@ -12,7 +12,18 @@ namespace nova
             static const std::unordered_map<std::string, const char*> t = {
                 // vseobecne
                 // prepinace s ikonami, tvarovanie zvuku
-                { "Klavír|Vzorky|WAV", "Piano|Samples|WAV" }, { "Načítať…", "Load…" }, { "Klik = zoznam vzoriek", "Click = list of samples" },
+                { "Klavír|Vzorky|WAV", "Piano|Samples|WAV" }, { "Nástroj|Vzorky|WAV", "Instrument|Samples|WAV" },
+                { "Realistické nahraté nástroje – klavír, Rhodes, gitary, basy, sláčiky, dychy, mallets", "Realistic recorded instruments – piano, Rhodes, guitars, basses, strings, winds, mallets" },
+                { "Jednoduché vzorky – organ, zbor, zvon, synth…", "Simple samples – organ, choir, bell, synth…" },
+                { "Klik = zoznam nástrojov", "Click = list of instruments" }, { " (načítavam…)", " (loading…)" },
+                { "Gitary", "Guitars" }, { "Dychy", "Winds" }, { "Roztriediť", "To sort" },
+                { "Koncertný klavír", "Concert Grand" }, { "Pianíno", "Upright Piano" }, { "Rhodes", "Rhodes" }, { "Čembalo", "Harpsichord" },
+                { "Akustická gitara", "Acoustic Guitar" }, { "Jazzová gitara", "Jazz Guitar" }, { "Basgitara", "Bass Guitar" }, { "Jazzový kontrabas", "Jazz Upright Bass" },
+                { "Sláčiková sekcia", "String Section" }, { "Sólové husle", "Solo Violin" }, { "Violončelá", "Cellos" }, { "Trúbka s dusítkom", "Muted Trumpet" },
+                { "Trúbka", "Trumpet" }, { "Tenor saxofón", "Tenor Sax" }, { "Trombón", "Trombone" }, { "Priečna flauta", "Concert Flute" }, { "Klarinet", "Clarinet" },
+                { "Jazzový vibrafón", "Jazz Vibraphone" }, { "Koncertná marimba", "Concert Marimba" }, { "Zvonkohra", "Glockenspiel" },
+                { "Klavír: Salamander Grand Piano V3 (A. Holm, CC-BY 3.0) · Rhodes: jRhodes3 (J. Learman, CC BY-NC 4.0) · ostatné: Versilian Studios, Karoryfer (CC0)",
+                  "Piano: Salamander Grand Piano V3 (A. Holm, CC-BY 3.0) · Rhodes: jRhodes3 (J. Learman, CC BY-NC 4.0) · others: Versilian Studios, Karoryfer (CC0)" }, { "Načítať…", "Load…" }, { "Klik = zoznam vzoriek", "Click = list of samples" },
                 { "Predchádzajúci zvuk", "Previous sound" }, { "Ďalší zvuk", "Next sound" },
                 { "LFO podľa tempa piesne (1/8 = vlnenie každú osminu, T = triola). Voľne = podľa gombíka Rýchlosť.", "LFO follows the song tempo (1/8 = a wobble every eighth, T = triplet). Free = set by the Rate knob." },
                 { "LFO tempo", "LFO tempo" },

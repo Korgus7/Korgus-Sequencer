@@ -3,6 +3,7 @@
 #include "Dsp.h"
 #include "Fx.h"
 #include "PianoBank.h"
+#include "InstrBank.h"
 #include "Wavetable.h"
 #include "VoxPrep.h"
 #include "../../Source/KorgusVocoder.h"
@@ -32,6 +33,7 @@ namespace nova
         float ktrk = 0.5f, fvel = 0.5f; // 0..1 (0.5 = povodne spravanie)
         float noise = 0;                // 0..1
         int lsync = 0;                  // LFO podla tempa: 0 volne, inak 1/1 1/2 1/4 1/8 1/16 1/4T 1/8T 1/16T
+        int inst = 0;                   // nastroj pri zdroji 0: 0 koncertny klavir, inak InstrBank
     };
 
     struct Settings
@@ -64,6 +66,8 @@ namespace nova
         void fadeAll() { fadeRequest = true; }
         bool pianoReady() const { return bank != nullptr && bank->ready(); }
         bool pianoFailed() const { return bank != nullptr && bank->failed(); }
+        bool instrReady (int id) const { return id == 0 ? pianoReady() : ibank != nullptr && ibank->ready (id); }
+        void requestInstr (int id) { if (ibank != nullptr) ibank->request (id); }
         float gainReduction() const { return fx.gainReduction.load(); }
         int activeVoices() const { return active.load(); }
         Analyzer analyzer;                 // spektrum pre EQ v rozhrani
@@ -115,6 +119,7 @@ namespace nova
 
         std::array<Voice, 48> voices;
         std::shared_ptr<PianoBank> bank;
+        std::shared_ptr<InstrBank> ibank;
         UserSamplePtr userSmp[2];
         juce::SpinLock smpLock;
         Settings st;                       // nastavenia aktualneho bloku

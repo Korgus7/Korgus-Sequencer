@@ -167,6 +167,7 @@ namespace
             // kategorie (tovarenske, bez "Moje zvuky")
             for (int i = 0; i < categories().size() - 1; ++i)
             {
+                if (categories()[i] == juce::String::fromUTF8 ("Roztriediť")) continue;   // na triedenie len v rozšírenej verzii
                 auto c = std::make_unique<PresetButton>();
                 c->name = T (categories()[i]); c->key = categories()[i]; c->small = true;
                 auto cat = c->key;
@@ -177,7 +178,9 @@ namespace
             {
                 const auto* e = p.presets.find (p.currentKey);
                 const auto saved = p.presets.setting ("simpleCat");
-                setCat (e != nullptr && e->factory ? factoryPatches()[(size_t) e->factoryIndex].category : (saved.isNotEmpty() ? saved : categories()[0]));
+                juce::String c = e != nullptr && e->factory ? factoryPatches()[(size_t) e->factoryIndex].category : (saved.isNotEmpty() ? saved : categories()[0]);
+                bool has = false; for (auto& cb : catButtons) has = has || cb->key == c;
+                setCat (has ? c : categories()[0]);
             }
             for (auto id : { "bright", "attack", "release", "space", "width", "volume" })
             {
@@ -211,7 +214,10 @@ namespace
             {
                 lastKey = p.currentKey;
                 if (const auto* e = p.presets.find (p.currentKey); e != nullptr && e->factory && factoryPatches()[(size_t) e->factoryIndex].category != curCat)
-                    setCat (factoryPatches()[(size_t) e->factoryIndex].category);
+                {
+                    const auto c = factoryPatches()[(size_t) e->factoryIndex].category;
+                    for (auto& cb : catButtons) if (cb->key == c) { setCat (c); break; }
+                }
             }
             for (auto& b : buttons) { const bool s = b->key == p.currentKey; if (s != b->selected) { b->selected = s; b->repaint(); } }
             juce::String st;
@@ -230,7 +236,7 @@ namespace
             g.setColour (dim); g.setFont (juce::FontOptions (13.0f));
             g.drawText (status, head.reduced (16, 0).withTrimmedRight (480).withTrimmedLeft (190), juce::Justification::centredRight);
             g.setFont (juce::FontOptions (11.5f));
-            g.drawText (T ("Klavír: Salamander Grand Piano V3 – Alexander Holm, licencia CC-BY 3.0"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
+            g.drawText (T ("Klavír: Salamander Grand Piano V3 (A. Holm, CC-BY 3.0) · Rhodes: jRhodes3 (J. Learman, CC BY-NC 4.0) · ostatné: Versilian Studios, Karoryfer (CC0)"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
         }
         void resized() override
         {
@@ -577,7 +583,7 @@ namespace
             f24 (pr.params, pre + "f24", "24 dB", layer == 0 ? arc : arcB),
             lshape (pr.params, pre + "lshape", juce::StringArray::fromTokens (T ("Sínus|Trojuholník|Obdĺžnik|Náhodne"), "|", ""), layer == 0 ? steelHi : accentB),
             ltgt (pr.params, pre + "ltgt"), ratio (pr.params, pre + "ratio"),
-            src (pr.params, pre + "src", juce::StringArray::fromTokens (T ("Klavír|Vzorky|WAV"), "|", ""), layer == 0 ? steelHi : accentB),
+            src (pr.params, pre + "src", juce::StringArray::fromTokens (T ("Nástroj|Vzorky|WAV"), "|", ""), layer == 0 ? steelHi : accentB),
             loop (pr.params, pre + "loop", T ("Opakovať"), layer == 0 ? arc : arcB),
             wt (pr.params, pre + "wt"), disp (pr, pre)
         {
@@ -598,7 +604,7 @@ namespace
             lshape.setIcons ({ icSine, icTri, icSquare, icRandom });
             lshape.setTips ({ T ("LFO sínus"), T ("LFO trojuholník"), T ("LFO obdĺžnik"), T ("LFO náhodne") });
             src.setValueMap ({ 0, 2, 1 });   // parameter: 0 klavir, 1 WAV, 2 vzorky
-            src.setTips ({ T ("Vstavané nahrávky klavíra"), T ("Zabudované vzorky nástrojov – gitary, basy, sláčiky, dychy, zbor…"), T ("Vlastný zvuk WAV") });
+            src.setTips ({ T ("Realistické nahraté nástroje – klavír, Rhodes, gitary, basy, sláčiky, dychy, mallets"), T ("Jednoduché vzorky – organ, zbor, zvon, synth…"), T ("Vlastný zvuk WAV") });
             src.onPick = [this] (int v) { p.setSourceMode (li, v); update(); };
             addAndMakeVisible (on); addAndMakeVisible (wave); addAndMakeVisible (ftype); addAndMakeVisible (f24);
             addAndMakeVisible (lshape); addAndMakeVisible (ltgt); addAndMakeVisible (ratio); addAndMakeVisible (src); addAndMakeVisible (loop);
@@ -634,6 +640,18 @@ namespace
             nameBtn.onClick = [this]
             {
                 juce::PopupMenu m;
+                if (instMode())
+                {
+                    const int cur = curInst();
+                    for (int i = 0; i < InstrBank::numInstr; ++i) m.addItem (i + 1, InstrBank::name (i, lang() == 1), true, i == cur);
+                    juce::Component::SafePointer<LayerPanel> sp (this);
+                    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&nameBtn), [sp] (int r)
+                    {
+                        if (sp == nullptr || r <= 0) return;
+                        sp->setInst (r - 1);
+                    });
+                    return;
+                }
                 const int cur = p.builtinSample (li);
                 for (int i = 0; i < NovaProcessor::builtinSampleCount(); ++i) m.addItem (i + 1, NovaProcessor::builtinSampleName (i), true, i == cur);
                 juce::Component::SafePointer<LayerPanel> sp (this);
@@ -654,6 +672,7 @@ namespace
                 stepB[d].setTooltip (T (d == 0 ? "Predchádzajúci zvuk" : "Ďalší zvuk"));
                 stepB[d].onClick = [this, d]
                 {
+                    if (instMode()) { setInst ((curInst() + (d == 0 ? -1 : 1) + InstrBank::numInstr) % InstrBank::numInstr); return; }
                     juce::String err;
                     if (! p.stepSample (li, d == 0 ? -1 : 1, err) && err.isNotEmpty())
                         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Korgus Inspiria", err);
@@ -673,6 +692,17 @@ namespace
             addAndMakeVisible (*k);
             return k;
         }
+        bool instMode() const
+        {
+            return (int) p.params.getRawParameterValue (pre + "wave")->load() == 7 && (int) std::round (p.params.getRawParameterValue (pre + "src")->load()) == 0;
+        }
+        int curInst() const { return juce::jlimit (0, InstrBank::numInstr - 1, (int) std::round (p.params.getRawParameterValue (pre + "inst")->load())); }
+        void setInst (int i)
+        {
+            if (auto* prm = p.params.getParameter (pre + "inst")) prm->setValueNotifyingHost (prm->convertTo0to1 ((float) i));
+            p.synth.requestInstr (i);
+            update();
+        }
         void chooseFile()
         {
             if (auto* ed = findParentComponentOfClass<NovaEditor>())
@@ -691,7 +721,7 @@ namespace
         {
             const int w = (int) p.params.getRawParameterValue (pre + "wave")->load();
             const int srcV = (int) std::round (p.params.getRawParameterValue (pre + "src")->load());
-            const bool isSample = w == 7, isUser = isSample && srcV > 0, isWav = isSample && srcV == 1, isSmp = isSample && srcV == 2;
+            const bool isSample = w == 7, isUser = isSample && srcV > 0, isWav = isSample && srcV == 1, isSmp = isSample && srcV == 2, isInst = isSample && srcV == 0;
             if (w != lastWave || srcV != lastSrc)
             {
                 lastWave = w; lastSrc = srcV;
@@ -704,14 +734,21 @@ namespace
                 color->setVisible (w >= 3 && ! isUser);
                 noise->setVisible (w != 4 && ! isUser);
                 ratio.setVisible (w == 6); ratioLabel.setVisible (w == 6);
-                src.setVisible (isSample); load.setVisible (isWav); nameBtn.setVisible (isSmp); root->setVisible (isWav); loop.setVisible (isWav); smpName.setVisible (isWav);
-                stepB[0].setVisible (isUser); stepB[1].setVisible (isUser);
+                src.setVisible (isSample); load.setVisible (isWav); nameBtn.setVisible (isSmp || isInst); root->setVisible (isWav); loop.setVisible (isWav); smpName.setVisible (isWav);
+                stepB[0].setVisible (isUser || isInst); stepB[1].setVisible (isUser || isInst);
+                nameBtn.setTooltip (T (isInst ? "Klik = zoznam nástrojov" : "Klik = zoznam vzoriek"));
                 row1[3]->setEnabled (w <= 3 || w >= 8); row1[4]->setEnabled (w <= 3 || w >= 8);
                 resized();
             }
             row3[4]->setEnabled (p.params.getRawParameterValue (pre + "lsync")->load() < 0.5f);   // Rychlost len pri volnom LFO
-            const auto nm = p.sampleName (li);
+            auto nm = p.sampleName (li);
             smpName.setText (nm.isNotEmpty() ? nm : T ("(žiadny zvuk)"), juce::dontSendNotification);
+            if (isInst)
+            {
+                const int ci = curInst();
+                nm = InstrBank::name (ci, lang() == 1);
+                if (! p.synth.instrReady (ci)) nm += T (" (načítavam…)");
+            }
             if (nameBtn.getButtonText() != nm + juce::String::fromUTF8 (" ▾")) nameBtn.setButtonText (nm + juce::String::fromUTF8 (" ▾"));
         }
         void paint (juce::Graphics& g) override

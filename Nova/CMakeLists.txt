@@ -35,6 +35,7 @@ target_sources(KorgusNova PRIVATE
     Source/Params.cpp
     Source/PresetStore.cpp
     Source/PianoBank.cpp
+    Source/InstrBank.cpp
     Source/Lang.cpp)
 
 if(WIN32)
@@ -42,7 +43,11 @@ if(WIN32)
     set(NOVA_PACK "${CMAKE_CURRENT_SOURCE_DIR}/Resources/piano.knpk")
     file(TO_NATIVE_PATH "${NOVA_PACK}" NOVA_PACK_NATIVE)
     string(REPLACE "\\" "\\\\" NOVA_PACK_ESC "${NOVA_PACK_NATIVE}")
-    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nova_res.rc" "PIANO RCDATA \"${NOVA_PACK_ESC}\"\n")
+    # realisticke nastroje (InstrBank)
+    set(NOVA_INSTR "${CMAKE_CURRENT_SOURCE_DIR}/Resources/instr.knin")
+    file(TO_NATIVE_PATH "${NOVA_INSTR}" NOVA_INSTR_NATIVE)
+    string(REPLACE "\\" "\\\\" NOVA_INSTR_ESC "${NOVA_INSTR_NATIVE}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nova_res.rc" "PIANO RCDATA \"${NOVA_PACK_ESC}\"\nINSTR RCDATA \"${NOVA_INSTR_ESC}\"\n")
     # .rc musi byt v samotnom DLL (KorgusNova je len staticka kniznica so spolocnym kodom)
     target_sources(KorgusNova_VST3 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nova_res.rc")
 endif()
@@ -73,7 +78,7 @@ target_link_libraries(KorgusNova PRIVATE
 
 if(NOVA_TEST)
     juce_add_console_app(NovaTest PRODUCT_NAME "NovaTest")
-    target_sources(NovaTest PRIVATE Test/test.cpp Source/Synth.cpp Source/PianoBank.cpp Source/Params.cpp Source/PresetStore.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/Lang.cpp)
+    target_sources(NovaTest PRIVATE Test/test.cpp Source/Synth.cpp Source/PianoBank.cpp Source/InstrBank.cpp Source/Params.cpp Source/PresetStore.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/Lang.cpp)
     target_compile_definitions(NovaTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Korgus Nova" JucePlugin_IsSynth=1)
     target_link_libraries(NovaTest PRIVATE NovaSamples juce::juce_dsp juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_formats)
 endif()

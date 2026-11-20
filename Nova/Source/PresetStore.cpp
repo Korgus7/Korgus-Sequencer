@@ -63,12 +63,15 @@ namespace nova
                 all.push_back (e);
             }
         for (auto& e : all) { auto it = catOverride.find (e.key); if (it != catOverride.end()) e.category = it->second; }
-        // poradie zo zoznamu, nove na koniec
+        // poradie zo zoznamu, nove na koniec; tovarenske realisticke nastroje (mimo „Roztriediť“) vzdy navrchu
         list.clear();
+        const auto sortCat = juce::String::fromUTF8 ("Roztriediť");
+        for (auto& e : all)
+            if (e.factory && fac[(size_t) e.factoryIndex].category != sortCat && ! order.contains (e.key)) list.push_back (e);
         for (auto& k : order)
             for (auto& e : all) if (e.key == k) { list.push_back (e); break; }
         for (auto& e : all)
-            if (! order.contains (e.key)) list.push_back (e);
+            if (! order.contains (e.key) && ! (e.factory && fac[(size_t) e.factoryIndex].category != sortCat)) list.push_back (e);
     }
 
     const PresetStore::Entry* PresetStore::find (const juce::String& key) const

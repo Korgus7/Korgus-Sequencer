@@ -15,8 +15,11 @@ public:
     {
         int root = 60;
         double rate = 48000;
-        std::vector<int16_t> data;   // stereo, prekladane L R
+        std::vector<int16_t> data;   // ch kanalov, prekladane (L R)
         int length = 0;              // v ramcoch
+        int ch = 2;                  // 1 = mono
+        float tune = 0;              // skutocna vyska vzorky oproti root (poltony)
+        int loopStart = 0, loopEnd = 0;   // slucka drzaneho tonu (loopEnd 0 = bez slucky)
     };
 
     static std::shared_ptr<PianoBank> get();

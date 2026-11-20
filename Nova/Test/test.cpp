@@ -588,6 +588,79 @@ int main (int argc, char** argv)
         for (auto k : { k1, k2 }) q.presets.remove (k);
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "instr")
+    {
+        // realisticke nastroje: nacitanie, hlasitost, slucky (praskanie), ladenie + ukazky do /home/claude/iw/
+        File ("/home/claude/iw").createDirectory();
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int i = 0; i < 300 && ! q.synth.pianoReady(); ++i) Thread::sleep (50);
+        const auto& fp = nova::factoryPatches();
+        auto render = [&] (const std::vector<std::tuple<double,int,float,double>>& ev, double secs)   // (start, note, vel, len)
+        {
+            const int total = (int) (secs * sr); AudioBuffer<float> out (2, total); out.clear();
+            for (int pos = 0; pos < total; pos += bs)
+            {
+                const int n = std::min (bs, total - pos); MidiBuffer mb;
+                for (auto& [t0, nt, v, len] : ev)
+                {
+                    const int on = (int) (t0 * sr), off = (int) ((t0 + len) * sr);
+                    if (on >= pos && on < pos + n) mb.addEvent (MidiMessage::noteOn (1, nt, v), on - pos);
+                    if (off >= pos && off < pos + n) mb.addEvent (MidiMessage::noteOff (1, nt), off - pos);
+                }
+                AudioBuffer<float> blk (2, n); blk.clear(); q.processBlock (blk, mb);
+                for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+            }
+            for (int k = 0; k < 400; ++k) { MidiBuffer mb; AudioBuffer<float> blk (2, bs); blk.clear(); q.processBlock (blk, mb); }
+            return out;
+        };
+        auto maxRms = [&] (const AudioBuffer<float>& b) { const int w = (int) (0.4 * sr); double acc = 0, best = 0; std::vector<double> sq;
+            for (int i = 0; i < b.getNumSamples(); ++i) { const double v = 0.5 * (b.getSample (0, i) * b.getSample (0, i) + b.getSample (1, i) * b.getSample (1, i)); sq.push_back (v); acc += v; if (i >= w) acc -= sq[(size_t) (i - w)]; best = std::max (best, acc / w); }
+            return 10.0 * std::log10 (best + 1e-12); };
+        auto clicks = [&] (const AudioBuffer<float>& b, double from, double to)   // max druha diferencia / typicka
+        {
+            const float* x = b.getReadPointer (0); std::vector<float> d;
+            for (int i = (int) (from * sr) + 1; i < std::min (b.getNumSamples() - 1, (int) (to * sr)); ++i) d.push_back (std::abs (x[i + 1] - 2 * x[i] + x[i - 1]));
+            if (d.empty()) return 0.0f; auto e = d; std::nth_element (e.begin(), e.begin() + (long) (e.size() * 0.99), e.end());
+            const float p99 = e[(size_t) (e.size() * 0.99)] + 1e-9f; return *std::max_element (d.begin(), d.end()) / p99;
+        };
+        for (int idx = 0; idx < (int) fp.size(); ++idx)
+        {
+            const auto& f = fp[(size_t) idx];
+            if (f.category == String::fromUTF8 ("Roztriediť")) continue;
+            q.loadPreset ("f:" + f.name);
+            const int inst = (int) f.values.at ("a_inst");
+            q.synth.requestInstr (inst);
+            const auto t0 = Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 400 && ! q.synth.instrReady (inst); ++i) Thread::sleep (25);
+            const double loadMs = Time::getMillisecondCounterHiRes() - t0;
+            const bool sus = inst >= 8 && inst <= 16;
+            const bool mono = (inst >= 9 && inst <= 16 && inst != 10) || inst == 6 || inst == 7;
+            static const int centers[20] = { 60, 60, 60, 60, 55, 55, 40, 40, 62, 74, 52, 70, 70, 62, 50, 76, 64, 70, 70, 88 };
+            const int c = centers[inst];
+            // hlasitost: akord (alebo jeden ton pri melodickych nastrojoch)
+            std::vector<std::tuple<double,int,float,double>> ev;
+            if (mono) ev.push_back ({ 0.0, c, 0.8f, 1.2 }); else for (int d : { -12, -5, 0, 4 }) ev.push_back ({ 0.0, c + d, 0.8f, 1.2 });
+            const auto lv = render (ev, 2.0);
+            const float m = (float) maxRms (lv) - f.values.at ("p_gain");
+            const float tgt = mono ? -18.0f : (sus ? -19.0f : -16.0f);
+            // drzany ton 6 s (slucky) pri dvoch vyskach
+            float ck = 0;
+            if (sus) for (int d : { -5, 3 }) { auto h = render ({ { 0.0, c + d, 0.8f, 6.0 } }, 6.5); ck = std::max (ck, clicks (h, 0.6, 5.8));
+                WavAudioFormat hf; File ho ("/home/claude/iw/held_" + String (inst) + "_" + String (c + d) + ".wav"); ho.deleteFile();
+                if (auto w = std::unique_ptr<AudioFormatWriter> (hf.createWriterFor (new FileOutputStream (ho), sr, 2, 24, {}, 0))) w->writeFromAudioSampleBuffer (h, 0, h.getNumSamples()); }
+            // ukazka: stupnica + akordy
+            std::vector<std::tuple<double,int,float,double>> demo; double t = 0;
+            const int sc[] = { 0, 2, 4, 5, 7, 9, 11, 12 };
+            for (int k = 0; k < 8; ++k) { demo.push_back ({ t, c - 7 + sc[k], 0.45f + 0.06f * k, sus ? 0.5 : 0.35 }); t += 0.42; }
+            if (! mono) { for (int d : { -12, -5, 0, 4 }) demo.push_back ({ t + 0.2, c + d, 0.75f, 2.0 }); t += 2.6; }
+            else { demo.push_back ({ t + 0.2, c, 0.8f, 2.4 }); t += 3.0; }
+            auto dm = render (demo, t + 1.5);
+            WavAudioFormat wf; File out ("/home/claude/iw/" + String (inst).paddedLeft ('0', 2) + "_" + f.name.replace (" ", "_") + ".wav"); out.deleteFile();
+            if (auto w = std::unique_ptr<AudioFormatWriter> (wf.createWriterFor (new FileOutputStream (out), sr, 2, 16, {}, 0))) w->writeFromAudioSampleBuffer (dm, 0, dm.getNumSamples());
+            printf ("%d|%s|inst %d|load %.0f ms|level %.1f dB|gain %.1f|click %.1f\n", idx, f.name.toRawUTF8(), inst, loadMs, m, jlimit (-30.0f, 6.0f, tgt - m), ck);
+        }
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "shapes")
     {
         // nove parametre vrstvy: skok vysky, sum, filter podla klavesu + snimky editora -> /home/claude/shp/
@@ -632,13 +705,13 @@ int main (int argc, char** argv)
         q.uiMode = 1; int k = 0;
         for (int w : { 2, 7, 9, 77, 78 })
         {
-            base(); if (w == 77) q.loadBuiltinSample (0, 12); else if (w == 78) { setParam (q, "a_wave", 7); q.setSourceMode (0, 1); } else setParam (q, "a_wave", (float) w);
+            base(); if (w == 7) { setParam (q, "a_wave", 7); setParam (q, "a_src", 0); setParam (q, "a_inst", 13); } else if (w == 77) q.loadBuiltinSample (0, 2); else if (w == 78) { setParam (q, "a_wave", 7); q.setSourceMode (0, 1); } else setParam (q, "a_wave", (float) w);
             std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);
             auto img = ed->createComponentSnapshot (ed->getLocalBounds());
             File f ("/home/claude/shp/shot_" + String (k++) + ".png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
         }
         q.uiMode = 0;
-        for (const char* nm : { "Vzdušný pad", "Flauta", "Kopák", "Gitara s trsatkom" })
+        for (const char* nm : { "Koncertný klavír", "Trúbka s dusítkom", "Jazzový vibrafón" })
         {
             q.loadPreset (String ("f:") + String::fromUTF8 (nm));
             std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);

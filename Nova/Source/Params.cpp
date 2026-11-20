@@ -64,6 +64,7 @@ namespace nova
                 F (p + "ldelay", "Oneskorenie", 0, 3, 0, "s", 0.5f);
                 C (p + "lsync", "LFO tempo", "Voľne|1/1|1/2|1/4|1/8|1/16|1/4T|1/8T|1/16T", 0);
                 C (p + "src", "Zdroj", "Klavír|Vlastný WAV|Vzorky", 0);
+                C (p + "inst", "Nástroj", "Koncertný klavír|Pianíno|Rhodes|Čembalo|Akustická gitara|Jazzová gitara|Basgitara|Kontrabas|Sláčiková sekcia|Husle|Violončelá|Trúbka s dusítkom|Trúbka|Tenor saxofón|Trombón|Flauta|Klarinet|Vibrafón|Marimba|Zvonkohra", 0);
                 F (p + "root", "Základný tón", 0, 127, 60, "note");
                 B (p + "loop", "Opakovať", false);
                 C (p + "wt", "Tabuľka", "Analóg|PWM|Harmonický|Vokál|Digitál|Organ|Sklo|Spev", 0);
@@ -179,7 +180,7 @@ namespace nova
 
     const juce::StringArray& categories()
     {
-        static const juce::StringArray c = split ("Klavír|Klávesy|Pady|Sláčiky|Plucky|Zvonky|Basy|Leady|Moje zvuky");
+        static const juce::StringArray c = split ("Klavír|Klávesy|Gitary|Basy|Sláčiky|Dychy|Zvonky|Roztriediť|Moje zvuky");
         return c;
     }
 
@@ -450,6 +451,38 @@ namespace nova
                          .s ("a_ltgt", 1).s ("a_lrate", 0.15f).s ("a_ldepth", 0.25f)
                          .s ("b_on", 1).s ("b_wave", 0).s ("b_oct", -1).s ("b_level", 0.3f).s ("b_aa", 1).s ("b_ad", 1.5f).s ("b_as", 0.9f).s ("b_ar", 2)
                          .s ("ch_on", 1).s ("ch_mix", 0.4f).s ("rv_mix", 0.45f).s ("rv_size", 0.85f).s ("p_gain", -13.6f).s ("veltrack", 0.6f).f);
+            // doterajsie zvuky (poradie ostava kvoli Sequenceru a starym projektom) – na roztriedenie
+            for (auto& f : v) f.category = juce::String::fromUTF8 ("Roztriediť");
+            // realisticke nastroje (InstrBank): a_inst = cislo nastroja, 0 = koncertny klavir
+            auto I = [] (const char* n, const char* c, int inst, float aa, float ar)
+            {
+                P q (n, c);
+                q.s ("a_wave", 7).s ("a_src", 0).s ("a_inst", (float) inst).s ("a_color", 0.5f).s ("a_level", 1)
+                 .s ("a_aa", aa).s ("a_ar", ar).s ("veltrack", 0).s ("rv_on", 1);
+                return q;
+            };
+            v.push_back (I ("Koncertný klavír", "Klavír", 0, 0.0015f, 0.4f).s ("eq_high", 0.8f).s ("rv_mix", 0.16f).s ("rv_size", 0.45f).s ("rv_damp", 0.45f).s ("p_gain", -2.1f).f);
+            v.push_back (I ("Pianíno", "Klavír", 1, 0.0015f, 0.4f).s ("eq_low", -1).s ("rv_mix", 0.13f).s ("rv_size", 0.32f).s ("rv_damp", 0.5f).s ("p_gain", -10.6f).f);
+            v.push_back (I ("Rhodes", "Klávesy", 2, 0.0015f, 0.35f).s ("eq_low", 1).s ("a_ltgt", 3).s ("a_lrate", 3.6f).s ("a_ldepth", 0.3f)
+                         .s ("rv_mix", 0.14f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -12.8f).f);
+            v.push_back (I ("Čembalo", "Klávesy", 3, 0.001f, 0.15f).s ("rv_mix", 0.2f).s ("rv_size", 0.55f).s ("rv_damp", 0.4f).s ("p_gain", -14.1f).f);
+            v.push_back (I ("Akustická gitara", "Gitary", 4, 0.001f, 0.3f).s ("eq_low", -1).s ("eq_high", 1).s ("rv_mix", 0.12f).s ("rv_size", 0.35f).s ("rv_damp", 0.45f).s ("p_gain", -12.6f).f);
+            v.push_back (I ("Jazzová gitara", "Gitary", 5, 0.001f, 0.25f).s ("eq_low", 1).s ("eq_high", -3).s ("rv_mix", 0.14f).s ("rv_size", 0.4f).s ("rv_damp", 0.55f).s ("p_gain", -14.1f).f);
+            v.push_back (I ("Basgitara", "Basy", 6, 0.001f, 0.12f).s ("eq_low", 1).s ("comp_on", 1).s ("comp", 0.3f).s ("rv_on", 0).s ("p_gain", -8.3f).f);
+            v.push_back (I ("Jazzový kontrabas", "Basy", 7, 0.001f, 0.35f).s ("eq_low", 1.5f).s ("rv_mix", 0.08f).s ("rv_size", 0.35f).s ("rv_damp", 0.5f).s ("p_gain", -9.2f).f);
+            v.push_back (I ("Sláčiková sekcia", "Sláčiky", 8, 0.08f, 0.6f).s ("rv_mix", 0.3f).s ("rv_size", 0.7f).s ("rv_damp", 0.5f).s ("fx_width", 1.3f).s ("p_gain", -9.2f).f);
+            v.push_back (I ("Sólové husle", "Sláčiky", 9, 0.03f, 0.4f).s ("rv_mix", 0.26f).s ("rv_size", 0.6f).s ("rv_damp", 0.5f).s ("p_gain", 0.8f).f);
+            v.push_back (I ("Violončelá", "Sláčiky", 10, 0.06f, 0.5f).s ("rv_mix", 0.28f).s ("rv_size", 0.65f).s ("rv_damp", 0.5f).s ("p_gain", -9.8f).f);
+            v.push_back (I ("Trúbka s dusítkom", "Dychy", 11, 0.006f, 0.2f).s ("rv_mix", 0.2f).s ("rv_size", 0.5f).s ("rv_damp", 0.55f).s ("p_gain", -0.1f).f);
+            v.push_back (I ("Trúbka", "Dychy", 12, 0.005f, 0.22f).s ("rv_mix", 0.2f).s ("rv_size", 0.5f).s ("rv_damp", 0.5f).s ("p_gain", -6.2f).f);
+            v.push_back (I ("Tenor saxofón", "Dychy", 13, 0.01f, 0.2f).s ("rv_mix", 0.2f).s ("rv_size", 0.45f).s ("rv_damp", 0.55f).s ("p_gain", -5.4f).f);
+            v.push_back (I ("Trombón", "Dychy", 14, 0.01f, 0.25f).s ("rv_mix", 0.22f).s ("rv_size", 0.5f).s ("rv_damp", 0.5f).s ("p_gain", -3.1f).f);
+            v.push_back (I ("Priečna flauta", "Dychy", 15, 0.02f, 0.2f).s ("rv_mix", 0.26f).s ("rv_size", 0.6f).s ("rv_damp", 0.45f).s ("p_gain", 1.3f).f);
+            v.push_back (I ("Klarinet", "Dychy", 16, 0.01f, 0.2f).s ("rv_mix", 0.22f).s ("rv_size", 0.5f).s ("rv_damp", 0.5f).s ("p_gain", 2.5f).f);
+            v.push_back (I ("Jazzový vibrafón", "Zvonky", 17, 0.001f, 1.6f).s ("a_ltgt", 2).s ("a_lrate", 5.0f).s ("a_ldepth", 0.22f)
+                         .s ("rv_mix", 0.2f).s ("rv_size", 0.5f).s ("rv_damp", 0.5f).s ("p_gain", -10.7f).f);
+            v.push_back (I ("Koncertná marimba", "Zvonky", 18, 0.001f, 0.8f).s ("rv_mix", 0.18f).s ("rv_size", 0.5f).s ("rv_damp", 0.5f).s ("p_gain", -4.5f).f);
+            v.push_back (I ("Zvonkohra", "Zvonky", 19, 0.001f, 2.0f).s ("rv_mix", 0.25f).s ("rv_size", 0.6f).s ("rv_damp", 0.45f).s ("p_gain", -11.6f).f);
             return v;
         }();
         return list;

@@ -1,0 +1,12 @@
+Korgus Inspiria – zdroje nahraných nástrojov / sources of the recorded instruments
+
+Koncertný klavír / Concert grand: Salamander Grand Piano V3, Alexander Holm – CC-BY 3.0 (see Salamander-LICENSE.txt)
+Rhodes: jRhodes3d, Jeffrey Learman – samples CC BY-NC 4.0 (https://github.com/sfzinstruments/jlearman.jRhodes3d)
+Pianíno, čembalo, tenor saxofón, vibrafón, marimba, zvonkohra / upright piano, harpsichord, tenor sax, vibraphone, marimba, glockenspiel:
+  Versilian Community Sample Library (VCSL), Versilian Studios LLC – CC0 1.0
+Sláčiky, husle, violončelá, kontrabas, trúbky, trombón, flauta, klarinet / strings, violin, cellos, double bass, trumpets, trombone, flute, clarinet:
+  VSCO 2 Community Edition, Versilian Studios LLC – CC0 1.0
+Gitary, basgitara / guitars, bass guitar: Karoryfer Samples – Shinyguitar, Growlybass – CC0 1.0
+
+Vzorky boli orezané, zaslučkované, vyrovnané v hlasitosti a skomprimované (OGG) pre Korgus Inspiria.
+The samples were trimmed, looped, level-matched and compressed (OGG) for Korgus Inspiria.
