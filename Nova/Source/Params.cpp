@@ -64,7 +64,7 @@ namespace nova
                 F (p + "ldelay", "Oneskorenie", 0, 3, 0, "s", 0.5f);
                 C (p + "lsync", "LFO tempo", "Voľne|1/1|1/2|1/4|1/8|1/16|1/4T|1/8T|1/16T", 0);
                 C (p + "src", "Zdroj", "Klavír|Vlastný WAV|Vzorky", 0);
-                C (p + "inst", "Nástroj", "Koncertný klavír|Pianíno|Rhodes|Čembalo|Akustická gitara|Jazzová gitara|Basgitara|Kontrabas|Sláčiková sekcia|Husle|Violončelá|Trúbka s dusítkom|Trúbka|Tenor saxofón|Trombón|Flauta|Klarinet|Vibrafón|Marimba|Zvonkohra", 0);
+                C (p + "inst", "Nástroj", "Koncertný klavír|Pianíno|Rhodes|Čembalo|Akustická gitara|Jazzová gitara|Basgitara|Kontrabas|Sláčiková sekcia|Husle|Violončelá|Trúbka s dusítkom|Trúbka|Tenor saxofón|Trombón|Flauta|Klarinet|Vibrafón|Marimba|Zvonkohra|Pizzicato sláčiky|Ústna harmonika|Harfa|Píšťalový organ|Lesný roh|Hoboj|Fagot|Tuba|Sláčiky tremolo|Sláčiky staccato|Kalimba|Rúrkové zvony|Xylofón|Elektrická gitara|Okarína|Zobcová flauta", 0);
                 F (p + "root", "Základný tón", 0, 127, 60, "note");
                 B (p + "loop", "Opakovať", false);
                 C (p + "wt", "Tabuľka", "Analóg|PWM|Harmonický|Vokál|Digitál|Organ|Sklo|Spev", 0);
@@ -483,6 +483,23 @@ namespace nova
                          .s ("rv_mix", 0.2f).s ("rv_size", 0.5f).s ("rv_damp", 0.5f).s ("p_gain", -10.7f).f);
             v.push_back (I ("Koncertná marimba", "Zvonky", 18, 0.001f, 0.8f).s ("rv_mix", 0.18f).s ("rv_size", 0.5f).s ("rv_damp", 0.5f).s ("p_gain", -4.5f).f);
             v.push_back (I ("Zvonkohra", "Zvonky", 19, 0.001f, 2.0f).s ("rv_mix", 0.25f).s ("rv_size", 0.6f).s ("rv_damp", 0.45f).s ("p_gain", -11.6f).f);
+            // dalsich 16 nastrojov
+            v.push_back (I ("Pizzicato sláčiky", "Sláčiky", 20, 0.001f, 0.3f).s ("rv_mix", 0.24f).s ("rv_size", 0.6f).s ("rv_damp", 0.5f).s ("fx_width", 1.2f).s ("p_gain", -11.9f).f);
+            v.push_back (I ("Sláčiky tremolo", "Sláčiky", 28, 0.05f, 0.5f).s ("rv_mix", 0.3f).s ("rv_size", 0.7f).s ("rv_damp", 0.5f).s ("fx_width", 1.3f).s ("p_gain", -14.7f).f);
+            v.push_back (I ("Sláčiky staccato", "Sláčiky", 29, 0.001f, 0.2f).s ("rv_mix", 0.24f).s ("rv_size", 0.6f).s ("rv_damp", 0.5f).s ("fx_width", 1.2f).s ("p_gain", -10.8f).f);
+            v.push_back (I ("Koncertná harfa", "Sláčiky", 22, 0.001f, 1.2f).s ("rv_mix", 0.26f).s ("rv_size", 0.65f).s ("rv_damp", 0.45f).s ("p_gain", -6.7f).f);
+            v.push_back (I ("Píšťalový organ", "Klávesy", 23, 0.03f, 0.5f).s ("rv_mix", 0.38f).s ("rv_size", 0.85f).s ("rv_damp", 0.4f).s ("p_gain", -8.3f).f);
+            v.push_back (I ("Elektrická gitara", "Gitary", 33, 0.001f, 0.25f).s ("drive_on", 1).s ("drive", 0.15f).s ("rv_mix", 0.14f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -19.8f).f);
+            v.push_back (I ("Ústna harmonika", "Dychy", 21, 0.01f, 0.15f).s ("rv_mix", 0.16f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -0.4f).f);
+            v.push_back (I ("Lesný roh", "Dychy", 24, 0.02f, 0.35f).s ("rv_mix", 0.3f).s ("rv_size", 0.7f).s ("rv_damp", 0.5f).s ("p_gain", -0.3f).f);
+            v.push_back (I ("Hoboj", "Dychy", 25, 0.01f, 0.2f).s ("rv_mix", 0.24f).s ("rv_size", 0.55f).s ("rv_damp", 0.5f).s ("p_gain", -5.1f).f);
+            v.push_back (I ("Fagot", "Dychy", 26, 0.01f, 0.2f).s ("rv_mix", 0.24f).s ("rv_size", 0.55f).s ("rv_damp", 0.5f).s ("p_gain", -1.6f).f);
+            v.push_back (I ("Tuba", "Dychy", 27, 0.015f, 0.25f).s ("rv_mix", 0.22f).s ("rv_size", 0.55f).s ("rv_damp", 0.5f).s ("p_gain", 1.8f).f);
+            v.push_back (I ("Okarína", "Dychy", 34, 0.015f, 0.2f).s ("rv_mix", 0.26f).s ("rv_size", 0.6f).s ("rv_damp", 0.45f).s ("p_gain", -2.1f).f);
+            v.push_back (I ("Zobcová flauta", "Dychy", 35, 0.015f, 0.2f).s ("rv_mix", 0.24f).s ("rv_size", 0.55f).s ("rv_damp", 0.45f).s ("p_gain", -5.5f).f);
+            v.push_back (I ("Africká kalimba", "Zvonky", 30, 0.001f, 1.0f).s ("rv_mix", 0.2f).s ("rv_size", 0.5f).s ("rv_damp", 0.5f).s ("p_gain", -10.4f).f);
+            v.push_back (I ("Rúrkové zvony", "Zvonky", 31, 0.001f, 2.5f).s ("rv_mix", 0.3f).s ("rv_size", 0.75f).s ("rv_damp", 0.45f).s ("p_gain", -16.2f).f);
+            v.push_back (I ("Xylofón", "Zvonky", 32, 0.001f, 0.6f).s ("rv_mix", 0.2f).s ("rv_size", 0.55f).s ("rv_damp", 0.5f).s ("p_gain", -4.9f).f);
             return v;
         }();
         return list;

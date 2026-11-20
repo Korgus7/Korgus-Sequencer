@@ -633,9 +633,10 @@ int main (int argc, char** argv)
             const auto t0 = Time::getMillisecondCounterHiRes();
             for (int i = 0; i < 400 && ! q.synth.instrReady (inst); ++i) Thread::sleep (25);
             const double loadMs = Time::getMillisecondCounterHiRes() - t0;
-            const bool sus = inst >= 8 && inst <= 16;
-            const bool mono = (inst >= 9 && inst <= 16 && inst != 10) || inst == 6 || inst == 7;
-            static const int centers[20] = { 60, 60, 60, 60, 55, 55, 40, 40, 62, 74, 52, 70, 70, 62, 50, 76, 64, 70, 70, 88 };
+            const bool sus = (inst >= 8 && inst <= 16) || inst == 21 || (inst >= 23 && inst <= 28) || inst == 34 || inst == 35;
+            const bool mono = (inst >= 9 && inst <= 16 && inst != 10) || inst == 6 || inst == 7 || inst == 21 || (inst >= 24 && inst <= 27) || inst == 34 || inst == 35;
+            static const int centers[36] = { 60, 60, 60, 60, 55, 55, 40, 40, 62, 74, 52, 70, 70, 62, 50, 76, 64, 70, 70, 88,
+                                             62, 64, 60, 60, 52, 70, 45, 36, 62, 62, 64, 76, 76, 60, 65, 65 };
             const int c = centers[inst];
             // hlasitost: akord (alebo jeden ton pri melodickych nastrojoch)
             std::vector<std::tuple<double,int,float,double>> ev;

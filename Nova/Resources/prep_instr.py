@@ -33,6 +33,31 @@ I = [
  dict(id=19, name='Zvonkohra', src=[('vcsl/Idiophones/Struck Idiophones/Glockenspiel/*.wav', r'glock_(soft|med|loud)_([A-G]#?\d)_01', 'swap')], vel=['soft','med','loud'], sus=False, maxlen=4, oct=1),
 ]
 
+I += [
+ dict(id=20, name='Pizzicato slaciky', src=[('VSCO-2-CE/Strings/Cello Section/pizzT/*.wav', r'pizzT_([A-G]#?\d)_v(\d)_RR1', 0, 55),
+                                           ('VSCO-2-CE/Strings/Viola Section/pizz/*.wav', r'_pizz_([A-G]#?\d)_v(\d)_rr1', 56, 64),
+                                           ('VSCO-2-CE/Strings/Violin Section/Pizz/*.wav', r'_Pizz_([A-G]#?\d)_v(\d)_rr1', 65, 127)], vel=['1','2|3'], sus=False, maxlen=2.5, oct=1),
+ dict(id=21, name='Harmonika', src=[('vcsl/Aerophones/Free Aerophones/Harmonica-Hohner-Super64/Sustains/Normal/*.wav', r'_Normal _([A-G]#?\d)\.wav')], vel=[None], sus=True, maxlen=4, oct=1),
+ dict(id=22, name='Harfa', src=[('vcsl/Chordophones/Composite Chordophones/Concert Harp/*.wav', r'KSHarp_([A-G]#?\d)_(p|mp|mf|f|ff)1')], vel=['p','mp','mf','f','ff'], sus=False, maxlen=5),
+ dict(id=23, name='Kostolny organ', src=[('VSCO-2-CE/Keys/Organ/Loud/*.wav', 'DETECT')], vel=[None], sus=True, maxlen=5),
+ dict(id=24, name='Lesny roh', src=[('VSCO-2-CE/Brass/F Horn/sus/*.wav', r'_sus_([A-G]#?\d)_v(\d)_1')], vel=['1','2','3'], sus=True, maxlen=4, oct=1),
+ dict(id=25, name='Hoboj', src=[('VSCO-2-CE/Woodwinds/Oboe/Vib/*.wav', r'_Vib_([A-G]#?\d)_v(\d)_Main')], vel=['1','3'], sus=True, maxlen=4, oct=1),
+ dict(id=26, name='Fagot', src=[('VSCO-2-CE/Woodwinds/Bassoon/vib/*.wav', r'PSBassoon_([A-G]#?\d)_v(\d)_1')], vel=['1','2'], sus=True, maxlen=4, oct=1),
+ dict(id=27, name='Tuba', src=[('VSCO-2-CE/Brass/Tuba/sus/*.wav', r'_sus_([A-G]#?\d)_v(\d)_rr1')], vel=['1','2','3'], sus=True, maxlen=4, oct=1),
+ dict(id=28, name='Slaciky tremolo', src=[('VSCO-2-CE/Strings/Cello Section/trem/*.wav', r'trem_([A-G]#?\d)_v(\d)_1', 0, 55),
+                                          ('VSCO-2-CE/Strings/Viola Section/trem/*.wav', r'_trem_([A-G]#?\d)_v(\d)_rr1', 56, 64),
+                                          ('VSCO-2-CE/Strings/Violin Section/Trem/*.wav', r'_Trem_([A-G]#?\d)_v(\d)', 65, 127)], vel=['1','2|3'], sus=True, maxlen=5, oct=1),
+ dict(id=29, name='Slaciky staccato', src=[('VSCO-2-CE/Strings/Cello Section/spic/*.wav', r'spic_([A-G]#?\d)_v(\d)_RR1', 0, 55),
+                                           ('VSCO-2-CE/Strings/Viola Section/spic/*.wav', r'_spic_([A-G]#?\d)_v(\d)_rr1', 56, 64),
+                                           ('VSCO-2-CE/Strings/Violin Section/Spic/*.wav', r'_Spic_([A-G]#?\d)_v(\d)_rr1', 65, 127)], vel=['1','2|3'], sus=False, maxlen=1.5, oct=1),
+ dict(id=30, name='Kalimba', src=[('vcsl/Idiophones/Plucked Idiophones/Kalimba, Tanzania/*.wav', r'_Main_([A-G]#?\d)_k')], vel=[None], sus=False, maxlen=4, oct=1, notune=1),
+ dict(id=31, name='Ruerkove zvony', src=[('vcsl/Idiophones/Struck Idiophones/Tubular Bells 2/*.wav', r'TB_hit_([A-G]#?\d)_v(\d)_1')], vel=['1|2','3|4'], sus=False, maxlen=8, oct=1, notune=1),
+ dict(id=32, name='Xylofon', src=[('vcsl/Idiophones/Struck Idiophones/Xylophone/Medium Mallets/*.wav', r'Xylo_Medium_([A-G]#?\d)_(pp|p|mf|f|ff)_01')], vel=['pp','p','mf','f','ff'], sus=False, maxlen=2, oct=1, notune=1),
+ dict(id=33, name='Elektricka gitara', src=[('karoryfer.emilyguitar/notes/*.wav', r'/([a-g]b?\d)_(p|mp|mf|f)_rr1')], vel=['p','mp','mf','f'], sus=False, maxlen=6),
+ dict(id=34, name='Okarina', src=[('vcsl/Aerophones/Edge-blown Aerophones/Ocarina, Typical/Sustains/Sus/*.wav', r'_Sus_([A-G]#?\d)\.wav')], vel=[None], sus=True, maxlen=4, oct=1),
+ dict(id=35, name='Zobcova flauta', src=[('vcsl/Aerophones/Edge-blown Aerophones/Baroque Alto Recorder/Sustain/*.wav', r'_Sus_([A-G]#?\d)_rr1')], vel=[None], sus=True, maxlen=4, oct=1),
+]
+
 def collect(ins):
     out = []
     for s in ins['src']:
@@ -40,6 +65,10 @@ def collect(ins):
         lo, hi = (s[2], s[3]) if len(s) >= 4 else (0, 127)
         swap = len(s) == 3 and s[2] == 'swap'
         for f in sorted(glob.glob(os.path.join(S, pat))):
+            if rx == 'DETECT':
+                x, sr = sf.read(f, dtype='float32', always_2d=True); hz, _ = f0(x.mean(axis=1), sr)
+                if hz: out.append((int(round(12 * np.log2(hz / 440.0) + 69)), 0, f))
+                continue
             m = re.search(rx, f)
             if not m: continue
             g = m.groups()
@@ -135,7 +164,7 @@ def process(ins, outdir):
         pk = np.abs(mono).max() + 1e-9
         # ladenie
         cents = 0
-        if ins['name'] != 'Zvonkohra':
+        if ins['name'] != 'Zvonkohra' and not ins.get('notune'):
             hz, conf = f0(mono, sr)
             if hz:
                 c = 100 * (12 * np.log2(hz / 440.0) + 69 - n)

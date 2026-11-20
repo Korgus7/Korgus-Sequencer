@@ -11,7 +11,7 @@
 class InstrBank
 {
 public:
-    static constexpr int numInstr = 20, maxLayers = 6;
+    static constexpr int numInstr = 36, maxLayers = 6;
     using Sample = PianoBank::Sample;
     struct Inst
     {

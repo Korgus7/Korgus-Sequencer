@@ -614,10 +614,14 @@ namespace nova
             else if (isPiano)
             {
                 const auto* sm = lv.smp;
+                // slucka drzaneho tonu: za koncom slucky je v subore pokracovanie, v pasme F sa prelina
+                // s tonom od zaciatku slucky (zakryje drobne rozdiely kompresie OGG) a potom skoci spat
                 const int le = sm->loopEnd, ll = sm->loopEnd - sm->loopStart;
-                if (le > 0 && lv.pos >= (double) le) lv.pos -= (double) ll;   // slucka drzaneho tonu
+                const int F = le > 0 ? std::min ({ 1024, sm->length - le - 4, ll / 2 }) : 0;
+                if (le > 0 && F > 0 && lv.pos >= (double) (le + F)) lv.pos -= (double) ll;
+                else if (le > 0 && F <= 0 && lv.pos >= (double) le) lv.pos -= (double) ll;
                 const int ip = (int) lv.pos;
-                if (le <= 0 && ip + 3 >= sm->length) { lv.active = false; break; }
+                if (ip + 3 >= sm->length) { lv.active = false; break; }
                 const float fr = (float) (lv.pos - ip);
                 auto herm = [fr] (float xm1, float x0, float x1, float x2)
                 {
@@ -626,10 +630,16 @@ namespace nova
                 };
                 const int16_t* d = sm->data.data();
                 const int ch = sm->ch;
-                auto at = [le, ll] (int k) { return le > 0 && k >= le ? k - ll : k; };
-                const int im = ip > 0 ? ip - 1 : 0, i1 = at (ip + 1), i2 = at (ip + 2);
-                l = herm (d[im * ch], d[ip * ch], d[i1 * ch], d[i2 * ch]) * (1.0f / 32768.0f);
-                r = ch > 1 ? herm (d[im * 2 + 1], d[ip * 2 + 1], d[i1 * 2 + 1], d[i2 * 2 + 1]) * (1.0f / 32768.0f) : l;
+                auto rd = [&] (int i0, int c) { const int im = i0 > 0 ? i0 - 1 : 0; return herm (d[im * ch + c], d[i0 * ch + c], d[(i0 + 1) * ch + c], d[(i0 + 2) * ch + c]) * (1.0f / 32768.0f); };
+                l = rd (ip, 0);
+                r = ch > 1 ? rd (ip, 1) : l;
+                if (F > 0 && ip >= le)
+                {
+                    const float w = juce::jlimit (0.0f, 1.0f, (float) (lv.pos - le) / (float) F);
+                    const int iw = ip - ll;
+                    const float l2 = rd (iw, 0), r2 = ch > 1 ? rd (iw, 1) : l2;
+                    l += w * (l2 - l); r += w * (r2 - r);
+                }
                 const double step = std::pow (2.0, (v.curNote + shift - (float) sm->root - sm->tune) / 12.0) * sm->rate / sr * pitchMul;
                 lv.pos += step;
                 if (lv.atk < 1.0f) lv.atk = std::min (1.0f, lv.atk + lv.atkInc);

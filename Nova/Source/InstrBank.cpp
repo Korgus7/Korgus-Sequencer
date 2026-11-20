@@ -12,7 +12,8 @@ namespace
         { "Akustická gitara", "Acoustic guitar" }, { "Jazzová gitara", "Jazz guitar" }, { "Basgitara", "Bass guitar" }, { "Kontrabas", "Double bass" },
         { "Sláčiková sekcia", "String section" }, { "Husle", "Violin" }, { "Violončelá", "Cellos" }, { "Trúbka s dusítkom", "Muted trumpet" },
         { "Trúbka", "Trumpet" }, { "Tenor saxofón", "Tenor saxophone" }, { "Trombón", "Trombone" }, { "Flauta", "Flute" },
-        { "Klarinet", "Clarinet" }, { "Vibrafón", "Vibraphone" }, { "Marimba", "Marimba" }, { "Zvonkohra", "Glockenspiel" } };
+        { "Klarinet", "Clarinet" }, { "Vibrafón", "Vibraphone" }, { "Marimba", "Marimba" }, { "Zvonkohra", "Glockenspiel" },
+        { "Pizzicato sláčiky", "Pizzicato strings" }, { "Ústna harmonika", "Harmonica" }, { "Harfa", "Harp" }, { "Píšťalový organ", "Pipe organ" }, { "Lesný roh", "French horn" }, { "Hoboj", "Oboe" }, { "Fagot", "Bassoon" }, { "Tuba", "Tuba" }, { "Sláčiky tremolo", "Tremolo strings" }, { "Sláčiky staccato", "Staccato strings" }, { "Kalimba", "Kalimba" }, { "Rúrkové zvony", "Tubular bells" }, { "Xylofón", "Xylophone" }, { "Elektrická gitara", "Electric guitar" }, { "Okarína", "Ocarina" }, { "Zobcová flauta", "Recorder" } };
 }
 
 juce::String InstrBank::name (int id, bool en)
