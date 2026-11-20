@@ -36,7 +36,7 @@ I = [
  dict(id=1, name='Pianino', src=[('vcsl/Chordophones/Zithers/Upright Piano, Yamaha/Sustains/*.wav', r'_Sus_([A-G]#?-?\d)_vl(\d)_rr1')], vel=['1','2','3'], sus=False, maxlen=7, oct=1),
  dict(id=2, name='Rhodes', src=[('jlearman.jRhodes3d/jRhodes3d-mono/*.flac', r'__([A-G][b#]?\d)_(\d)')], vel=['5','4','3','2','1'], sus=False, maxlen=6.5, lf=[0.4,0.55,0.7,0.85,1.0]),
  dict(id=3, name='Cembalo', src=[('vcsl/Chordophones/Zithers/Harpsichord, French/Sustains/*.wav', r'_Normal_([A-G]#?\d)_rr1_')], vel=[None], sus=False, maxlen=6, oct=1),
- dict(id=4, name='Akusticka gitara', src=[('martin/*.wav', r'MartinGM2_\d{3}_+([A-G]b?\d)_1\.wav')], vel=[None], sus=False, maxlen=6),
+ dict(id=4, name='Akusticka gitara', src=[('martin/*.wav', r'MartinGM2_\d{3}_+([A-G]b?\d)_1\.wav')], vel=[None], sus=False, maxlen=6, soft=1, lf=[0.5, 1.0]),
  dict(id=5, name='Jazzova gitara', src=[('karoryfer.shinyguitar/Samples/electric/*.wav', r'/([a-g]b?\d)_vl(\d)_rr1_2')], vel=['1','2','3','4'], sus=False, maxlen=6, amp='jazz', mic=0.25),
  dict(id=6, name='Basgitara', src=[('bbbass/Samples/darkblack/reg/*.wav', r'darkblack_([a-g]b?\d)_(p|mp|mf|f)_rr1')], vel=['p','mp','mf','f'], sus=False, maxlen=5, oct=OCT_BB),
  dict(id=7, name='Kontrabas', src=[('meatbass/Samples/pizz/*.wav', r'/([a-g]b?\d)_vl(\d)_rr1')], vel=['1','2','3','4'], sus=False, maxlen=4, oct=OCT_MB),
@@ -103,6 +103,8 @@ def collect(ins):
             if layer is None: continue
             if not (lo <= note <= hi): continue
             out.append((note, layer, f))
+    # jedna sila uderu: jemna vrstva vyrobena z tej istej vzorky (tmavsia, makky nabeh)
+    if ins.get('soft'): out = [(n, 0, f + '|soft') for n, _, f in out] + [(n, 1, f) for n, _, f in out]
     # jedna vzorka na notu a vrstvu
     seen = {}; res = []
     for n, l, f in out:
@@ -181,8 +183,14 @@ def process(ins, outdir):
     lay = sorted(set(l for _, l, _ in items)); lmap = {l: i for i, l in enumerate(lay)}
     recs = []
     for n, l, f in items:
+        soft = f.endswith('|soft'); f = f[:-5] if soft else f
         x, sr = sf.read(f, dtype='float32', always_2d=True)
         if x.shape[1] > 2: x = x[:, :2]
+        if soft:
+            from scipy.signal import lfilter
+            for a in (('lp', 1700, sr, 0.6), ('lp', 2600, sr, 0.7)): b, aa = _bq(*a); x = lfilter(b, aa, x, axis=0).astype(np.float32)
+            pk0 = int(np.argmax(np.abs(x).max(axis=1) > np.abs(x).max() * 0.05)); r = int(0.006 * sr)
+            x[pk0:pk0 + r] *= np.linspace(0.35, 1, r)[:, None]
         if ins.get('amp'):
             x = amp(x, sr, ins['amp'])
             if ins.get('mic'):   # trochu mikrofonu pri gitare (ta ista nahravka)

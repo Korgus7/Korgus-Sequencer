@@ -790,6 +790,25 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("instAction",  [this] (const juce::var& v)
                             {
                                 // Korgus Inspire: "Prekvap ma" / "Obmena" z hlavicky stopy (prepne skryty spustac v plugine)
+                                if (v["what"].toString() == "fxAll")   // FX vsetkych Inspirii naraz
+                                {
+                                    const bool on = (bool) v["on"];
+                                    for (const auto& [id, d] : trackDesc)
+                                        if (auto* q = engine.getPlugin (engine.getOrCreateSlot (id)))
+                                            if (const int fi = inspFxIndex (q); fi >= 0) q->getParameters()[fi]->setValueNotifyingHost (on ? 1.0f : 0.0f);
+                                    sendTrackPlugins();
+                                    return;
+                                }
+                                if (v["what"].toString() == "favs")   // oblubene tovarenske zvuky Inspirie (Dokumenty/Korgus Inspiria/zoznam.json)
+                                {
+                                    juce::Array<juce::var> list;
+                                    const auto f = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Korgus Inspiria").getChildFile ("zoznam.json");
+                                    if (auto* a = juce::JSON::parse (f.loadFileAsString())["fav"].getArray())
+                                        for (auto& k : *a) if (k.toString().startsWith ("f:")) list.add (k.toString().substring (2));
+                                    auto o = obj(); put (o, "track", v["track"].toString()); put (o, "list", list);
+                                    emit ("inspFavs", o);
+                                    return;
+                                }
                                 const int slot = engine.getOrCreateSlot (v["track"].toString());
                                 auto* p = engine.getPlugin (slot);
                                 if (p == nullptr) return;
