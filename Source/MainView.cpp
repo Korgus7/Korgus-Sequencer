@@ -498,6 +498,10 @@ void MainView::onKbdState (const juce::var& v)
     if (const auto* a = v.getProperty ("arm", {}).getArray()) for (const auto& x : *a) k.arm.push_back (x.toString());
 }
 
+#if JUCE_WINDOWS
+extern "C" __declspec(dllimport) long __stdcall CoInitializeEx (void*, unsigned long);
+#endif
+
 // ------------------------------------------------------------- meranie startu
 namespace
 {
@@ -597,6 +601,7 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
 
 MainView::~MainView()
 {
+    if (audioInit.joinable()) audioInit.join();
     if (learnJob != nullptr) { learnJob->signalThreadShouldExit(); learnJob->stopThread (10000); learnJob = nullptr; }
     stopTimer();
     kbdPoll = nullptr;
@@ -1405,7 +1410,7 @@ void MainView::onTrackFx (const juce::var& v)
 std::unique_ptr<juce::AudioPluginInstance> MainView::createInstance (const juce::PluginDescription& d, const juce::MemoryBlock* state, bool instrument)
 {
     double sr = 44100; int bs = 512;
-    if (auto* dev = deviceManager.getCurrentAudioDevice()) { sr = dev->getCurrentSampleRate(); bs = dev->getCurrentBufferSizeSamples(); }
+    if (auto* dev = audioBusy ? nullptr : deviceManager.getCurrentAudioDevice()) { sr = dev->getCurrentSampleRate(); bs = dev->getCurrentBufferSizeSamples(); }
     juce::String err;
     const bool builtin = BuiltinFx::isBuiltin (d);
     if (! builtin) CrashGuard::beginLoad (d.createIdentifierString(), d.name);
@@ -1595,16 +1600,19 @@ void MainView::onReady()
     });
     step (sk ("Otváram zvukovú kartu…"), [this]
     {
-        std::unique_ptr<juce::XmlElement> saved (props.getUserSettings()->getXmlValue ("audioDevice"));
-        deviceManager.initialise (2, 2, saved.get(), true);
-        deviceManager.addChangeListener (this);
-        deviceManager.addAudioCallback (&engine);
-        deviceManager.addMidiInputDeviceCallback ({}, &engine);
-        if (auto* dev = deviceManager.getCurrentAudioDevice())
+        // zvukova karta (2 s) sa otvara v pozadi popri ostatnych krokoch; ASIO ovladace len z hlavneho vlakna
+        std::shared_ptr<juce::XmlElement> saved (props.getUserSettings()->getXmlValue ("audioDevice"));
+        const bool asio = saved != nullptr && saved->getStringAttribute ("deviceType").containsIgnoreCase ("ASIO");
+        if (asio) { deviceManager.initialise (2, 2, saved.get(), true); return; }
+        audioBusy = true;
+        audioInit = std::thread ([this, saved]
         {
-            store->setSampleRate (dev->getCurrentSampleRate());
-            bootStatus (sk ("Zvuková karta: ") + dev->getName(), -1);
-        }
+           #if JUCE_WINDOWS
+            CoInitializeEx (nullptr, 0 /* COINIT_MULTITHREADED */);
+           #endif
+            deviceManager.initialise (2, 2, saved.get(), true);
+            audioBusy = false;
+        });
     });
     step (sk ("Hľadám pluginy vedľa programu…"), [this]
     {
@@ -1667,24 +1675,8 @@ void MainView::onReady()
             }
         }
         }
-        sendPluginList(); sendDevices(); sendAiState();
+        sendPluginList(); sendAiState();
     });
-    // pluginy stop z minuleho spustenia - po jednom
-    if (! sessionApplied && pendingSession.isObject())
-    {
-        sessionApplied = true;
-        if (auto* d = pendingSession.getDynamicObject())
-            for (const auto& prop : d->getProperties())
-            {
-                auto one = obj();
-                put (one, prop.name, prop.value);
-                juce::String name;
-                if (auto x = juce::parseXML (prop.value["desc"].toString())) name = x->getStringAttribute ("name");
-                if (name.isEmpty()) name = sk ("efekty stopy");
-                step (sk ("Načítavam nástroj: ") + name + sk ("…"), [this, one] { restorePluginStates (one); });
-            }
-        pendingSession = juce::var();
-    }
     step (sk ("Načítavam zvukové súbory…"), [this]
     {
         // id zvukov z poslednej piesne (subor + to, co poslalo rozhranie)
@@ -1715,18 +1707,55 @@ void MainView::onReady()
     });
     step (sk ("Hotovo"), [this]
     {
+        finishAudioInit();
         booting = false;
+        restoringPlugins = ! sessionApplied && pendingSession.isObject();
         if (! lastSong.isVoid()) onSong (lastSong);
-        sendTrackPlugins();
         { auto o = obj(); put (o, "ver", currentVersion()); emit ("appInfo", o); }
         emit ("bootDone", obj());
-        juce::MessageManager::callAsync ([] { bootLog ("hotovo"); });
+        if (restoringPlugins) { auto o = obj(); put (o, "text", sk ("Načítavam nástroje stôp…")); emit ("bgStatus", o); }
+        else sendTrackPlugins();
+        juce::MessageManager::callAsync ([] { bootLog ("piesen zobrazena"); });
         sendRecent();
         sendCrashInfo();
         checkForUpdate();
     });
+    // nastroje stop z minuleho spustenia - po jednom, uz pri zobrazenej piesni
+    if (! sessionApplied && pendingSession.isObject())
+    {
+        if (auto* d = pendingSession.getDynamicObject())
+            for (const auto& prop : d->getProperties())
+            {
+                auto one = obj();
+                put (one, prop.name, prop.value);
+                juce::String name;
+                if (auto x = juce::parseXML (prop.value["desc"].toString())) name = x->getStringAttribute ("name");
+                if (name.isEmpty()) name = sk ("efekty stopy");
+                step (sk ("Načítavam nástroj: ") + name + sk ("…"), [this, one] { restorePluginStates (one); });
+            }
+        step ({}, [this]
+        {
+            sessionApplied = true; pendingSession = juce::var();
+            restoringPlugins = false;
+            sendTrackPlugins();
+            saveSession();
+            auto o = obj(); put (o, "text", sk ("Nástroje stôp sú načítané.")); emit ("bgStatus", o);
+            bootLog ("hotovo");
+        });
+    }
+    else step ({}, [] { bootLog ("hotovo"); });
     bootIndex = 0;
     runBootStep();
+}
+
+void MainView::finishAudioInit()
+{
+    if (audioInit.joinable()) audioInit.join();
+    deviceManager.addChangeListener (this);
+    deviceManager.addAudioCallback (&engine);
+    deviceManager.addMidiInputDeviceCallback ({}, &engine);
+    if (auto* dev = deviceManager.getCurrentAudioDevice()) store->setSampleRate (dev->getCurrentSampleRate());
+    sendDevices();
 }
 
 void MainView::runBootStep()
@@ -1736,7 +1765,7 @@ void MainView::runBootStep()
     bootStatus (st.first, (double) bootIndex / (double) bootSteps.size());
     juce::Component::SafePointer<MainView> sp (this);
     // kratka pauza, aby sa text stihol zobrazit
-    juce::Timer::callAfterDelay (30, [sp]
+    juce::Timer::callAfterDelay (booting ? 30 : 1, [sp]
     {
         if (sp == nullptr) return;
         auto fn = sp->bootSteps[sp->bootIndex].second;
@@ -1829,7 +1858,7 @@ void MainView::sendPluginList()
 
 void MainView::sendTrackPlugins()
 {
-    if (booting) return;   // pri starte sa posle raz na konci (krok Hotovo)
+    if (booting || restoringPlugins) return;   // pri starte sa posle raz na konci
     auto o = obj();
     auto entry = [&o] (const juce::String& id) -> juce::var
     {
@@ -1982,7 +2011,7 @@ void MainView::restorePluginStates (const juce::var& vst)
 
 void MainView::saveSession()
 {
-    if (booting) return;   // pri starte sa relacia nemeni - ulozenie po kazdom nastroji spomalovalo start
+    if (booting || restoringPlugins) return;   // pri starte sa relacia nemeni - ulozenie po kazdom nastroji spomalovalo start
     auto st = collectPluginStates();
     mergeHeld (st);
     dataDir.getChildFile ("session.json").replaceWithText (juce::JSON::toString (st));

@@ -1,3 +1,4 @@
+#include <array>
 #include "PluginProcessor.h"
 #include "NovaSamples.h"
 #include "PluginEditor.h"
@@ -31,7 +32,7 @@ NovaProcessor::NovaProcessor()
     ccApplier.startTimerHz (40);
 }
 
-NovaProcessor::~NovaProcessor() { ccApplier.stopTimer(); stopTimer(); params.removeParameterListener ("preset", this); params.removeParameterListener ("x_rnd", this); params.removeParameterListener ("x_mut", this); cancelPendingUpdate(); prevReq += 1; }
+NovaProcessor::~NovaProcessor() { *alive = false; ccApplier.stopTimer(); stopTimer(); params.removeParameterListener ("preset", this); params.removeParameterListener ("x_rnd", this); params.removeParameterListener ("x_mut", this); cancelPendingUpdate(); prevReq += 1; }
 
 bool NovaProcessor::isBusesLayoutSupported (const BusesLayout& l) const
 {
@@ -859,6 +860,47 @@ void NovaProcessor::setCurrentProgram (int index)
 const juce::String NovaProcessor::getProgramName (int index)
 {
     return juce::isPositiveAndBelow (index, getNumPrograms()) ? T (factoryPatches()[(size_t) index].name) : juce::String();
+}
+
+// ------------------------------------------------------------- ukazka zvuku
+void NovaProcessor::preview()
+{
+    if (! previewOn() || prevPlaying.load()) return;
+    const int gen = ++previewGen;
+    keyboard.allNotesOff (1);
+    const auto cat = currentCategory;
+    const bool bass = cat.containsIgnoreCase ("bas"), mono = bass || cat == "Dychy" || cat == "Leady";
+    std::vector<std::array<int, 4>> ev;   // cas ms, nota, sila %, dlzka ms
+    if (bass) { int t = 0; for (int n : { 36, 43, 48, 43, 36 }) { ev.push_back ({ t, n, 80, 230 }); t += 260; } }
+    else if (mono) { int t = 0; for (int n : { 60, 62, 64, 67 }) { ev.push_back ({ t, n, 75, 200 }); t += 230; } ev.push_back ({ t, 72, 85, 800 }); }
+    else { int t = 0; for (int n : { 48, 55, 60, 64 }) { ev.push_back ({ t, n, 70, 170 }); t += 190; } for (int n : { 48, 60, 64, 67 }) ev.push_back ({ t + 80, n, 80, 1000 }); }
+    auto al = alive;
+    auto run = [this, al, gen, ev]
+    {
+        for (auto& e : ev)
+        {
+            juce::Timer::callAfterDelay (e[0], [this, al, gen, e] { if (*al && gen == previewGen.load() && ! prevPlaying.load()) keyboard.noteOn (1, e[1], (float) e[2] / 100.0f); });
+            juce::Timer::callAfterDelay (e[0] + e[3], [this, al, gen, e] { if (*al && gen == previewGen.load()) keyboard.noteOff (1, e[1], 0.0f); });
+        }
+    };
+    previewWait (this, al, gen, run, 30);   // nahrany nastroj sa moze este nacitavat (do 1,5 s)
+}
+
+void NovaProcessor::previewWait (NovaProcessor* self, std::shared_ptr<std::atomic<bool>> al, int gen, std::function<void()> run, int left)
+{
+    juce::Timer::callAfterDelay (left == 30 ? 60 : 50, [self, al, gen, run, left]
+    {
+        if (! *al || gen != self->previewGen.load()) return;
+        bool ready = true;
+        for (const char* l : { "a_", "b_" })
+        {
+            const juce::String px (l);
+            if (self->raw[px + "on"]->load() > 0.5f && (int) self->raw[px + "wave"]->load() == 7 && (int) self->raw[px + "src"]->load() == 0)
+                ready = ready && self->synth.instrReady ((int) self->raw[px + "inst"]->load());
+        }
+        if (ready || left <= 0) run();
+        else previewWait (self, al, gen, run, left - 1);
+    });
 }
 
 // ------------------------------------------------------------- stav (projekt)

@@ -1,5 +1,6 @@
 #pragma once
 #include <set>
+#include <thread>
 #include "UiCommon.h"
 
 // meranie startu: casy krokov do start-log.txt v priecinku nastaveni
@@ -219,6 +220,10 @@ private:
     std::atomic<bool> updBusy { false };
     bool sessionApplied = false;
     bool booting = true, booted = false;
+    bool restoringPlugins = false;          // nastroje stop sa dociitavaju po zobrazeni piesne
+    std::thread audioInit;                  // zvukova karta sa otvara popri nacitani (nie pri ASIO)
+    std::atomic<bool> audioBusy { false };
+    void finishAudioInit();
     std::vector<std::pair<juce::String, std::function<void()>>> bootSteps;
     size_t bootIndex = 0;
     double lastSentPos = -1;

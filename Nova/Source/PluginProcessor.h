@@ -88,6 +88,12 @@ public:
     std::vector<float> scL, scR;   // hlas zo sidechainu (vocoder)
     nova::PresetStore presets;
     juce::MidiKeyboardState keyboard;
+    // ukazka zvuku pri vybere zo zoznamu (kratka fraza cez klaviaturu)
+    void preview();
+    static void previewWait (NovaProcessor*, std::shared_ptr<std::atomic<bool>>, int, std::function<void()>, int);
+    bool previewOn() { return presets.setting ("preview") != "0"; }
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
+    std::atomic<int> previewGen { 0 };
 
     bool loadPreset (const juce::String& key);            // zo zoznamu (tovarensky alebo vlastny)
     juce::String savePreset (const juce::String& name, const juce::String& category);
