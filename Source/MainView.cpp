@@ -498,14 +498,41 @@ void MainView::onKbdState (const juce::var& v)
     if (const auto* a = v.getProperty ("arm", {}).getArray()) for (const auto& x : *a) k.arm.push_back (x.toString());
 }
 
+// ------------------------------------------------------------- meranie startu
+namespace
+{
+    struct BootLogState { double t0 = juce::Time::getMillisecondCounterHiRes(), last = t0; juce::String text; juce::File file; bool done = false; };
+    BootLogState& bootLogState() { static BootLogState s; return s; }
+}
+void bootLogDir (const juce::File& dir)
+{
+    auto& s = bootLogState();
+    s.file = dir.getChildFile ("start-log.txt");
+    s.file.replaceWithText (s.text);
+}
+void bootLog (const juce::String& what)
+{
+    auto& s = bootLogState();
+    if (s.done) return;
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (s.text.isEmpty()) s.text << "Korgus Sequencer - start " << juce::Time::getCurrentTime().toString (true, true, true, true) << "\n"
+                                 << "     cas   trvanie  krok\n";
+    s.text << juce::String (now - s.t0, 0).paddedLeft (' ', 7) << " ms " << ("+" + juce::String (now - s.last, 0)).paddedLeft (' ', 7) << "  " << what << "\n";
+    s.last = now;
+    if (what == "hotovo") s.done = true;
+    if (s.file != juce::File()) s.file.replaceWithText (s.text);
+}
+
 MainView::MainView (juce::ApplicationProperties& p) : props (p)
 {
+    bootLog ("MainView: zaciatok");
     setLookAndFeel (&lnf);
     juce::LookAndFeel::setDefaultLookAndFeel (&lnf);
     formatManager.addDefaultFormats();
 
     dataDir = props.getUserSettings()->getFile().getParentDirectory();
     dataDir.createDirectory();
+    bootLogDir (dataDir);
 
     CrashGuard::install (dataDir);
     {
@@ -533,9 +560,12 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
         recordLive (selTrackId, pitch, vel, on, engine.isPlaying() ? pos : -1.0);
     };
 
+    bootLog ("nastavenia a pluginy z disku");
     loadSession();
+    bootLog ("posledna relacia precitana");
 
     web = std::make_unique<juce::WebBrowserComponent> (makeOptions());
+    bootLog ("WebView2 vytvorene");
     web->setWantsKeyboardFocus (true);
     BuiltinFx::requestFile = [this] (std::function<void (const juce::File&)> cb)
     {
@@ -1523,6 +1553,7 @@ void MainView::onReady()
         return;
     }
     booted = true;
+    bootLog ("rozhranie nacitane (WebView2 + stranka)");
     bootSteps.clear();
     auto step = [this] (juce::String text, std::function<void()> fn) { bootSteps.push_back ({ std::move (text), std::move (fn) }); };
 
@@ -1663,6 +1694,7 @@ void MainView::onReady()
         sendTrackPlugins();
         { auto o = obj(); put (o, "ver", currentVersion()); emit ("appInfo", o); }
         emit ("bootDone", obj());
+        juce::MessageManager::callAsync ([] { bootLog ("hotovo"); });
         sendRecent();
         sendCrashInfo();
         checkForUpdate();
@@ -1682,7 +1714,9 @@ void MainView::runBootStep()
     {
         if (sp == nullptr) return;
         auto fn = sp->bootSteps[sp->bootIndex].second;
+        bootLog ("(pauza pred krokom)");
         fn();
+        bootLog (sp->bootSteps[sp->bootIndex].first);
         ++sp->bootIndex;
         sp->runBootStep();
     });

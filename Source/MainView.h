@@ -1,6 +1,10 @@
 #pragma once
 #include <set>
 #include "UiCommon.h"
+
+// meranie startu: casy krokov do start-log.txt v priecinku nastaveni
+void bootLog (const juce::String& what);
+void bootLogDir (const juce::File& dir);
 #include "Engine.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 

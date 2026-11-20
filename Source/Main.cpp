@@ -15,6 +15,7 @@ public:
 
     void initialise (const juce::String&) override
     {
+        bootLog ("initialise");
         if (hasArg ("--selftest")) { setApplicationReturnValue (0); quit(); return; }
         if (hasArg ("--updated")) juce::Thread::sleep (2500);
         // zvysky po aktualizacii (*.old, priecinok _update)
@@ -88,7 +89,9 @@ public:
             "\"Deactivated after failing to initialise correctly\" = \"Vypnutý – nepodarilo sa ho spustiť\"\n"
             ), false));
 
+        bootLog ("okno: vytvaram");
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), properties);
+        bootLog ("okno: hotove");
     }
 
     void shutdown() override { if (hasArg ("--selftest")) return; mainWindow = nullptr; CrashGuard::cleanExit(); }
