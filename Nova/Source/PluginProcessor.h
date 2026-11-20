@@ -90,6 +90,9 @@ public:
     juce::MidiKeyboardState keyboard;
     // ukazka zvuku pri vybere zo zoznamu (kratka fraza cez klaviaturu)
     void preview();
+    // citlivost kláves: 0 jemna (aj slabsi uder znie silno), 1 normalna, 2 tvrda; nastavenie pouzivatela, nie zvuku
+    std::atomic<int> velCurve { 1 };
+    void setVelCurve (int c) { velCurve = juce::jlimit (0, 2, c); presets.setSetting ("velcurve", juce::String (velCurve.load())); }
     static void previewWait (NovaProcessor*, std::shared_ptr<std::atomic<bool>>, int, std::function<void()>, int);
     bool previewOn() { return presets.setting ("preview") != "0"; }
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);

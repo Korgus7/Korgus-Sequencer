@@ -16,6 +16,7 @@ NovaProcessor::NovaProcessor()
     params.addParameterListener ("preset", this);
     params.addParameterListener ("x_rnd", this);
     params.addParameterListener ("x_mut", this);
+    { const auto vc = presets.setting ("velcurve"); velCurve = vc.isEmpty() ? 1 : juce::jlimit (0, 2, vc.getIntValue()); }
     // na zaciatku koncertny klavir
     PatchData p;
     const juce::String first = "f:" + juce::String::fromUTF8 ("Koncertný klavír");
@@ -139,6 +140,18 @@ void NovaProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     }
     buffer.clear();
     keyboard.processNextMidiBuffer (midi, 0, buffer.getNumSamples(), true);
+    if (const int vc = velCurve.load(); vc != 1)   // citlivost kláves
+    {
+        const float gam = vc == 0 ? 0.6f : 1.6f;
+        juce::MidiBuffer out;
+        for (const auto meta : midi)
+        {
+            auto msg = meta.getMessage();
+            if (msg.isNoteOn()) msg.setVelocity (juce::jlimit (0.01f, 1.0f, std::pow (msg.getFloatVelocity(), gam)));
+            out.addEvent (msg, meta.samplePosition);
+        }
+        midi.swapWith (out);
+    }
     recordCapture (midi, buffer.getNumSamples());
     // MIDI learn a priradene CC (priradene CC sa do syntetizatora neposielaju)
     bool anyCc = false;

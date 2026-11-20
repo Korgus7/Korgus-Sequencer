@@ -59,6 +59,32 @@ namespace
         att = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.params, "fx_all", b);
     }
 
+    // citlivost kláves: ikona klaviatury, klik = ponuka jemna / normalna / tvrda
+    struct KeysButton : juce::TextButton
+    {
+        KeysButton (NovaProcessor& pr) : p (pr)
+        {
+            setTooltip (T ("Citlivosť kláves – ako silno treba udrieť"));
+            onClick = [this]
+            {
+                juce::PopupMenu m;
+                const char* n[] = { "Jemná – aj slabší úder znie silno", "Normálna", "Tvrdá – na silný zvuk treba udrieť silno" };
+                for (int i = 0; i < 3; ++i) m.addItem (i + 1, T (n[i]), true, p.velCurve.load() == i);
+                juce::Component::SafePointer<KeysButton> sp (this);
+                m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [sp] (int r) { if (sp != nullptr && r > 0) { sp->p.setVelCurve (r - 1); sp->repaint(); } });
+            };
+        }
+        void paintButton (juce::Graphics& g, bool hover, bool down) override
+        {
+            getLookAndFeel().drawButtonBackground (g, *this, findColour (juce::TextButton::buttonColourId), hover, down);
+            auto r = getLocalBounds().toFloat().withSizeKeepingCentre (18.0f, 12.0f);
+            g.setColour (nova::ui::text.withAlpha (0.85f)); g.drawRoundedRectangle (r, 1.0f, 1.2f);
+            for (int i = 1; i < 5; ++i) { const float x = r.getX() + r.getWidth() * (float) i / 5.0f; g.drawLine (x, r.getY(), x, r.getBottom(), 1.0f); }
+            if (p.velCurve.load() != 1) { g.setColour (dim); g.setFont (juce::FontOptions (9.0f)); g.drawText (p.velCurve.load() == 0 ? "J" : "T", getLocalBounds().removeFromRight (7).removeFromBottom (11), juce::Justification::centred); }
+        }
+        NovaProcessor& p;
+    };
+
     // ukazka zvuku pri vybere zo zoznamu: zap / vyp
     void setupPreview (NovaProcessor& p, juce::TextButton& b)
     {
@@ -231,7 +257,7 @@ namespace
             addAndMakeVisible (surprise); addAndMakeVisible (surCat); addAndMakeVisible (mutateB);
             setupLearn (p, learnB); addAndMakeVisible (learnB);
             setupFx (p, fxB, fxAtt); addAndMakeVisible (fxB);
-            setupPreview (p, pvB); addAndMakeVisible (pvB);
+            setupPreview (p, pvB); addAndMakeVisible (pvB); addAndMakeVisible (kbB);
             addAndMakeVisible (insp);
             setSize (SW, SH);
             setSection (juce::jmax (0, section), false);   // tlacidla syntezatora pridane az po vybere kategorie
@@ -300,7 +326,8 @@ namespace
             ext.setBounds (getWidth() - 16 - 96, 9, 96, 26);
             fxB.setBounds (ext.getX() - 8 - 40, 9, 40, 26);
             pvB.setBounds (fxB.getX() - 4 - 30, 9, 30, 26);
-            mutateB.setBounds (pvB.getX() - 8 - 84, 9, 84, 26);
+            kbB.setBounds (pvB.getX() - 4 - 30, 9, 30, 26);
+            mutateB.setBounds (kbB.getX() - 8 - 84, 9, 84, 26);
             surCat.setBounds (mutateB.getX() - 6 - 22, 9, 22, 26);
             surprise.setBounds (surCat.getX() - 2 - 104, 9, 104, 26);
             learnB.setBounds (surprise.getX() - 8 - 104, 9, 104, 26);
@@ -341,6 +368,7 @@ namespace
         std::vector<std::unique_ptr<Knob>> knobs;
         juce::String curCat, lastKey;
         juce::TextButton ext, surprise, surCat, mutateB, learnB, fxB, pvB;
+        KeysButton kbB { p };
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> fxAtt;
         juce::String status;
     };
@@ -1930,7 +1958,7 @@ namespace
             vol.setSliderStyle (juce::Slider::LinearHorizontal); vol.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             volAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.params, "volume", vol);
             vol.setDoubleClickReturnValue (true, 0.0);
-            for (auto* c : std::initializer_list<juce::Component*> { &advanced, &pvB, &fxB, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &learnB, &size, &vol }) addAndMakeVisible (c);
+            for (auto* c : std::initializer_list<juce::Component*> { &advanced, &kbB, &pvB, &fxB, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &learnB, &size, &vol }) addAndMakeVisible (c);
             tick();
         }
         void saveDialog()
@@ -1996,7 +2024,7 @@ namespace
         {
             const int y = 12, h = 28;
             advanced.setBounds (12, y, 96, h);
-            fxB.setBounds (172, y, 40, h); pvB.setBounds (138, y, 30, h);
+            fxB.setBounds (176, y, 40, h); pvB.setBounds (146, y, 28, h); kbB.setBounds (116, y, 28, h);
             prev.setBounds (220, y, 30, h);
             nameBox = { 254, y, 220, h };
             next.setBounds (478, y, 30, h);
@@ -2008,6 +2036,7 @@ namespace
         }
         NovaEditor& ed; NovaProcessor& p; Browser& br;
         juce::TextButton advanced, prev, next, save, undoB, redoB, surprise, surCat, mutateB, learnB, fxB, pvB;
+        KeysButton kbB { p };
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> fxAtt;
         juce::ComboBox size; juce::Slider vol;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> volAtt;
