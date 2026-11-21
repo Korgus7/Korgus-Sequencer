@@ -374,8 +374,13 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
         const juce::SpinLock::ScopedLockType l (filterLock);
         if (midiFilter.isNotEmpty() && (src == nullptr || src->getIdentifier() != midiFilter)) return;
     }
-    const int slot = selectedSlot.load();
-    if (m.isNoteOnOrOff() || m.isController() || m.isPitchWheel() || m.isChannelPressure() || m.isAftertouch())
+    int slot = selectedSlot.load();
+    if (m.isNoteOnOrOff())
+    {
+        const juce::SpinLock::ScopedLockType l (filterLock);
+        if (skipPitch[(size_t) juce::jlimit (0, 127, m.getNoteNumber())]) slot = -1;   // zahra program (vlastny sampel bicich)
+    }
+    if (slot >= 0 && (m.isNoteOnOrOff() || m.isController() || m.isPitchWheel() || m.isChannelPressure() || m.isAftertouch()))
     {
         auto copy = m;
         copy.setChannel (1);

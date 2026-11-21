@@ -209,6 +209,13 @@ public:
     std::atomic<int> metroSnd { 0 }, metroSub { 4 };
     juce::AudioPluginInstance* getMidiFx (int slot);
     void setMidiFilter (const juce::String& deviceId);
+    // vysky, ktore sa z MIDI kláves nemaju posielat do stopy (bicie s vlastnymi samplami – tie zahra program sam)
+    void setSkipPitches (const std::vector<int>& v)
+    {
+        const juce::SpinLock::ScopedLockType l (filterLock);
+        skipPitch.fill (false);
+        for (int x : v) if (juce::isPositiveAndBelow (x, 128)) skipPitch[(size_t) x] = true;
+    }
     void triggerSample (int slot, AudioBufPtr buf, float gain, int lane);   // ziva hra / nahlad samplu
     juce::String getSlotTrackId (int slot);
     int  getNumSlots();
@@ -387,6 +394,7 @@ private:
     std::atomic<int> postFade { 0 };   // po exporte plynuly nabeh vystupu (vzorky)
     int masterSlot = -1;
     std::array<int, 8> extraSlots {}; int numExtra = 0;
+    std::array<bool, 128> skipPitch {};
     int auxSlot[2] { -1, -1 };
     juce::AudioBuffer<float> keyBuf { 2, 512 };   // sidechain kluc
     AudioBufPtr refBuf;

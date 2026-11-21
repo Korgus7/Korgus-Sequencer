@@ -269,6 +269,7 @@ struct MainView::KbdPoll : juce::Timer
     juce::String track;                       // cielova stopa z JS (vybrana / armovana)
     std::set<juce::String> midiIds, drumIds;  // stopy, ktore prijmaju noty / su bicie
     std::vector<int> drumPitch;
+    std::map<juce::String, std::vector<bool>> drumSmp;   // bicie: riadky s vlastnym samplom (zahra ich program, nie nastroj stopy)
     std::vector<juce::String> arm;            // dalsie zapnute (armovane) stopy - hraju naraz ako v Cubase
     bool jsText = false;                      // na stranke je fokus v textovom poli
     bool pageFocus = true;                    // stranka (WebView) ma fokus klavesnice - skratky spracuje sama
@@ -432,8 +433,10 @@ struct MainView::KbdPoll : juce::Timer
                 int pitch;
                 if (drum) { if (k.semi >= (int) drumPitch.size()) { down[n] = d; continue; } pitch = drumPitch[(size_t) k.semi]; }
                 else pitch = juce::jlimit (0, 127, (oct + 2) * 12 + k.semi);
-                const int slot = mv.engine.getOrCreateSlot (tr);
                 const float vf = (float) vel / 127.0f;
+                bool own = false;
+                if (drum) if (auto it = drumSmp.find (tr); it != drumSmp.end() && k.semi < (int) it->second.size()) own = it->second[(size_t) k.semi];
+                const int slot = own ? -1 : mv.engine.getOrCreateSlot (tr);
                 mv.engine.liveNote (slot, pitch, vf, true);
                 mv.recordLive (tr, pitch, vf, true, mv.engine.isPlaying() ? mv.engine.getPosition() : -1.0);
                 held[(int) n] = { tr, slot, pitch, {} };
@@ -494,6 +497,10 @@ void MainView::onKbdState (const juce::var& v)
     if (const auto* a = v.getProperty ("midi", {}).getArray()) for (const auto& x : *a) k.midiIds.insert (x.toString());
     if (const auto* a = v.getProperty ("drum", {}).getArray()) for (const auto& x : *a) k.drumIds.insert (x.toString());
     if (const auto* a = v.getProperty ("drumPitch", {}).getArray()) for (const auto& x : *a) k.drumPitch.push_back ((int) x);
+    k.drumSmp.clear();
+    if (auto* o = v.getProperty ("drumSmp", {}).getDynamicObject())
+        for (const auto& pr : o->getProperties())
+            if (const auto* a = pr.value.getArray()) { auto& w = k.drumSmp[pr.name.toString()]; for (const auto& x : *a) w.push_back ((bool) x); }
     k.arm.clear();
     if (const auto* a = v.getProperty ("arm", {}).getArray()) for (const auto& x : *a) k.arm.push_back (x.toString());
 }
@@ -1359,6 +1366,11 @@ void MainView::onSelTrack (const juce::var& v)
         engine.setExtraSlots (ex);
     }
     engine.setMidiFilter (v.getProperty ("midiIn", "").toString());
+    {
+        std::vector<int> sk;
+        if (const auto* a = v.getProperty ("skip", {}).getArray()) for (const auto& x : *a) sk.push_back ((int) x);
+        engine.setSkipPitches (sk);
+    }
 }
 
 void MainView::onTrackPlugin (const juce::var& v)

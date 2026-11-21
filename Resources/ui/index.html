@@ -752,6 +752,7 @@ function natUpload(f,trId,bar){
   next(); }
 function natDefaultInst(tr){ if(!NATIVE) return; const p=natPlugins.find(x=>x.inst&&/korgus inspir/i.test(x.name))||natPlugins.find(x=>x.inst&&/korgus/i.test(x.name)&&!/sampler/i.test(x.name)); if(p) nat('trackPlugin',{track:tr.id,uid:p.uid,name:tr.name,quiet:true}); }
 function isInspire(tr){ const c=natTrackPlugins[tr.id]; return !!(c&&c.name&&/inspir/i.test(c.name)); }
+function natSmpSync(){ natSel(); if(typeof kbdSync==='function') kbdSync(); }
 function natNoteShort(tr,pitch,vel){ nat('note',{track:tr.id,pitch,vel,on:true}); setTimeout(()=>nat('note',{track:tr.id,pitch,vel:0,on:false}),250); }
 function setupNative(){
   document.body.classList.add('native');
@@ -767,14 +768,14 @@ function setupNative(){
   setPos=function(s){ s=clamp(s,0,song.bars*SPB-1); song.pos=s; playStep=s; natLast={pos:s,t:performance.now()};
     nat('transport',{cmd:'setPos',pos:s}); lastStep=-1; onStep(); save(); };
   smpOf=function(tr,l){ const id=tr.smp&&tr.smp[l]; return id?{id,name:(tr.smpN&&tr.smpN[l])||'Vlastný zvuk'}:null; };
-  smpButton=function(tr,l){ if(smpOf(tr,l)){ pushUndo(); delete tr.smp[l]; if(tr.smpN) delete tr.smpN[l]; save(); renderEditor(); return; } smpBrowser(tr,l); };
+  smpButton=function(tr,l){ if(smpOf(tr,l)){ pushUndo(); delete tr.smp[l]; if(tr.smpN) delete tr.smpN[l]; save(); renderEditor(); natSmpSync(); return; } smpBrowser(tr,l); };
   onNat('sampleImported',e=>{ const tr=song.tracks.find(t=>t.id===e.track); if(!tr) return;
     if(e.error){ dialog('Vlastný zvuk','<p>Tento súbor sa nedá prečítať. Použi WAV alebo MP3.</p>'); return; }
-    pushUndo(); tr.smp=tr.smp||{}; tr.smpN=tr.smpN||{}; tr.smp[e.lane]=e.id; tr.smpN[e.lane]=String(e.name).slice(0,24); delete tr.nkit; save(); renderEditor(); drawArrange(); if(e.keep) sbAfterPick(tr,e.lane); else previewDrum(tr,e.lane,1); });
+    pushUndo(); tr.smp=tr.smp||{}; tr.smpN=tr.smpN||{}; tr.smp[e.lane]=e.id; tr.smpN[e.lane]=String(e.name).slice(0,24); delete tr.nkit; save(); renderEditor(); drawArrange(); natSmpSync(); if(e.keep) sbAfterPick(tr,e.lane); else previewDrum(tr,e.lane,1); });
   onNat('kitImported',e=>{ const tr=song.tracks.find(t=>t.id===e.track); if(!tr) return; const ids=e.ids||[], n=ids.filter(Boolean).length;
     if(!n){ toast('V tomto priečinku nie sú žiadne zvuky.'); return; }
     pushUndo(); tr.smp=tr.smp||{}; tr.smpN=tr.smpN||{}; ids.forEach((id,l)=>{ if(id){ tr.smp[l]=id; tr.smpN[l]=String(e.names[l]||'').replace(/^\d{1,2}[ _.-]+/,'').slice(0,24); } });
-    delete tr.nkit; save(); renderEditor(); drawArrange(); previewDrum(tr,0,1); toast('Súprava <b>'+esc(e.name)+'</b> natiahnutá ('+n+' zvukov). Ctrl+Z vráti späť.'); });
+    delete tr.nkit; save(); renderEditor(); drawArrange(); natSmpSync(); previewDrum(tr,0,1); toast('Súprava <b>'+esc(e.name)+'</b> natiahnutá ('+n+' zvukov). Ctrl+Z vráti späť.'); });
   previewDrum=function(tr,l,v){ const sm=smpOf(tr,l); if(sm) nat('drumHit',{track:tr.id,id:sm.id,vel:v===2?1:.62,lane:l}); else natNoteShort(tr,DRUMS[l][1],v===2?1:.62); };
   preview=function(tr,p){ natNoteShort(tr,p,.8); };
   recOn=function(){ if(!rec||!playing) return false;
@@ -2526,7 +2527,11 @@ function renderTracks(){
     L.appendChild(r);
   });
 }
-function natSel(){ const tr=targetTrack(); if(tr) nat('selTrack',{track:tr.id,midiIn:tr.midiIn||'',arm:armedSynths().filter(t=>t!==tr).map(t=>t.id)}); }
+function natSel(){ const tr=targetTrack(); if(!tr) return;
+  // bicie: ostatne stopy nehraju spolu; riadky s vlastnym samplom zahra program (drumHit), nie nastroj stopy – inak by znel dvakrat / iny nastroj
+  const drum=tr.type==='drum', skip=[];
+  if(drum) for(let p=0;p<128;p++){ let l=DRUMS.findIndex(d=>d[1]===p); if(l<0) l=(((p-36)%DRUMS.length)+DRUMS.length)%DRUMS.length; if(smpOf(tr,l)) skip.push(p); }
+  nat('selTrack',{track:tr.id,midiIn:tr.midiIn||'',arm:drum?[]:armedSynths().filter(t=>t!==tr).map(t=>t.id),skip}); }
 function selectTrack(i){
   if(NATIVE){ setTimeout(natSel,0); if(i!==selT) setTimeout(()=>{ renderMixer(); renderAuto(); },0); }
   if(i===selT) return; selT=i;
@@ -3597,10 +3602,13 @@ function drawPadWaves(tr){ const ids=[];
     if(sm&&!pk&&!NATIVE&&sm.buf){ pk=audioPeaks[sm.id]=computePeaks(sm.buf); }
     if(sm&&!pk&&NATIVE&&!padPkReq[sm.id]){ padPkReq[sm.id]=1; ids.push(sm.id); }
     c.fillStyle=trColor(tr);
-    if(!pk){ c.globalAlpha=.5; c.fillRect(0,H/2-dpr/2,W,dpr); c.globalAlpha=1; return; }
-    const per=2*pk.sr/pk.B/W;   // cela sirka = 2 sekundy: kratky uder = kratka vlna
-    for(let x=0;x<W;x++){ const a=Math.floor(x*per), b=Math.min(pk.mx.length,Math.floor((x+1)*per)+1); if(a>=pk.mx.length) break; let v=0;
-      for(let i=a;i<b;i++) v=Math.max(v,pk.mx[i],-pk.mn[i]); const hh=Math.max(dpr,Math.min(1,v)*H*.8); c.fillRect(x,(H-hh)/2,1,hh); } });
+    // vlna v strede padu (medzi nazvom a tlacidlami), s okrajmi; cely zvuk na sirku
+    const x0=Math.round(W*.08), x1=W-x0, y0=H*.2, y1=H*.78, cy=(y0+y1)/2, ah=(y1-y0)*.92, iw=x1-x0;
+    if(!pk){ c.globalAlpha=.5; c.fillRect(x0,cy-dpr/2,iw,dpr); c.globalAlpha=1; return; }
+    let n=pk.mx.length; while(n>1&&Math.max(pk.mx[n-1],-pk.mn[n-1])<.004) n--;   // ticho na konci vynechat
+    const per=n/iw;
+    for(let x=0;x<iw;x++){ const a=Math.floor(x*per), b=Math.min(n,Math.max(a+1,Math.floor((x+1)*per))); let v=0;
+      for(let i=a;i<b;i++) v=Math.max(v,pk.mx[i],-pk.mn[i]); const hh=Math.max(dpr,Math.min(1,v)*ah); c.fillRect(x0+x,cy-hh/2,1,hh); } });
   if(ids.length) nat('needPeaks',{ids}); }
 let padRO=null, padTr=null, padSz=0;
 function padFit(){ const P=$('dpads'), ed=$('edBody'); if(!P||!ed) return;
@@ -4667,7 +4675,8 @@ let kbdSig='';
 function kbdSync(force){ if(!NATIVE) return;
   const tr=(()=>{ try{ return targetTrack(); }catch(e){ return null; } })();
   const midi=song.tracks.filter(t=>t.type!=='audio').map(t=>t.id), drum=song.tracks.filter(t=>t.type==='drum').map(t=>t.id);
-  const o={on:!!kbdNotes,oct,vel:curVel,track:tr&&tr.type!=='audio'?tr.id:'',midi,drum,drumPitch:DRUMS.map(d=>d[1]),arm:armedSynths().map(t=>t.id),page:document.hasFocus(),aud:song.tracks.filter(t=>t.type==='audio').map(t=>t.name)};
+  const drumSmp={}; song.tracks.filter(t=>t.type==='drum').forEach(t=>{ drumSmp[t.id]=DRUMS.map((d,l)=>!!smpOf(t,l)); });
+  const o={on:!!kbdNotes,oct,vel:curVel,track:tr&&tr.type!=='audio'?tr.id:'',midi,drum,drumPitch:DRUMS.map(d=>d[1]),drumSmp,arm:armedSynths().map(t=>t.id),page:document.hasFocus(),aud:song.tracks.filter(t=>t.type==='audio').map(t=>t.name)};
   const s=JSON.stringify(o); if(!force&&s===kbdSig) return; kbdSig=s; nat('kbdState',o); }
 setInterval(()=>kbdSync(false),250);
 $('bKbd').classList.toggle('on',kbdNotes); updKbdBtn();
