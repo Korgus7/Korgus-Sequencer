@@ -21,7 +21,7 @@ public:
         // zvysky po aktualizacii (*.old, priecinok _update)
         {
             const auto dir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
-            for (const auto& f : dir.findChildFiles (juce::File::findFiles, false, "*.old")) f.deleteFile();
+            for (const auto& f : dir.findChildFiles (juce::File::findFiles, false, "*.old*")) f.deleteFile();
             dir.getChildFile ("_update").deleteRecursively();
         }
         juce::PropertiesFile::Options o;

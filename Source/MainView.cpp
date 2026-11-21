@@ -4333,6 +4333,9 @@ void MainView::updateByFiles()
             // len obycajne nazvy suborov v priecinku programu
             if (it.name.isEmpty() || it.name.containsAnyOf ("\\/:*?\"<>|") || it.name.startsWith (".")
                 || ! it.url.startsWith ("https://") || it.sha.length() != 64 || it.size <= 0) { fail (sk ("Aktualizáciu sa nepodarilo stiahnuť. Skontroluj internet.")); return; }
+            // subor, ktory sa nezmenil (napr. Inspiria), sa nestahuje ani nevymiena - je moze byt prave nacitany
+            if (const auto have = dir.getChildFile (it.name); have.existsAsFile() && have.getSize() == it.size
+                && juce::SHA256 (have).toHexString().toLowerCase() == it.sha) continue;
             items.push_back (it); total += it.size;
         }
 
@@ -4396,8 +4399,10 @@ void MainView::updateByFiles()
         };
         for (const auto& it : items)
         {
-            const auto target = dir.getChildFile (it.name), old = dir.getChildFile (it.name + ".old");
-            old.deleteFile();
+            const auto target = dir.getChildFile (it.name);
+            auto old = dir.getChildFile (it.name + ".old");
+            // stary .old moze byt este pouzivany - potom iny nazov (zmaze sa pri dalsom spusteni)
+            for (int k = 2; ! old.deleteFile() && k < 20; ++k) old = dir.getChildFile (it.name + ".old" + juce::String (k));
             if (target.existsAsFile() && ! target.moveFileTo (old)) { rollback(); stage.deleteRecursively(); fail (sk ("Aktualizáciu sa nepodarilo uložiť.")); return; }
             moved.push_back ({ target, old });
             if (! stage.getChildFile (it.name).moveFileTo (target)) { rollback(); stage.deleteRecursively(); fail (sk ("Aktualizáciu sa nepodarilo uložiť.")); return; }
