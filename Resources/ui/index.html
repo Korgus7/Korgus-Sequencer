@@ -1651,8 +1651,14 @@ function recEnd(r){
 function recDrum(tr,l,vel){
   const s=recPos(); const part=recPartFor(tr,s,(b,len)=>({id:uid(),start:b,len,plen:len*SPB,grid:emptyGrid(len*SPB)}));
   // pozicia je v jemnych castiach kroku – do mriezky ide najblizsi krok
-  let k=Math.round(s-part.start*SPB); if(k>=part.len*SPB) k=part.len*SPB-1; k=((k%part.plen)+part.plen)%part.plen;
-  if(!part.grid[l]) return; part.grid[l][k]=vel>.85?2:1; drawArrange(); edRefresh(part); save();
+  let k=Math.round(s-part.start*SPB); if(k>=part.len*SPB) k=part.len*SPB-1;
+  const abs=part.start*SPB+k; k=((k%part.plen)+part.plen)%part.plen;
+  if(!part.grid[l]) return;
+  const put=()=>{ if(!part.grid[l]) return; part.grid[l][k]=vel>.85?2:1; drawArrange(); edRefresh(part); save(); };
+  // uder tesne pred krokom sa zaokruhli na nasledujuci krok – zapisat az ked ho hrac prejde, inak by ho program zahral znova (dvojity uder)
+  const ahead=playing?abs-curNatPos():0;
+  if(ahead>0&&ahead<1){ setTimeout(put,ahead*60000/(tempoAtStep(abs)*4)+40); return; }
+  put();
 }
 function edRefresh(part){ if(ed&&ed.pId===part.id){ const r=edGet(); if(r&&r.tr.type==='drum') renderEditor(); else drawKey(); } }
 
@@ -2517,7 +2523,7 @@ function renderTracks(){
 function natSel(){ const tr=targetTrack(); if(!tr) return;
   // bicie: ostatne stopy nehraju spolu; riadky s vlastnym samplom zahra program (drumHit), nie nastroj stopy – inak by znel dvakrat / iny nastroj
   const drum=tr.type==='drum', skip=[];
-  if(drum) for(let p=0;p<128;p++){ let l=DRUMS.findIndex(d=>d[1]===p); if(l<0) l=(((p-36)%DRUMS.length)+DRUMS.length)%DRUMS.length; if(smpOf(tr,l)) skip.push(p); }
+  if(drum) for(let p=0;p<128;p++){ let l=DRUMS.findIndex(d=>d[1]===p); if(l<0) l=(((p-36)%DRUMS.length)+DRUMS.length)%DRUMS.length; if(smpOf(tr,l)||!natTrackPlugins[tr.id]) skip.push(p); }
   nat('selTrack',{track:tr.id,midiIn:tr.midiIn||'',arm:drum?[]:armedSynths().filter(t=>t!==tr).map(t=>t.id),skip}); }
 function selectTrack(i){
   if(NATIVE){ setTimeout(natSel,0); if(i!==selT) setTimeout(()=>{ renderMixer(); renderAuto(); },0); }
@@ -4720,7 +4726,7 @@ function drumKitLoaded(e){
   const tr=song.tracks.find(t=>t.id===e.track); if(!tr||!kitReq[e.track]) return; const auto=kitReq[e.track]==='auto'; delete kitReq[e.track];
   if(auto&&(tr.nkit||(tr.smp&&Object.keys(tr.smp).length))) return;
   if(!auto) pushUndo(); tr.smp={}; tr.smpN={}; (e.ids||[]).forEach((id,l)=>{ if(id){ tr.smp[l]=id; tr.smpN[l]=String(e.names[l]||'').slice(0,24); } });
-  tr.nkit=e.name; save(); if(edGet()&&edGet().tr===tr) renderEditor(); drawArrange(); if(auto) return; previewDrum(tr,0,1);
+  tr.nkit=e.name; save(); if(edGet()&&edGet().tr===tr) renderEditor(); drawArrange(); natSmpSync(); if(auto) return; previewDrum(tr,0,1);
   toast('Súprava <b>'+esc(e.name)+'</b> je na stope <b>'+esc(tr.name)+'</b>.');
 }
 function voicePresetDialog(tr){
