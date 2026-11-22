@@ -23,11 +23,11 @@ namespace nova
                 for (auto& f : factoryPatches()) names.add (f.name);
                 ParamSpec s; s.id = "preset"; s.name = juce::String::fromUTF8 ("Zvuk"); s.kind = 1; s.choices = names; s.lo = 0; s.hi = (float) names.size() - 1; s.def = 0; v.push_back (s);
             }
-            F ("bright", "Jas", 0, 1, 0.5f, "%");
-            F ("attack", "Nábeh", 0, 1, 0.5f, "%");
-            F ("release", "Dozvuk", 0, 1, 0.5f, "%");
-            F ("space", "Priestor", 0, 1, 0.5f, "%");
-            F ("width", "Šírka", 0, 1, 0.5f, "%");
+            F ("bright", "Jas", 0, 1, 0.5f, "rel");
+            F ("attack", "Nábeh", 0, 1, 0.5f, "rel");
+            F ("release", "Dozvuk", 0, 1, 0.5f, "rel");
+            F ("space", "Priestor", 0, 1, 0.5f, "rel");
+            F ("width", "Šírka", 0, 1, 0.5f, "rel");
             F ("volume", "Hlasitosť", -24, 6, 0, "dB");
 
             for (auto L : { juce::String ("a"), juce::String ("b") })
@@ -555,6 +555,17 @@ namespace nova
         const auto& u = s.unit;
         if (u == "%") return juce::String (juce::roundToInt (v * (s.hi > 1.5f ? 100.0f : 100.0f))) + " %";
         if (u == "bip") return juce::String (juce::roundToInt (v * 100.0f)) + " %";
+        if (u == "rel")   // makra jednoduchej verzie: 50 % = ako v zvuku, inak smer a miera zmeny
+        {
+            const int d = juce::roundToInt ((v - 0.5f) * 200.0f);
+            if (d == 0) return T ("pôvodné");
+            static const std::map<juce::String, std::pair<const char*, const char*>> w {
+                { "bright", { "tmavší", "jasnejší" } }, { "attack", { "rýchlejší", "pomalší" } }, { "release", { "kratší", "dlhší" } },
+                { "space", { "suchší", "priestornejší" } }, { "width", { "užšia", "širšia" } } };
+            const auto it = w.find (s.id);
+            const juce::String word = it != w.end() ? T (d < 0 ? it->second.first : it->second.second) : juce::String();
+            return word + " " + juce::String (std::abs (d)) + " %";
+        }
         if (u == "pan") return std::abs (v) < 0.01f ? juce::String ("C") : (v < 0 ? "L" : "R") + juce::String (juce::roundToInt (std::abs (v) * 100.0f));
         if (u == "s") return v < 1.0f ? juce::String (juce::roundToInt (v * 1000.0f)) + " ms" : juce::String (v, 2) + " s";
         if (u == "ms") return juce::String (juce::roundToInt (v)) + " ms";

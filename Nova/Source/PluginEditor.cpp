@@ -209,7 +209,7 @@ namespace
             void paint (juce::Graphics& g) override
             {
                 auto r = getLocalBounds().toFloat().reduced (0.5f);
-                g.setColour (selected ? (small ? amber : steelHi) : (hover ? steel.brighter (0.12f) : (small ? panel : steel)));
+                g.setColour (selected ? steelHi : (hover ? steel.brighter (0.12f) : (small ? panel : steel)));
                 g.fillRoundedRectangle (r, 3.0f);
                 g.setColour (selected ? juce::Colours::white : text.withAlpha (0.9f));
                 g.setFont (juce::FontOptions (small ? 13.0f : 14.0f, selected ? juce::Font::bold : juce::Font::plain));
@@ -271,7 +271,7 @@ namespace
             addAndMakeVisible (surprise); addAndMakeVisible (surCat); addAndMakeVisible (mutateB);
             setupLearn (p, learnB); addAndMakeVisible (learnB);
             setupFx (p, fxB, fxAtt); addAndMakeVisible (fxB);
-            setupPreview (p, pvB); addAndMakeVisible (pvB);
+            setupPreview (p, pvB); pvB.setButtonText (juce::String::fromUTF8 ("♪ ") + T ("Ukážka")); addAndMakeVisible (pvB);
             addAndMakeVisible (insp);
             setSize (SW, SH);
             setSection (juce::jmax (0, section), false);   // tlacidla syntezatora pridane az po vybere kategorie
@@ -331,7 +331,10 @@ namespace
             g.setColour (text); g.setFont (juce::FontOptions (19.0f, juce::Font::bold));
             g.drawText ("KORGUS INSPIRIA", head.reduced (16, 0), juce::Justification::centredLeft);
             g.setColour (dim); g.setFont (juce::FontOptions (13.0f));
-            g.drawText (status, head.reduced (16, 0).withTrimmedRight (480).withTrimmedLeft (190), juce::Justification::centredRight);
+            g.drawText (status, head.reduced (16, 0).withTrimmedRight (560).withTrimmedLeft (190), juce::Justification::centredRight);
+            // vysvetlenie Inspiracie vedla tlacidla
+            g.setColour (dim); g.setFont (juce::FontOptions (12.5f));
+            g.drawFittedText (T ("Zachytí, čo si práve zahral, aj bez nahrávania – v Korgus Sequenceri to vloží do stopy."), insp.getRight() + 12, insp.getY(), getWidth() - insp.getRight() - 28, insp.getHeight(), juce::Justification::centredLeft, 2);
             g.setFont (juce::FontOptions (11.5f));
             g.drawText (T ("Klavír: Salamander Grand Piano V3 (A. Holm, CC-BY 3.0) · Rhodes: jRhodes3 (J. Learman, CC BY-NC 4.0) · ostatné: Versilian Studios, Karoryfer (CC0)"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
         }
@@ -339,7 +342,7 @@ namespace
         {
             ext.setBounds (getWidth() - 16 - 96, 9, 96, 26);
             fxB.setBounds (ext.getX() - 8 - 40, 9, 40, 26);
-            pvB.setBounds (fxB.getX() - 4 - 30, 9, 30, 26);
+            pvB.setBounds (fxB.getX() - 4 - 84, 9, 84, 26);
             kbB.setBounds (pvB.getX() - 4 - 30, 9, 30, 26);
             mutateB.setBounds (pvB.getX() - 8 - 84, 9, 84, 26);
             surCat.setBounds (mutateB.getX() - 6 - 22, 9, 22, 26);
@@ -361,15 +364,15 @@ namespace
                 for (int i = 0; i < n; ++i) vis[(size_t) i]->setBounds (cr.getX() + i * (cw + g2), cr.getY(), cw, 26);
             }
             r.removeFromTop (8);
-            // 2 riadky po 5; ak je v kategorii viac zvukov, 3 nizsie riadky v tom istom mieste
+            // zvuky vzdy rovnako male tlacidla (vyska ako pri 3 riadkoch po 5), aby nevyzerali ako dalsia uroven sekcii
             int nVis = 0; for (auto& b : buttons) if (b->isVisible()) ++nVis;
-            const int cols = 5, gap = 6, rows = juce::jmax (2, (nVis + cols - 1) / cols), bh = (2 * (42 + gap) - gap * rows) / rows;
+            const int cols = 5, gap = 6, rows = juce::jmax (3, (nVis + cols - 1) / cols), bh = (2 * (42 + gap) - gap * rows) / rows;
             const int bw = (r.getWidth() - gap * (cols - 1)) / cols;
             int k = 0;
             for (auto& b : buttons)
                 if (b->isVisible()) { b->setBounds (r.getX() + (k % cols) * (bw + gap), r.getY() + (k / cols) * (bh + gap), bw, bh); ++k; }
             r.removeFromTop (2 * (42 + gap) + 6);
-            auto kr = r.removeFromTop (140);
+            auto kr = r.removeFromTop (124);
             const int kw = kr.getWidth() / 6;
             for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (12, 0));
             insp.setBounds (16, getHeight() - 22 - 8 - 40, 240, 40);
