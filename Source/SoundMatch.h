@@ -24,6 +24,10 @@ namespace SoundMatch
     // progress (0..1, sprava) vracia false = zrusit
     using Progress = std::function<bool (double, const juce::String&)>;
 
+    // zive udaje pre zobrazenie pocas ucenia: najlepsia zhoda doteraz a posledne skusane hodnoty
+    struct Live { float bestLoss = 99.0f; juce::StringArray vals; int evals = 0; };
+    Live liveSnapshot();
+
     // priecinok diagnostiky: Dokumenty\Korgus Sequencer\Ucenie
     juce::File diagFolder();
 

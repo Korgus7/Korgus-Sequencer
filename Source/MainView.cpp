@@ -155,7 +155,7 @@ struct MainView::LearnJob : juce::Thread
         res = SoundMatch::run (*src, *ins, state, allowSample, srcName, [this] (double p, const juce::String& m)
         {
             const auto now = juce::Time::getMillisecondCounter();
-            if (now - last > 200 || p >= 1.0)
+            if (now - last > 120 || p >= 1.0)
             {
                 last = now;
                 auto s = sp; const int pct = juce::roundToInt (p * 100.0);
@@ -4604,6 +4604,10 @@ void MainView::onLearnSound (const juce::var& v)
 void MainView::learnProgressMsg (int pct, const juce::String& msg)
 {
     auto o = obj(); put (o, "pct", pct); put (o, "msg", msg);
+    const auto lv = SoundMatch::liveSnapshot();
+    if (lv.bestLoss < 99.0f) put (o, "match", juce::roundToInt (juce::jlimit (0.0f, 1.0f, 1.0f - lv.bestLoss / 3.0f) * 100.0f));
+    juce::Array<juce::var> vals; for (const auto& x : lv.vals) vals.add (x);
+    put (o, "vals", vals); put (o, "evals", lv.evals);
     emit ("learnProgress", o);
 }
 

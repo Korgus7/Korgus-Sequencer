@@ -14,6 +14,10 @@
 
 namespace SoundMatch
 {
+    static juce::SpinLock liveLock;
+    static Live liveData;
+    Live liveSnapshot() { const juce::SpinLock::ScopedLockType l (liveLock); return liveData; }
+
 namespace
 {
     //==========================================================================
@@ -1108,6 +1112,8 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
     patch.tree.setProperty ("smpB", juce::String(), nullptr);
     patch.tree.setProperty ("smpBName", juce::String(), nullptr);
     const auto D = dims();
+    juce::Random liveRng;
+    { const juce::SpinLock::ScopedLockType l (liveLock); liveData = {}; }
     const int aw = dimIndex (D, "a_wave");
     float curGain = -10.0f;           // hladanie bezi s p_gain = -10 dB (pred-FX zisk pred tube/drive); konecna hlasitost sa nastavi na konci
     double cost = 0;                  // vykon v "plnych" vyhodnoteniach (3 tony); rychle = 1 ton
@@ -1148,6 +1154,18 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
         const float d = distance (quick ? Sq : S, C, &lastT);
         if (d >= 99.0f) ++n99;
         if (outC != nullptr) *outC = std::move (C);
+        {   // zive udaje pre okno ucenia (3 nahodne parametre tohto pokusu)
+            juce::StringArray v;
+            for (int k = 0; k < 3; ++k)
+            {
+                const auto& dm = D[(size_t) liveRng.nextInt ((int) D.size())];
+                const float x = patch.get (dm.id);
+                v.add (juce::String (dm.id) + " " + (dm.kind == Lin || dm.kind == Log ? juce::String (x, std::abs (x) < 10.0f ? 3 : 0) : juce::String ((int) x)));
+            }
+            const juce::SpinLock::ScopedLockType l (liveLock);
+            if (d < 99.0f) liveData.bestLoss = juce::jmin (liveData.bestLoss, d);
+            liveData.vals = v; liveData.evals = res.evals;
+        }
         return d;
     };
     auto evalX = [&] (const std::vector<float>& x) { applyFixed (patch, D, x, curGain); return evalPatch(); };
@@ -1441,7 +1459,7 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
     // 5) volitelne: sampel zdroja do vrstvy B (dva varianty: uder / zluckovany sustain), vyberie sa lepsi
     if (allowSample)
     {
-        const juce::String msgS = juce::String::fromUTF8 ("Dopĺňam sampel do vrstvy B…");
+        const juce::String msgS = juce::String::fromUTF8 ("Skúšam doplniť sampel do vrstvy B…");
         prog (0.92, msgS);
         const juce::AudioBuffer<float>& st = raw48;       // 48 kHz zaznam tonu 60 z uvodneho zachytenia (bez opakovaneho renderu)
         const int ns = st.getNumSamples();
@@ -1539,7 +1557,7 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
             if (flac.getSize() > 1000)
             {
                 setB (flac, " C4 (úder)", false, 0.001f, 0.05f);
-                lossT = refine (juce::String::fromUTF8 ("Dopĺňam sampel: úder…"), 0.25);
+                lossT = refine (juce::String::fromUTF8 ("Skúšam sampel: úder…"), 0.25);
                 if (lossT < 0) return bail();
                 stateT = patch.binary();
                 restore (synthState);
@@ -1571,7 +1589,7 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
                     // B so zdrojovym dozvukom: vlastny dozvuk Inspire minimalny; B s odhadnutym nabehom a doznenim (vzorka je uz na urovni sustainu)
                     setB (flac, " C4 (slučka)", true, est.env ? est.aa : 0.05f, est.env ? est.ar : patch.get ("a_ar", 0.3f));
                     patch.set ("rv_mix", juce::jmin (patch.get ("rv_mix"), 0.04f)); patch.set ("rv_on", 1.0f);
-                    lossL = refine (juce::String::fromUTF8 ("Dopĺňam sampel: pretrvávajúci tón…"), 0.0);
+                    lossL = refine (juce::String::fromUTF8 ("Skúšam sampel: pretrvávajúci tón…"), 0.0);
                     if (lossL < 0) return bail();
                     stateL = patch.binary();
                     restore (synthState);
