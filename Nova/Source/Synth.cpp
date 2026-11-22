@@ -177,6 +177,7 @@ namespace nova
             {
                 lv.user = getUserSample (li);
                 if (lv.user == nullptr || lv.user->buf.getNumSamples() < 4) return;
+                lv.ued = getSmpEdit (li);
             }
             lv.pos = 0;
         }
@@ -653,19 +654,45 @@ namespace nova
             }
             else if (lv.user != nullptr)
             {
+                // pozicia = posun od zaciatku vybranej casti; odzadu sa cita od konca
                 const auto& b = lv.user->buf;
+                const auto& e = lv.ued;
                 const int len = b.getNumSamples();
-                int ip = (int) lv.pos;
-                if (ip + 2 >= len)
-                {
-                    if (s.loop) { lv.pos -= (double) (len - 2); ip = juce::jlimit (0, len - 3, (int) lv.pos); }
-                    else { lv.active = false; break; }
-                }
-                const float fr = (float) (lv.pos - ip);
+                const int s0 = juce::jlimit (0, len - 4, (int) (e.start * (float) len));
+                const int s1 = juce::jlimit (s0 + 3, len - 1, (int) (e.end * (float) len));
+                const double L = (double) (s1 - s0);
                 const float* bl = b.getReadPointer (0);
                 const float* br = b.getReadPointer (b.getNumChannels() > 1 ? 1 : 0);
-                l = bl[ip] + fr * (bl[ip + 1] - bl[ip]);
-                r = br[ip] + fr * (br[ip + 1] - br[ip]);
+                auto rd = [&] (double off, float& ol, float& orr)
+                {
+                    double a = e.rev ? (double) s1 - 1.0 - off : (double) s0 + off;
+                    a = juce::jlimit (0.0, (double) len - 2.0, a);
+                    const int ip = (int) a; const float fr = (float) (a - ip);
+                    ol = bl[ip] + fr * (bl[ip + 1] - bl[ip]); orr = br[ip] + fr * (br[ip + 1] - br[ip]);
+                };
+                double lsO = 0, leO = L;
+                if (s.loop)
+                {
+                    lsO = juce::jlimit (0.0, L - 2.0, (double) (e.ls * (float) len) - s0);
+                    leO = juce::jlimit (lsO + 2.0, L, (double) (e.le * (float) len) - s0);
+                    if (lv.pos >= leO) lv.pos -= (leO - lsO);
+                }
+                else if (lv.pos >= L - 1.0) { lv.active = false; break; }
+                rd (lv.pos, l, r);
+                if (s.loop)
+                {   // prelinanie pred koncom slucky s tonom od jej zaciatku (bez pocutelneho svu)
+                    const double X = std::min ((double) e.xf * lv.user->rate, (leO - lsO) * 0.5);
+                    if (X > 1.0 && lv.pos > leO - X)
+                    {
+                        const float w = (float) ((lv.pos - (leO - X)) / X);
+                        float l2, r2; rd (lv.pos - (leO - lsO), l2, r2);
+                        l += w * (l2 - l); r += w * (r2 - r);
+                    }
+                }
+                float g = 1.0f;
+                if (e.fin > 0.0005f) g *= (float) std::min (1.0, lv.pos / ((double) e.fin * lv.user->rate));
+                if (! s.loop && e.fout > 0.0005f) g *= (float) std::min (1.0, (L - lv.pos) / ((double) e.fout * lv.user->rate));
+                l *= g; r *= g;
                 lv.pos += std::pow (2.0, (v.curNote + shift - (float) s.root) / 12.0) * lv.user->rate / sr * pitchMul;
             }
             if (lv.wave == 7 && tilt != 0.0f) { l += tilt * (l - lv.tiltL.lp (l)); r += tilt * (r - lv.tiltR.lp (r)); }

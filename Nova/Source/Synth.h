@@ -20,6 +20,8 @@ namespace nova
         juce::MemoryBlock flac;         // na ulozenie do projektu / zvuku
     };
     using UserSamplePtr = std::shared_ptr<const UserSample>;
+    // editor samplu (nedestruktivne): zaciatok/koniec a slucka ako cast dlzky 0..1, nabeh/doznenie v sekundach, prelinanie slucky v s, odzadu
+    struct SmpEdit { float start = 0, end = 1, fin = 0, fout = 0, ls = 0, le = 1, xf = 0.01f; bool rev = false; };
 
     struct LayerSettings
     {
@@ -63,6 +65,8 @@ namespace nova
         void process (juce::AudioBuffer<float>& out, const juce::MidiBuffer& midi, const Settings& s);
         void setUserSample (int layer, UserSamplePtr p) { const juce::SpinLock::ScopedLockType l (smpLock); userSmp[layer & 1] = std::move (p); }
         UserSamplePtr getUserSample (int layer) const { const juce::SpinLock::ScopedLockType l (smpLock); return userSmp[layer & 1]; }
+        void setSmpEdit (int layer, const SmpEdit& e) { const juce::SpinLock::ScopedLockType l (smpLock); smpEd[layer & 1] = e; }
+        SmpEdit getSmpEdit (int layer) const { const juce::SpinLock::ScopedLockType l (smpLock); return smpEd[layer & 1]; }
         void fadeAll() { fadeRequest = true; }
         bool pianoReady() const { return bank != nullptr && bank->ready(); }
         bool pianoFailed() const { return bank != nullptr && bank->failed(); }
@@ -90,7 +94,7 @@ namespace nova
             // wavetable: vyhladena pozicia, aktualna uroven harmonickych a tabulka (pri zmene sa v bloku prelinaju)
             float wtPos = -1; int wtMip = -1, wtTab = -1;
             // sampel
-            const PianoBank::Sample* smp = nullptr; UserSamplePtr user; float human = 0; double pos = 0; float gain = 1, level = 1, dampCoef = 1, atk = 1, atkInc = 1; bool damping = false, noDamper = false;
+            const PianoBank::Sample* smp = nullptr; UserSamplePtr user; SmpEdit ued; float human = 0; double pos = 0; float gain = 1, level = 1, dampCoef = 1, atk = 1, atkInc = 1; bool damping = false, noDamper = false;
             float velGain = 1, peak = 0;
         };
         struct Voice
@@ -121,6 +125,7 @@ namespace nova
         std::shared_ptr<PianoBank> bank;
         std::shared_ptr<InstrBank> ibank;
         UserSamplePtr userSmp[2];
+        SmpEdit smpEd[2];
         juce::SpinLock smpLock;
         Settings st;                       // nastavenia aktualneho bloku
         double sr = 48000;

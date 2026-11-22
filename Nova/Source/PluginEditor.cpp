@@ -686,6 +686,179 @@ namespace
     };
 
     // ===================================================================== vrstva A / B
+    // ===================================================================== editor samplu (vlastny WAV)
+    // nedestruktivne: zaciatok/koniec, nabeh/doznenie, slucka, odzadu; povodny subor ostane nezmeneny
+    struct SampleEditor : juce::Component, juce::Timer
+    {
+        SampleEditor (NovaProcessor& pr, int layer, std::function<void()> changed) : p (pr), li (layer), pre (layer == 0 ? "a_" : "b_"), onChanged (std::move (changed))
+        {
+            ed = p.synth.getSmpEdit (li);
+            smp = p.synth.getUserSample (li);
+            buildPeaks();
+            auto btn = [this] (juce::TextButton& b, const juce::String& t, const juce::String& tip)
+            {
+                b.setButtonText (t); b.setTooltip (tip); addAndMakeVisible (b);
+            };
+            btn (play, juce::String::fromUTF8 ("▶ ") + T ("Prehrať"), T ("Podrž = zahrá sampel na základnom tóne"));
+            btn (rev, juce::String::fromUTF8 ("⇄ ") + T ("Odzadu"), T ("Prehrávať sampel odzadu"));
+            btn (loopB, juce::String::fromUTF8 ("⟲ ") + T ("Slučka"), T ("Pri držaní tónu opakuje označený kúsok (svetlé pole)"));
+            btn (pitch, juce::String::fromUTF8 ("♪ ") + T ("Zistiť tón"), T ("Zistí tón vybranej časti a nastaví Zákl. tón a Jemne"));
+            btn (reset, T ("Pôvodné"), T ("Celý sampel bez úprav"));
+            rev.setClickingTogglesState (true); loopB.setClickingTogglesState (true);
+            rev.setToggleState (ed.rev, juce::dontSendNotification);
+            loopB.setToggleState (p.params.getRawParameterValue (pre + "loop")->load() > 0.5f, juce::dontSendNotification);
+            play.onStateChange = [this]
+            {
+                const bool d = play.isDown();
+                if (d == playing) return;
+                playing = d;
+                const int root = juce::roundToInt (p.params.getRawParameterValue (pre + "root")->load());
+                if (d) { playNote = root; p.keyboard.noteOn (1, playNote, 0.85f); }
+                else p.keyboard.noteOff (1, playNote, 0.0f);
+            };
+            rev.onClick = [this] { ed.rev = rev.getToggleState(); apply(); };
+            loopB.onClick = [this] { if (auto* prm = p.params.getParameter (pre + "loop")) prm->setValueNotifyingHost (loopB.getToggleState() ? 1.0f : 0.0f); repaint(); };
+            reset.onClick = [this] { const bool r = ed.rev; ed = {}; ed.rev = r; apply(); };
+            pitch.onClick = [this]
+            {
+                if (smp == nullptr) return;
+                const int n = smp->buf.getNumSamples(), a = (int) (ed.start * (float) n), b = (int) (ed.end * (float) n);
+                juce::AudioBuffer<float> part (smp->buf.getNumChannels(), juce::jmax (1, b - a));
+                for (int c = 0; c < part.getNumChannels(); ++c) part.copyFrom (c, 0, smp->buf, c, a, part.getNumSamples());
+                if (ed.rev) part.reverse (0, part.getNumSamples());
+                const float m = NovaProcessor::detectPitch (part, smp->rate);
+                if (m <= 0) { info = T ("Tón sa nedá zistiť (bicie alebo šum)."); repaint(); return; }
+                const int root = juce::jlimit (0, 127, juce::roundToInt (m));
+                if (auto* prm = p.params.getParameter (pre + "root")) prm->setValueNotifyingHost (prm->convertTo0to1 ((float) root));
+                if (auto* prm = p.params.getParameter (pre + "fine")) prm->setValueNotifyingHost (prm->convertTo0to1 (juce::jlimit (-50.0f, 50.0f, ((float) root - m) * 100.0f)));
+                info = T ("Tón: ") + juce::MidiMessage::getMidiNoteName (root, true, true, 4);
+                repaint(); if (onChanged) onChanged();
+            };
+            setSize (620, 270);
+        }
+        ~SampleEditor() override { if (playing) p.keyboard.noteOff (1, playNote, 0.0f); }
+        void timerCallback() override { stopTimer(); }
+
+        void buildPeaks()
+        {
+            peaks.clear();
+            if (smp == nullptr) return;
+            const int n = smp->buf.getNumSamples(), W = 600;
+            peaks.resize ((size_t) W);
+            for (int x = 0; x < W; ++x)
+            {
+                const int a = (int) ((juce::int64) n * x / W), b = juce::jmax (a + 1, (int) ((juce::int64) n * (x + 1) / W));
+                float lo = 0, hi = 0;
+                for (int c = 0; c < smp->buf.getNumChannels(); ++c)
+                {
+                    const auto r = smp->buf.findMinMax (c, a, juce::jmin (b, n) - a);
+                    lo = juce::jmin (lo, r.getStart()); hi = juce::jmax (hi, r.getEnd());
+                }
+                peaks[(size_t) x] = { lo, hi };
+            }
+        }
+        juce::Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (12.0f).withTrimmedTop (24.0f).withTrimmedBottom (44.0f); }
+        float xOf (float f) const { const auto r = waveArea(); return r.getX() + f * r.getWidth(); }
+        float fOf (float x) const { const auto r = waveArea(); return juce::jlimit (0.0f, 1.0f, (x - r.getX()) / r.getWidth()); }
+        double durSec() const { return smp != nullptr ? smp->buf.getNumSamples() / smp->rate : 1.0; }
+        bool loopOn() const { return p.params.getRawParameterValue (pre + "loop")->load() > 0.5f; }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (bg);
+            g.setColour (text); g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+            g.drawText (T ("Editor samplu") + "  " + (smp != nullptr ? smp->name : juce::String()), 12, 4, getWidth() - 24, 20, juce::Justification::centredLeft);
+            const auto r = waveArea();
+            g.setColour (panel); g.fillRoundedRectangle (r, 3.0f);
+            if (peaks.empty()) { g.setColour (dim); g.drawText (T ("Žiadny sampel"), r, juce::Justification::centred); return; }
+            const float cy = r.getCentreY(), hh = r.getHeight() * 0.46f;
+            // slucka
+            if (loopOn()) { g.setColour (steelHi.withAlpha (0.25f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (ed.ls), r.getY(), xOf (ed.le), r.getBottom())); }
+            // vlna (vybrana cast jasnejsie)
+            for (int x = 0; x < (int) peaks.size(); ++x)
+            {
+                const float f = ((float) x + 0.5f) / (float) peaks.size(), px = r.getX() + f * r.getWidth();
+                const bool in = f >= ed.start && f <= ed.end;
+                g.setColour (in ? arc : dim.withAlpha (0.35f));
+                const float lo = peaks[(size_t) x].first, hi = peaks[(size_t) x].second;
+                g.drawVerticalLine ((int) px, cy - hi * hh, cy - lo * hh + 1.0f);
+            }
+            // stmavenie mimo vyberu
+            g.setColour (bg.withAlpha (0.55f));
+            g.fillRect (juce::Rectangle<float>::leftTopRightBottom (r.getX(), r.getY(), xOf (ed.start), r.getBottom()));
+            g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (ed.end), r.getY(), r.getRight(), r.getBottom()));
+            // nabeh a doznenie (ciara hlasitosti)
+            const float d = (float) durSec(), xs = xOf (ed.start), xe = xOf (ed.end);
+            const float xi = juce::jmin (xe, xs + (ed.fin / d) * r.getWidth()), xo = juce::jmax (xi, xe - (loopOn() ? 0.0f : (ed.fout / d) * r.getWidth()));
+            juce::Path env; env.startNewSubPath (xs, r.getBottom()); env.lineTo (xi, r.getY() + 3); env.lineTo (xo, r.getY() + 3); env.lineTo (xe, loopOn() ? r.getY() + 3 : r.getBottom());
+            g.setColour (amber); g.strokePath (env, juce::PathStrokeType (1.6f));
+            auto knob = [&] (float x, float y) { g.setColour (amber); g.fillRect (x - 4, y - 4, 8.0f, 8.0f); };
+            knob (xi, r.getY() + 3); if (! loopOn()) knob (xo, r.getY() + 3);
+            // znacky
+            auto mark = [&] (float x, juce::Colour c, const juce::String& t)
+            {
+                g.setColour (c); g.fillRect (x - 1.0f, r.getY(), 2.0f, r.getHeight());
+                g.fillRect (x - 9.0f, r.getBottom() - 14.0f, 18.0f, 14.0f);
+                g.setColour (bg); g.setFont (juce::FontOptions (10.0f, juce::Font::bold)); g.drawText (t, (int) x - 9, (int) r.getBottom() - 14, 18, 14, juce::Justification::centred);
+            };
+            mark (xs, text, "Z"); mark (xe, text, "K");
+            if (loopOn()) { mark (xOf (ed.ls), steelHi.brighter (0.4f), "L"); mark (xOf (ed.le), steelHi.brighter (0.4f), "L"); }
+            // udaje
+            g.setColour (dim); g.setFont (juce::FontOptions (11.5f));
+            auto ms = [] (double sec) { return sec < 1.0 ? juce::String (juce::roundToInt (sec * 1000.0)) + " ms" : juce::String (sec, 2) + " s"; };
+            juce::String t = T ("Začiatok ") + ms (ed.start * d) + "   " + T ("Koniec ") + ms (ed.end * d) + "   " + T ("Nábeh ") + ms (ed.fin) + (loopOn() ? juce::String() : "   " + T ("Doznenie ") + ms (ed.fout));
+            if (info.isNotEmpty()) t += "   ·   " + info;
+            g.drawText (t, 12, getHeight() - 70, getWidth() - 24, 18, juce::Justification::centredLeft);
+        }
+        void resized() override
+        {
+            int x = 12; const int y = getHeight() - 38, h = 28;
+            for (auto* b : { &play, &rev, &loopB, &pitch }) { b->setBounds (x, y, 112, h); x += 118; }
+            reset.setBounds (getWidth() - 12 - 90, y, 90, h);
+        }
+        int hit (juce::Point<float> m) const
+        {
+            const auto r = waveArea(); const float d = (float) durSec();
+            const float xs = xOf (ed.start), xe = xOf (ed.end), xi = juce::jmin (xe, xs + (ed.fin / d) * r.getWidth()), xo = juce::jmax (xi, xe - (ed.fout / d) * r.getWidth());
+            if (m.y < r.getY() + 14)
+            {
+                if (std::abs (m.x - xi) < 9) return 4;
+                if (! loopOn() && std::abs (m.x - xo) < 9) return 5;
+            }
+            struct C { float x; int id; };
+            std::vector<C> c { { xs, 0 }, { xe, 1 } };
+            if (loopOn()) { c.push_back ({ xOf (ed.ls), 2 }); c.push_back ({ xOf (ed.le), 3 }); }
+            int best = -1; float bd = 9;
+            for (auto& k : c) if (std::abs (m.x - k.x) < bd) { bd = std::abs (m.x - k.x); best = k.id; }
+            return best;
+        }
+        void mouseMove (const juce::MouseEvent& e) override { setMouseCursor (hit (e.position) >= 0 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor); }
+        void mouseDown (const juce::MouseEvent& e) override { drag = hit (e.position); }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            if (drag < 0) return;
+            const float f = fOf (e.position.x), d = (float) durSec(), minGap = 0.002f;
+            switch (drag)
+            {
+                case 0: ed.start = juce::jlimit (0.0f, ed.end - minGap, f); break;
+                case 1: ed.end = juce::jlimit (ed.start + minGap, 1.0f, f); break;
+                case 2: ed.ls = juce::jlimit (0.0f, ed.le - minGap, f); break;
+                case 3: ed.le = juce::jlimit (ed.ls + minGap, 1.0f, f); break;
+                case 4: ed.fin = juce::jlimit (0.0f, (ed.end - ed.start) * d, (f - ed.start) * d); break;
+                case 5: ed.fout = juce::jlimit (0.0f, (ed.end - ed.start) * d, (ed.end - f) * d); break;
+                default: break;
+            }
+            apply();
+        }
+        void mouseUp (const juce::MouseEvent&) override { drag = -1; }
+        void apply() { p.synth.setSmpEdit (li, ed); repaint(); if (onChanged) onChanged(); }
+
+        NovaProcessor& p; int li; juce::String pre; std::function<void()> onChanged;
+        nova::SmpEdit ed; nova::UserSamplePtr smp; std::vector<std::pair<float, float>> peaks;
+        juce::TextButton play, rev, loopB, pitch, reset;
+        juce::String info; int drag = -1, playNote = 60; bool playing = false;
+    };
+
     struct LayerPanel : juce::Component
     {
         LayerPanel (NovaProcessor& pr, int layer) : p (pr), li (layer), pre (layer == 0 ? "a_" : "b_"),
@@ -802,6 +975,17 @@ namespace
                 };
                 addChildComponent (stepB[d]);
             }
+            editB.setButtonText (juce::String::fromUTF8 ("✎"));
+            editB.setTooltip (T ("Editor samplu – začiatok, koniec, nábeh, doznenie, slučka"));
+            editB.onClick = [this]
+            {
+                if (p.synth.getUserSample (li) == nullptr) return;
+                juce::Component::SafePointer<LayerPanel> sp (this);
+                auto c = std::make_unique<SampleEditor> (p, li, [sp] { if (sp != nullptr) sp->update(); });
+                juce::Component* top = getTopLevelComponent();
+                juce::CallOutBox::launchAsynchronously (std::move (c), top != nullptr ? top->getLocalArea (nullptr, editB.getScreenBounds()) : editB.getScreenBounds(), top);
+            };
+            addChildComponent (editB);
             ratioLabel.setText (T ("FM pomer"), juce::dontSendNotification); ratioLabel.setFont (juce::FontOptions (12.5f));
             ratioLabel.setColour (juce::Label::textColourId, dim.brighter (0.2f)); ratioLabel.setJustificationType (juce::Justification::centred);
             addAndMakeVisible (ratioLabel);
@@ -858,6 +1042,7 @@ namespace
                 ratio.setVisible (w == 6); ratioLabel.setVisible (w == 6);
                 src.setVisible (isSample); load.setVisible (isWav); nameBtn.setVisible (isSmp || isInst); root->setVisible (isWav); loop.setVisible (isWav); smpName.setVisible (isWav);
                 stepB[0].setVisible (isUser || isInst); stepB[1].setVisible (isUser || isInst);
+                editB.setVisible (isWav);
                 nameBtn.setTooltip (T (isInst ? "Klik = zoznam nástrojov" : "Klik = zoznam vzoriek"));
                 row1[3]->setEnabled (w <= 3 || w >= 8); row1[4]->setEnabled (w <= 3 || w >= 8);
                 resized();
@@ -922,15 +1107,16 @@ namespace
                     stepB[0].setBounds (x + 88, 366, 26, 26);
                     stepB[1].setBounds (x + 118, 366, 26, 26);
                 }
+                editB.setBounds (x + 148, 366, 26, 26);
                 root->setBounds (getWidth() - 12 - 64 - 92, 332, 64, 72);
                 loop.setBounds (getWidth() - 12 - 88, 366, 88, 22);
-                smpName.setBounds (x + 150, 368, juce::jmax (40, root->getX() - 6 - (x + 150)), 22);
+                smpName.setBounds (x + 180, 368, juce::jmax (40, root->getX() - 6 - (x + 180)), 22);
             }
         }
         NovaProcessor& p; int li; juce::String pre;
         Toggle on; Seg wave, ftype; Toggle f24; Seg lshape; Combo ltgt, ratio; Seg src; Toggle loop; Combo wt; VoiceDisplay disp; juce::Label wtLabel;
         std::vector<std::unique_ptr<Knob>> row1, row2, row3; std::unique_ptr<Knob> color, root, noise;
-        juce::TextButton load, nameBtn, stepB[2]; juce::Label smpName, ratioLabel;
+        juce::TextButton load, nameBtn, stepB[2], editB; juce::Label smpName, ratioLabel;
         std::unique_ptr<juce::FileChooser> chooser;
         int lastWave = -1, lastSrc = -1;
     };

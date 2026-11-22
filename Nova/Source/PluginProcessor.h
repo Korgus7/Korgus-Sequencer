@@ -103,6 +103,9 @@ public:
     nova::PatchData currentPatch();                      // aktualne hodnoty ako zvuk
     void applyPatch (const nova::PatchData& p);
     bool loadSampleFile (int layer, const juce::File& f, juce::String& error);
+    static float detectPitch (const juce::AudioBuffer<float>& b, double sr);   // MIDI nota (desatinne), 0 = nie je ton
+    static juce::String encodeSmpEdit (const nova::SmpEdit& e);
+    static nova::SmpEdit decodeSmpEdit (const juce::String& t);
     // predchadzajuci / dalsi zvuk z toho isteho priecinka (prehadzovac samplov); vrati false, ak nie je odkial
     bool stepSample (int layer, int dir, juce::String& error);
     // zabudovane vzorky nastrojov

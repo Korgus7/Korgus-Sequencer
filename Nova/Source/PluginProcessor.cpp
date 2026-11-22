@@ -784,6 +784,7 @@ bool NovaProcessor::loadBuiltinSample (int layer, int idx)
     const char* data = NovaSamples::getNamedResource (kBuiltin[idx].res, size);
     if (data == nullptr || size <= 0) return false;
     setSample (layer, juce::MemoryBlock (data, (size_t) size), builtinSampleName (idx));
+    synth.setSmpEdit (layer, {});
     smpFile[layer & 1] = juce::File(); lastBuiltin[layer & 1] = idx;
     const juce::String p = layer == 0 ? "a_" : "b_";
     auto set = [this] (const juce::String& id, float v) { if (auto* prm = params.getParameter (id)) prm->setValueNotifyingHost (prm->convertTo0to1 (v)); };
@@ -832,12 +833,66 @@ bool NovaProcessor::loadSampleFile (int layer, const juce::File& f, juce::String
         w->writeFromAudioSampleBuffer (b, 0, len);
     }
     setSample (layer, mb, f.getFileNameWithoutExtension());
+    synth.setSmpEdit (layer, {});
     smpFile[layer & 1] = f; lastWav[layer & 1] = f; smpBuiltin[layer & 1] = -1;
     const juce::String p = layer == 0 ? "a_" : "b_";
     auto set = [this] (const juce::String& id, float v) { if (auto* prm = params.getParameter (id)) prm->setValueNotifyingHost (prm->convertTo0to1 (v)); };
     set (p + "on", 1); set (p + "wave", 7); set (p + "src", 1);
+    // zakladny ton samplu zistit automaticky (spev, nastroj, syntezator); bicie a sumy nechat tak
+    {
+        const float m = detectPitch (b, r->sampleRate);
+        if (m > 0.0f)
+        {
+            const int root = juce::jlimit (0, 127, juce::roundToInt (m));
+            set (p + "root", (float) root);
+            set (p + "fine", juce::jlimit (-50.0f, 50.0f, ((float) root - m) * 100.0f));
+        }
+    }
     if (onPatchChanged) onPatchChanged();
     return true;
+}
+
+// odhad vysky tonu (MIDI nota, desatinne) metodou YIN na viacerych oknach; 0 = nie je to ton (bicie, sum)
+float NovaProcessor::detectPitch (const juce::AudioBuffer<float>& b, double sr)
+{
+    const int n = b.getNumSamples();
+    if (n < (int) (sr * 0.08)) return 0.0f;
+    std::vector<float> x ((size_t) n);
+    for (int i = 0; i < n; ++i) { float v = 0; for (int c = 0; c < b.getNumChannels(); ++c) v += b.getSample (c, i); x[(size_t) i] = v; }
+    float pk = 0; for (float v : x) pk = std::max (pk, std::abs (v));
+    if (pk < 1.0e-4f) return 0.0f;
+    int on = 0; while (on < n && std::abs (x[(size_t) on]) < pk * 0.1f) ++on;
+    const int W = (int) (sr * 0.04), tauMin = (int) (sr / 1500.0), tauMax = (int) (sr / 40.0);
+    std::vector<float> res;
+    std::vector<float> d ((size_t) tauMax + 2);
+    for (int st = on + (int) (sr * 0.06); st + W + tauMax < n && res.size() < 24; st += (int) (sr * 0.05))
+    {
+        double e = 0; for (int i = 0; i < W; ++i) e += (double) x[(size_t) (st + i)] * x[(size_t) (st + i)];
+        if (e / W < (double) pk * pk * 1.0e-4) continue;   // ticho
+        for (int t = 1; t <= tauMax; ++t)
+        {
+            double sum = 0;
+            for (int i = 0; i < W; ++i) { const double df = x[(size_t) (st + i)] - x[(size_t) (st + i + t)]; sum += df * df; }
+            d[(size_t) t] = (float) sum;
+        }
+        double run = 0; d[0] = 1;
+        for (int t = 1; t <= tauMax; ++t) { run += d[(size_t) t]; d[(size_t) t] = run > 0 ? (float) (d[(size_t) t] * t / run) : 1.0f; }
+        int best = -1;
+        for (int t = tauMin; t < tauMax; ++t)
+            if (d[(size_t) t] < 0.15f) { while (t + 1 < tauMax && d[(size_t) t + 1] < d[(size_t) t]) ++t; best = t; break; }
+        if (best < 0) continue;
+        const float a = d[(size_t) best - 1], c0 = d[(size_t) best], c = d[(size_t) best + 1];
+        const float den = a - 2 * c0 + c, sh = std::abs (den) > 1.0e-9f ? 0.5f * (a - c) / den : 0.0f;
+        const float f = (float) sr / ((float) best + juce::jlimit (-1.0f, 1.0f, sh));
+        res.push_back (69.0f + 12.0f * std::log2 (f / 440.0f));
+    }
+    if (res.size() < 3) return 0.0f;
+    std::sort (res.begin(), res.end());
+    const float med = res[res.size() / 2];
+    int agree = 0; for (float v : res) if (std::abs (v - med) < 0.5f) ++agree;
+    if (agree * 2 < (int) res.size()) return 0.0f;   // ton sa nedrzi = asi bicie alebo sum
+    float sum = 0; int k = 0; for (float v : res) if (std::abs (v - med) < 0.5f) { sum += v; ++k; }
+    return sum / (float) k;
 }
 
 juce::String NovaProcessor::sampleName (int layer) const { return smpName[layer & 1]; }
@@ -926,6 +981,7 @@ void NovaProcessor::getStateInformation (juce::MemoryBlock& destData)
         state.setProperty (i == 0 ? "smpA" : "smpB", smpFlac[i].getSize() > 0 ? smpFlac[i].toBase64Encoding() : juce::String(), nullptr);
         state.setProperty (i == 0 ? "smpAName" : "smpBName", smpName[i], nullptr);
         state.setProperty (i == 0 ? "smpAPath" : "smpBPath", smpFile[i].getFullPathName(), nullptr);
+        state.setProperty (i == 0 ? "smpEdA" : "smpEdB", encodeSmpEdit (synth.getSmpEdit (i)), nullptr);
     }
     {
         // posledna "Inspiracia" pre hostitela (Korgus Sequencer): <capture id bpm ppq><n t d k v/>...</capture>
@@ -979,6 +1035,7 @@ void NovaProcessor::setStateInformation (const void* data, int sizeInBytes)
             setSample (i, mb, tree.getProperty (i == 0 ? "smpAName" : "smpBName").toString());
             const auto path = tree.getProperty (i == 0 ? "smpAPath" : "smpBPath").toString();
             smpFile[i] = juce::File::isAbsolutePath (path) ? juce::File (path) : juce::File();
+            synth.setSmpEdit (i, decodeSmpEdit (tree.getProperty (i == 0 ? "smpEdA" : "smpEdB").toString()));
         }
     }
     restoring = false;
@@ -1242,4 +1299,22 @@ bool NovaProcessor::hostedInKorgus()
 {
     const auto n = juce::File::getSpecialLocation (juce::File::hostApplicationPath).getFileNameWithoutExtension().removeCharacters (" _-");
     return n.containsIgnoreCase ("KorgusSequencer");
+}
+
+// editor samplu: ulozenie nastaveni do stavu ("start,end,fin,fout,ls,le,xf,rev")
+juce::String NovaProcessor::encodeSmpEdit (const nova::SmpEdit& e)
+{
+    return juce::String (e.start, 5) + "," + juce::String (e.end, 5) + "," + juce::String (e.fin, 4) + "," + juce::String (e.fout, 4) + ","
+         + juce::String (e.ls, 5) + "," + juce::String (e.le, 5) + "," + juce::String (e.xf, 4) + "," + (e.rev ? "1" : "0");
+}
+nova::SmpEdit NovaProcessor::decodeSmpEdit (const juce::String& t)
+{
+    nova::SmpEdit e;
+    const auto a = juce::StringArray::fromTokens (t, ",", "");
+    if (a.size() < 8) return e;
+    e.start = juce::jlimit (0.0f, 0.99f, a[0].getFloatValue()); e.end = juce::jlimit (e.start + 0.001f, 1.0f, a[1].getFloatValue());
+    e.fin = juce::jlimit (0.0f, 10.0f, a[2].getFloatValue()); e.fout = juce::jlimit (0.0f, 10.0f, a[3].getFloatValue());
+    e.ls = juce::jlimit (0.0f, 0.999f, a[4].getFloatValue()); e.le = juce::jlimit (e.ls + 0.001f, 1.0f, a[5].getFloatValue());
+    e.xf = juce::jlimit (0.0f, 0.5f, a[6].getFloatValue()); e.rev = a[7].getIntValue() != 0;
+    return e;
 }
