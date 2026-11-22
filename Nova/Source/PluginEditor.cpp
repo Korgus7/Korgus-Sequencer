@@ -209,7 +209,7 @@ namespace
         {
             auto r = getLocalBounds().toFloat().reduced (0.5f);
             g.setColour (down ? steelHi : (over ? steel.brighter (0.15f) : juce::Colour (0xff1a2029))); g.fillRoundedRectangle (r, 3.0f);
-            g.setColour (over ? text : dim);
+            g.setColour (over ? juce::Colour (0xffe4e9ef) : dim);
             const auto c = r.getCentre(); const float d = juce::jmin (r.getWidth(), r.getHeight()) * 0.28f, a = d * 0.55f;
             juce::Path p;
             for (int sx : { -1, 1 }) for (int sy : { -1, 1 })
