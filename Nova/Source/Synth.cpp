@@ -137,7 +137,7 @@ namespace nova
         else if (s.wave == 6) { lv.cPh = lv.mPh = 0; }
         else
         {
-            if (s.src == 0 && s.inst > 0)
+            if (s.src == 0 && s.inst > 0 && s.inst != InstrBank::oldPiano)
             {
                 // realisticky nastroj: vrstvy podla sily uderu, slucka pri drzanych tonoch
                 ibank->request (s.inst);
@@ -166,7 +166,9 @@ namespace nova
                 const int sn = juce::jlimit (0, 127, juce::roundToInt ((float) v.note + noteShift));
                 const float lpos = v.vel * 4.0f - 1.0f + (s.color - 0.5f) * 2.0f;
                 const int layer = juce::jlimit (0, 3, (int) std::lround (lpos));
-                lv.smp = bank->find (sn, layer);
+                const PianoBank* pb = s.inst == InstrBank::oldPiano ? bank2Raw.load() : bank.get();
+                if (pb == nullptr) return;
+                lv.smp = pb->find (sn, layer);
                 if (lv.smp == nullptr) return;
                 lv.velGain = clampf (std::pow (v.vel / centers[layer], 0.9f), 0.08f, 2.0f) * std::pow (0.15f + 0.85f * v.vel, 1.6f);
                 lv.noDamper = sn >= 89;

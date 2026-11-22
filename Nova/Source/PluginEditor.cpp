@@ -13,7 +13,7 @@ namespace
     const std::vector<InstGroup>& instGroups()
     {
         static const std::vector<InstGroup> g {
-            { "Klávesy", "Keys", { 0, 1, 2, 3, 23 } },
+            { "Klávesy", "Keys", { 0, 36, 1, 2, 3, 23 } },
             { "Gitary a basy", "Guitars & basses", { 4, 5, 33, 6, 7 } },
             { "Sláčiky a harfa", "Strings & harp", { 8, 9, 10, 20, 28, 29, 22 } },
             { "Plechové dychy", "Brass", { 12, 11, 14, 24, 27 } },
@@ -362,7 +362,7 @@ namespace
             g.setColour (dim); g.setFont (juce::FontOptions (13.0f));
             g.drawText (status, head.reduced (16, 0).withTrimmedRight (600).withTrimmedLeft (190), juce::Justification::centredRight);
             g.setFont (juce::FontOptions (11.5f));
-            g.drawText (T ("Klavír: Steinway B z VCSL (Versilian Studios, CC0) · Rhodes: jRhodes3 (J. Learman, CC BY-NC 4.0) · ostatné: Versilian Studios, Karoryfer (CC0)"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
+            g.drawText (T ("Klavír: Steinway B z VCSL (Versilian Studios, CC0), pôvodný Salamander (A. Holm, CC BY 3.0) · Rhodes: jRhodes3 (J. Learman, CC BY-NC 4.0) · ostatné: Versilian Studios, Karoryfer (CC0)"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
         }
         void resized() override
         {
@@ -963,7 +963,7 @@ namespace
                     for (const auto& g : instGroups())
                     {
                         m.addSectionHeader (juce::String::fromUTF8 (lang() == 1 ? g.en : g.sk));
-                        for (int i : g.ids) if (juce::isPositiveAndBelow (i, InstrBank::numInstr)) m.addItem (i + 1, InstrBank::name (i, lang() == 1), true, i == cur);
+                        for (int i : g.ids) if (juce::isPositiveAndBelow (i, InstrBank::numMenu)) m.addItem (i + 1, InstrBank::name (i, lang() == 1), true, i == cur);
                     }
                     juce::Component::SafePointer<LayerPanel> sp (this);
                     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&nameBtn), [sp] (int r)
@@ -1034,7 +1034,7 @@ namespace
         {
             return (int) p.params.getRawParameterValue (pre + "wave")->load() == 7 && (int) std::round (p.params.getRawParameterValue (pre + "src")->load()) == 0;
         }
-        int curInst() const { return juce::jlimit (0, InstrBank::numInstr - 1, (int) std::round (p.params.getRawParameterValue (pre + "inst")->load())); }
+        int curInst() const { return juce::jlimit (0, InstrBank::numMenu - 1, (int) std::round (p.params.getRawParameterValue (pre + "inst")->load())); }
         void setInst (int i)
         {
             if (auto* prm = p.params.getParameter (pre + "inst")) prm->setValueNotifyingHost (prm->convertTo0to1 ((float) i));

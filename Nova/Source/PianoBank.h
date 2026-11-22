@@ -22,14 +22,14 @@ public:
         int loopStart = 0, loopEnd = 0;   // slucka drzaneho tonu (loopEnd 0 = bez slucky)
     };
 
-    static std::shared_ptr<PianoBank> get();
+    static std::shared_ptr<PianoBank> get (int which = 0);   // 0 = Steinway B, 1 = povodny (Salamander)
     bool ready() const { return isReady.load(); }
     bool failed() const { return isFailed.load(); }
     // vzorka najblizsia k note pre danu vrstvu (0 = najtichsia)
     const Sample* find (int note, int layer) const;
 
 private:
-    void load();
+    void load (int which);
     std::vector<Sample> samples;
     std::array<std::array<const Sample*, numLayers>, 128> map {};
     std::atomic<bool> isReady { false }, isFailed { false };

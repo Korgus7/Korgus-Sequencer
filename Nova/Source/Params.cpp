@@ -66,7 +66,7 @@ namespace nova
                 F (p + "ldelay", "Oneskorenie", 0, 3, 0, "s", 0.5f);
                 C (p + "lsync", "LFO tempo", "Voľne|1/1|1/2|1/4|1/8|1/16|1/4T|1/8T|1/16T", 0);
                 C (p + "src", "Zdroj", "Klavír|Vlastný WAV|Vzorky", 0);
-                C (p + "inst", "Nástroj", "Koncertný klavír|Pianíno|Rhodes|Čembalo|Akustická gitara|Jazzová gitara|Basgitara|Kontrabas|Sláčiková sekcia|Husle|Violončelá|Trúbka s dusítkom|Trúbka|Tenor saxofón|Trombón|Flauta|Klarinet|Vibrafón|Marimba|Zvonkohra|Pizzicato sláčiky|Ústna harmonika|Harfa|Píšťalový organ|Lesný roh|Hoboj|Fagot|Tuba|Sláčiky tremolo|Sláčiky staccato|Kalimba|Rúrkové zvony|Xylofón|Elektrická gitara|Okarína|Zobcová flauta", 0);
+                C (p + "inst", "Nástroj", "Koncertný klavír|Pianíno|Rhodes|Čembalo|Akustická gitara|Jazzová gitara|Basgitara|Kontrabas|Sláčiková sekcia|Husle|Violončelá|Trúbka s dusítkom|Trúbka|Tenor saxofón|Trombón|Flauta|Klarinet|Vibrafón|Marimba|Zvonkohra|Pizzicato sláčiky|Ústna harmonika|Harfa|Píšťalový organ|Lesný roh|Hoboj|Fagot|Tuba|Sláčiky tremolo|Sláčiky staccato|Kalimba|Rúrkové zvony|Xylofón|Elektrická gitara|Okarína|Zobcová flauta|Pôvodný klavír", 0);
                 F (p + "root", "Základný tón", 0, 127, 60, "note");
                 B (p + "loop", "Opakovať", false);
                 C (p + "wt", "Tabuľka", "Analóg|PWM|Harmonický|Vokál|Digitál|Organ|Sklo|Spev", 0);
@@ -506,6 +506,7 @@ namespace nova
                 return q;
             };
             v.push_back (I ("Koncertný klavír", "Klavír", 0, 0.0015f, 0.4f).s ("eq_high", 0.8f).s ("exc", 0.3f).s ("eq_p2g", -2.5f).s ("eq_p2f", 420).s ("eq_p2q", 1.0f).s ("eq_p3g", 1.5f).s ("eq_p3f", 3500).s ("eq_p3q", 0.8f).s ("rv_mix", 0.16f).s ("rv_size", 0.45f).s ("rv_damp", 0.45f).s ("p_gain", -2.1f).f);
+            v.push_back (I ("Pôvodný klavír", "Klavír", 36, 0.0015f, 0.4f).s ("eq_high", 0.8f).s ("rv_mix", 0.16f).s ("rv_size", 0.45f).s ("rv_damp", 0.45f).s ("p_gain", -2.1f).f);   // Salamander na porovnanie
             v.push_back (I ("Pianíno", "Klavír", 1, 0.0015f, 0.4f).s ("eq_low", -1).s ("rv_mix", 0.13f).s ("rv_size", 0.32f).s ("rv_damp", 0.5f).s ("p_gain", -10.6f).f);
             v.push_back (I ("Rhodes", "Klávesy", 2, 0.0015f, 0.35f).s ("eq_low", 1).s ("a_ltgt", 3).s ("a_lrate", 3.6f).s ("a_ldepth", 0.3f)
                          .s ("rv_mix", 0.14f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -12.8f).f);

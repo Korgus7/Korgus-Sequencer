@@ -6,16 +6,17 @@
  #include <windows.h>
 #endif
 
-std::shared_ptr<PianoBank> PianoBank::get()
+std::shared_ptr<PianoBank> PianoBank::get (int which)
 {
-    static std::weak_ptr<PianoBank> shared;
+    static std::weak_ptr<PianoBank> shared[2];
     static std::mutex m;
     std::lock_guard<std::mutex> l (m);
-    if (auto s = shared.lock()) return s;
+    which = which == 1 ? 1 : 0;
+    if (auto s = shared[which].lock()) return s;
     auto s = std::shared_ptr<PianoBank> (new PianoBank());
-    shared = s;
+    shared[which] = s;
     std::weak_ptr<PianoBank> w = s;
-    std::thread ([w] { if (auto b = w.lock()) b->load(); }).detach();
+    std::thread ([w, which] { if (auto b = w.lock()) b->load (which); }).detach();
     return s;
 }
 
@@ -25,14 +26,14 @@ const PianoBank::Sample* PianoBank::find (int note, int layer) const
     return map[(size_t) juce::jlimit (0, 127, note)][(size_t) juce::jlimit (0, numLayers - 1, layer)];
 }
 
-static bool readPack (juce::MemoryBlock& out)
+static bool readPack (juce::MemoryBlock& out, int which)
 {
 #if JUCE_WINDOWS
     // balik je ako prostriedok (RCDATA "PIANO") priamo v subore pluginu
     HMODULE mod = nullptr;
     if (! GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                               (LPCWSTR) (void*) &readPack, &mod)) return false;
-    HRSRC r = FindResourceW (mod, L"PIANO", MAKEINTRESOURCEW (10));   // 10 = RT_RCDATA
+    HRSRC r = FindResourceW (mod, which == 1 ? L"PIANO2" : L"PIANO", MAKEINTRESOURCEW (10));   // 10 = RT_RCDATA
     if (r == nullptr) return false;
     HGLOBAL h = LoadResource (mod, r);
     const void* p = h != nullptr ? LockResource (h) : nullptr;
@@ -42,17 +43,17 @@ static bool readPack (juce::MemoryBlock& out)
     return true;
 #else
     // test na Linuxe: subor piano.knpk (premenna KORGUS_NOVA_PIANO alebo vedla programu)
-    juce::File f (juce::SystemStats::getEnvironmentVariable ("KORGUS_NOVA_PIANO", {}));
+    juce::File f (juce::SystemStats::getEnvironmentVariable (which == 1 ? "KORGUS_NOVA_PIANO2" : "KORGUS_NOVA_PIANO", {}));
     if (! f.existsAsFile())
-        f = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getSiblingFile ("piano.knpk");
+        f = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getSiblingFile (which == 1 ? "piano_old.knpk" : "piano.knpk");
     return f.existsAsFile() && f.loadFileAsData (out);
 #endif
 }
 
-void PianoBank::load()
+void PianoBank::load (int which)
 {
     juce::MemoryBlock pack;
-    if (! readPack (pack) || pack.getSize() < 12 || std::memcmp (pack.getData(), "KNPK", 4) != 0) { isFailed = true; return; }
+    if (! readPack (pack, which) || pack.getSize() < 12 || std::memcmp (pack.getData(), "KNPK", 4) != 0) { isFailed = true; return; }
     const auto* p = static_cast<const uint8_t*> (pack.getData());
     auto u32 = [p] (size_t at) { uint32_t v; std::memcpy (&v, p + at, 4); return v; };
     const uint32_t count = u32 (8);

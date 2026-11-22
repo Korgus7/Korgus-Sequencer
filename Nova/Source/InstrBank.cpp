@@ -18,6 +18,7 @@ namespace
 
 juce::String InstrBank::name (int id, bool en)
 {
+    if (id == oldPiano) return en ? "Original piano (Salamander)" : juce::String::fromUTF8 ("Pôvodný klavír (Salamander)");
     return juce::isPositiveAndBelow (id, numInstr) ? juce::String::fromUTF8 (kNames[id][en ? 1 : 0]) : juce::String();
 }
 

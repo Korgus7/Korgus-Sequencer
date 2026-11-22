@@ -70,8 +70,9 @@ namespace nova
         void fadeAll() { fadeRequest = true; }
         bool pianoReady() const { return bank != nullptr && bank->ready(); }
         bool pianoFailed() const { return bank != nullptr && bank->failed(); }
-        bool instrReady (int id) const { return id == 0 ? pianoReady() : ibank != nullptr && ibank->ready (id); }
-        void requestInstr (int id) { if (ibank != nullptr) ibank->request (id); }
+        bool instrReady (int id) const { if (id == InstrBank::oldPiano) { auto* b = bank2Raw.load(); return b != nullptr && b->ready(); } return id == 0 ? pianoReady() : ibank != nullptr && ibank->ready (id); }
+        // volat z hlavneho vlakna (nacitanie povodneho klavira az ked je treba)
+        void requestInstr (int id) { if (id == InstrBank::oldPiano) { if (bank2 == nullptr) { bank2 = PianoBank::get (1); bank2Raw.store (bank2.get()); } return; } if (ibank != nullptr) ibank->request (id); }
         float gainReduction() const { return fx.gainReduction.load(); }
         int activeVoices() const { return active.load(); }
         Analyzer analyzer;                 // spektrum pre EQ v rozhrani
@@ -122,7 +123,7 @@ namespace nova
         void arpStopNotes();
 
         std::array<Voice, 48> voices;
-        std::shared_ptr<PianoBank> bank;
+        std::shared_ptr<PianoBank> bank, bank2; std::atomic<PianoBank*> bank2Raw { nullptr };
         std::shared_ptr<InstrBank> ibank;
         UserSamplePtr userSmp[2];
         SmpEdit smpEd[2];
