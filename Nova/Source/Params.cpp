@@ -466,6 +466,9 @@ namespace nova
                 const auto c = f.category.toStdString();
                 const char* to = (c == "Klavír" || c == "Klávesy") ? "Synth klávesy" : c == "Sláčiky" ? "Synth sláčiky" : c == "Zvonky" ? "Plucky" : c == "Basy" ? "Synth basy" : nullptr;
                 if (to != nullptr) f.category = juce::String::fromUTF8 (to);
+                // cistejsi zaklad: menej dozvuku a modulacie (chorus), ktore zvuk zahmlievaju – menej je viac
+                if (auto it = f.values.find ("rv_mix"); it != f.values.end()) it->second *= 0.7f;
+                if (auto it = f.values.find ("ch_mix"); it != f.values.end()) it->second *= 0.7f;
                 // plnsie syntezatorove zvuky: viac hlasov unisona (az 16 je mozne), trochu sirsie rozladenie, jemne analogove teplo
                 const auto cat = f.category;
                 const bool padLike = cat == "Pady" || cat == juce::String::fromUTF8 ("Synth sláčiky"), lead = cat == "Leady";

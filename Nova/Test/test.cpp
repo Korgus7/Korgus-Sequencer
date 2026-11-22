@@ -92,6 +92,28 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 3 && String (argv[1]) == "knova")
+    {   // NovaTest knova <subor.knova> <vystup.wav> [nota]: nacita zvuk a zahra notu 2 s
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        const auto k = q.presets.importFile (File (argv[2]));
+        if (k.isNotEmpty()) q.loadPreset (k);
+        const int note = argc > 4 ? String (argv[4]).getIntValue() : 60;
+        const int total = (int) (2.5 * sr); AudioBuffer<float> out (2, total); out.clear();
+        for (int pos = 0; pos < total; pos += bs)
+        {
+            const int n = std::min (bs, total - pos); MidiBuffer mb;
+            static const int ch[5] = { 36, 43, 52, 55, 60 };   // nota 0 = akord C dur (C2 G2 E3 G3 C4) ako v nahravke z Dune
+            if (pos == 0) { if (note == 0) for (int c : ch) mb.addEvent (MidiMessage::noteOn (1, c, (uint8) 100), 0); else mb.addEvent (MidiMessage::noteOn (1, note, (uint8) 100), 0); }
+            const int off = (int) (2.0 * sr); if (pos <= off && pos + n > off) { if (note == 0) for (int c : ch) mb.addEvent (MidiMessage::noteOff (1, c), off - pos); else mb.addEvent (MidiMessage::noteOff (1, note), off - pos); }
+            AudioBuffer<float> blk (2, n); blk.clear(); q.processBlock (blk, mb);
+            for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+        }
+        printf ("peak %.3f\n", out.getMagnitude (0, total));
+        File f (argv[3]); f.deleteFile(); std::unique_ptr<OutputStream> os (new FileOutputStream (f));
+        auto w = WavAudioFormat().createWriterFor (os, AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (24));
+        w->writeFromAudioSampleBuffer (out, 0, total);
+        return 0;
+    }
     if (argc > 3 && String (argv[1]) == "render")
     {   // NovaTest render "<nazov tovarenskeho zvuku>" <plnost 0..1> <vystup.wav>: akord C dur 2.5 s
         NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);

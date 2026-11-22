@@ -97,7 +97,8 @@ namespace nova
             const bool rvEqOn = rvEq.update (s.rvEqLow, s.rvEqMid, s.rvEqMidF, s.rvEqHigh, sr) && s.rvEqEnabled;
             const bool tapRv = an != nullptr && an->wants (3), tapOut = an != nullptr && an->wants (2), tapDl = an != nullptr && an->wants (4);
             const bool dlEqOn = dlEq.update (s.dlEqLow, s.dlEqMid, s.dlEqMidF, s.dlEqHigh, sr) && s.dlEqEnabled;
-            reverb.setFromLegacy (s.rvSize, s.rvDamp, s.rvPre);
+            reverb.setFromLegacy (s.rvSize, s.rvDamp * 0.7f, s.rvPre);   // menej tlmene vysky = jasnejsi, menej zahuhnany dozvuk
+            rvHpL.setHz (200.0f, sr); rvHpR.setHz (200.0f, sr);
             // delay: cas zo synchra s tempom
             float dTime = s.dlTime * 0.001f;
             if (s.dlSync > 0)
@@ -183,7 +184,9 @@ namespace nova
                 }
                 if (rvSm > 0.0005f || s.rvOn)
                 {
-                    float rl, rr; reverb.processSample (l, r, rl, rr); rl *= 0.8f; rr *= 0.8f;   // SuperVerb je o ~2 dB hlasnejsi
+                    // do dozvuku ide zvuk bez basov pod ~200 Hz: spodok sa v dozvuku nekopi, zvuk ostane cisty a pevny
+                    const float il = l - rvHpL.lp (l), ir = r - rvHpR.lp (r);
+                    float rl, rr; reverb.processSample (il, ir, rl, rr); rl *= 0.8f; rr *= 0.8f;   // SuperVerb je o ~2 dB hlasnejsi
                     if (rvEqOn) rvEq.process (rl, rr);
                     if (tapRv) an->push (3, 0.5f * (rl + rr));
                     l += rl * rvSm; r += rr * rvSm;
@@ -221,6 +224,6 @@ namespace nova
         Eq3 eq, rvEq, dlEq;
         Svf mfL, mfR, mf2L, mf2R;
         float rvSm = 0, chSm = 0, dlSm = 0, wSm = 1, compEnv = 0, grDb = 0, pf = 0, ps = 0;
-        float fullSm = 0; Svf fullL, fullR; float fullAp[2][2048] {}; int fullW = 0;
+        float fullSm = 0; Svf fullL, fullR; OnePole rvHpL, rvHpR; float fullAp[2][2048] {}; int fullW = 0;
     };
 }

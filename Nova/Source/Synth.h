@@ -81,7 +81,7 @@ namespace nova
         {
             bool active = false; int wave = 2;
             Env amp, fenv;
-            float ph[16] {}, det[16] {}, pl[16] {}, pr[16] {};
+            float ph[16] {}, det[16] {}, pl[16] {}, pr[16] {}; float osL[32] {}, osR[32] {}; int osW = 0;   // 2x prevzorkovanie oscilatorov (cistejsie vysky)
             Svf f1L, f1R, f2L, f2R, body[5]; int cnt = 0;
             float lfoPh = 0, lfoHold = 0, lfoPrev = 0; float t = 0; float lfoOut = 0;
             OnePole noiseL, tiltL, tiltR;

@@ -84,6 +84,7 @@ namespace nova
         if (s.wave <= 4 || s.wave == 9)
         {
             lv.wtPos = -1; lv.wtMip = -1; lv.wtTab = -1;
+            std::fill (std::begin (lv.osL), std::end (lv.osL), 0.0f); std::fill (std::begin (lv.osR), std::end (lv.osR), 0.0f); lv.osW = 0;
             const int n = juce::jlimit (1, 16, s.uni);
             for (int k = 0; k < n; ++k)
             {
@@ -521,25 +522,43 @@ namespace nova
                 else
                 {
                     const float pw = 0.05f + 0.9f * color;
-                    for (int k = 0; k < nu; ++k)
+                    // pila, obdlznik a trojuholnik sa pocitaju na dvojnasobnej frekvencii a filtrom sa vratia spat:
+                    // ~20 dB menej zrnitosti (aliasu) pri vysokych tonoch; sinus to nepotrebuje
+                    const int nsub = lv.wave == 0 ? 1 : 2;
+                    const float incMul = 1.0f / (float) nsub;
+                    for (int sub = 0; sub < nsub; ++sub)
                     {
-                        const float inc = inc0 * lv.det[k];
-                        float& ph = lv.ph[k];
-                        ph += inc; if (ph >= 1) ph -= 1;
-                        float x;
-                        switch (lv.wave)
+                        float sl = 0, sr2 = 0;
+                        for (int k = 0; k < nu; ++k)
                         {
-                            case 0: x = std::sin (twoPi * ph); break;
-                            case 1: x = 1.0f - 4.0f * std::abs (ph - 0.5f); break;
-                            case 2: x = 2.0f * ph - 1.0f - polyBlep (ph, inc); break;
-                            default:
+                            const float inc = inc0 * lv.det[k] * incMul;
+                            float& ph = lv.ph[k];
+                            ph += inc; if (ph >= 1) ph -= 1;
+                            float x;
+                            switch (lv.wave)
                             {
-                                float p2 = ph + (1.0f - pw); if (p2 >= 1) p2 -= 1;
-                                x = (2.0f * ph - 1.0f - polyBlep (ph, inc)) - (2.0f * p2 - 1.0f - polyBlep (p2, inc)) + (1.0f - 2.0f * pw);
-                                break;
+                                case 0: x = std::sin (twoPi * ph); break;
+                                case 1: x = 1.0f - 4.0f * std::abs (ph - 0.5f); break;
+                                case 2: x = 2.0f * ph - 1.0f - polyBlep (ph, inc); break;
+                                default:
+                                {
+                                    float p2 = ph + (1.0f - pw); if (p2 >= 1) p2 -= 1;
+                                    x = (2.0f * ph - 1.0f - polyBlep (ph, inc)) - (2.0f * p2 - 1.0f - polyBlep (p2, inc)) + (1.0f - 2.0f * pw);
+                                    break;
+                                }
                             }
+                            sl += x * lv.pl[k]; sr2 += x * lv.pr[k];
                         }
-                        l += x * lv.pl[k]; r += x * lv.pr[k];
+                        if (nsub == 1) { l += sl; r += sr2; }
+                        else { lv.osL[lv.osW] = sl; lv.osR[lv.osW] = sr2; lv.osW = (lv.osW + 1) & 31; }
+                    }
+                    if (nsub == 2)
+                    {
+                        static const float h[23] = { -0.01281327f, 0.00001893f, 0.01778585f, 0.00001019f, -0.03066188f, 0.00002960f, 0.05272951f, 0.00000557f, -0.10003794f, 0.00002111f, 0.31978649f, 0.50625172f,
+                                                     0.31978649f, 0.00002111f, -0.10003794f, 0.00000557f, 0.05272951f, 0.00002960f, -0.03066188f, 0.00001019f, 0.01778585f, 0.00001893f, -0.01281327f };
+                        float fl = 0, fr = 0;
+                        for (int t = 0; t < 23; ++t) { const int ix = (lv.osW - 1 - t) & 31; fl += h[t] * lv.osL[ix]; fr += h[t] * lv.osR[ix]; }
+                        l += fl; r += fr;
                     }
                     l *= uniNorm; r *= uniNorm;
                 }
@@ -668,7 +687,11 @@ namespace nova
                     double a = e.rev ? (double) s1 - 1.0 - off : (double) s0 + off;
                     a = juce::jlimit (0.0, (double) len - 2.0, a);
                     const int ip = (int) a; const float fr = (float) (a - ip);
-                    ol = bl[ip] + fr * (bl[ip + 1] - bl[ip]); orr = br[ip] + fr * (br[ip + 1] - br[ip]);
+                    // kubicka (Hermite) interpolacia – bez zrnitosti pri zmene vysky
+                    const int i0 = ip > 0 ? ip - 1 : 0, i3 = juce::jmin (len - 1, ip + 2);
+                    auto hm = [fr] (float xm, float x0, float x1, float x2)
+                    { const float c = 0.5f * (x1 - xm), v = x0 - x1, w = c + v, a3 = w + v + 0.5f * (x2 - x0), b = w + a3; return ((a3 * fr - b) * fr + c) * fr + x0; };
+                    ol = hm (bl[i0], bl[ip], bl[ip + 1], bl[i3]); orr = hm (br[i0], br[ip], br[ip + 1], br[i3]);
                 };
                 double lsO = 0, leO = L;
                 if (s.loop)
