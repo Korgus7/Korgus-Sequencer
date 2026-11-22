@@ -519,21 +519,24 @@ namespace
     class PluginHolder : public juce::Component, private juce::ComponentListener
     {
     public:
-        static constexpr int barH = 26;
+        static constexpr int kBarH = 26;
+        int barH = kBarH;   // Inspiria ma velkost vo vlastnej hlavicke – lista sa neukazuje
 
         PluginHolder (juce::AudioProcessorEditor* e, float scale, std::function<void (float)> onScale)
             : ed (e), onScaleFn (std::move (onScale))
         {
+            if (ed != nullptr && ed->getAudioProcessor() != nullptr && ed->getAudioProcessor()->getName().containsIgnoreCase ("Korgus Inspiria"))
+            { barH = 0; scale = 1.0f; label.setVisible (false); size.setVisible (false); }
             label.setText (sk ("Veľkosť pluginu"), juce::dontSendNotification);
             label.setColour (juce::Label::textColourId, juce::Colour (0xffe4e9ef));
             label.setFont (juce::FontOptions (13.0f));
-            addAndMakeVisible (label);
+            if (barH > 0) addAndMakeVisible (label);
             const int pct[] = { 75, 100, 125, 150, 175, 200, 250 };
             for (int k = 0; k < 7; ++k) size.addItem (juce::String (pct[k]) + " %", pct[k]);
             size.setSelectedId (juce::roundToInt (scale * 100.0f) / 25 * 25 > 0 ? juce::roundToInt (scale * 100.0f) : 100, juce::dontSendNotification);
             if (size.getSelectedId() == 0) size.setSelectedId (100, juce::dontSendNotification);
             size.onChange = [this] { applyScale ((float) size.getSelectedId() / 100.0f, true); };
-            addAndMakeVisible (size);
+            if (barH > 0) addAndMakeVisible (size);
 
             if (ed != nullptr)
             {
@@ -560,7 +563,7 @@ namespace
         void resized() override
         {
             auto r = getLocalBounds();
-            auto bar = r.removeFromTop (barH).reduced (6, 3);
+            auto bar = r.removeFromTop (barH).reduced (6, barH > 0 ? 3 : 0);
             label.setBounds (bar.removeFromLeft (110));
             size.setBounds (bar.removeFromLeft (90));
             if (vp != nullptr) vp->setBounds (r);
@@ -568,7 +571,7 @@ namespace
         }
 
     private:
-        static juce::Rectangle<int> screenArea()
+        juce::Rectangle<int> screenArea() const
         {
             auto a = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea.reduced (20);
             a.removeFromTop (40 + barH);

@@ -147,7 +147,7 @@ namespace
             g.setColour (hover ? juce::Colour (0xff2a2a26) : juce::Colour (0xff1f252d)); g.fillRoundedRectangle (r, 3.0f);
             g.setColour (gold.withAlpha (hover ? 1.0f : 0.85f)); g.drawRoundedRectangle (r, 3.0f, 1.5f);
             g.setColour (gold);
-            g.setFont (juce::FontOptions (msg.isEmpty() ? 17.0f : 14.0f, juce::Font::bold));
+            g.setFont (juce::FontOptions (msg.isEmpty() ? (getHeight() < 36 ? 14.0f : 17.0f) : (getHeight() < 36 ? 12.0f : 14.0f), juce::Font::bold));
             g.drawFittedText (msg.isEmpty() ? T ("✦ Inšpirácia") : msg, getLocalBounds().reduced (6, 2), juce::Justification::centred, 2);
         }
         void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
@@ -201,19 +201,39 @@ namespace
         std::unique_ptr<juce::FileChooser> chooser;
     };
 
+    // tlacidlo s ikonou velkosti okna (stvorec so sipkami do rohov)
+    struct SizeIconButton : juce::Button
+    {
+        SizeIconButton() : juce::Button ("size") {}
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            auto r = getLocalBounds().toFloat().reduced (0.5f);
+            g.setColour (down ? steelHi : (over ? steel.brighter (0.15f) : juce::Colour (0xff1a2029))); g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (over ? text : dim);
+            const auto c = r.getCentre(); const float d = juce::jmin (r.getWidth(), r.getHeight()) * 0.28f, a = d * 0.55f;
+            juce::Path p;
+            for (int sx : { -1, 1 }) for (int sy : { -1, 1 })
+            {
+                const float x = c.x + sx * d, y = c.y + sy * d;
+                p.startNewSubPath (x - sx * a, y); p.lineTo (x, y); p.lineTo (x, y - sy * a);
+            }
+            g.strokePath (p, juce::PathStrokeType (1.6f));
+        }
+    };
+
     struct SimpleView : juce::Component, Tickable
     {
         struct PresetButton : juce::Component
         {
-            juce::String name, key, cat; bool selected = false, hover = false, small = false; std::function<void()> onClick;
+            juce::String name, key, cat; bool selected = false, hover = false, small = false, sound = false; std::function<void()> onClick;
             void paint (juce::Graphics& g) override
             {
                 auto r = getLocalBounds().toFloat().reduced (0.5f);
                 g.setColour (selected ? steelHi : (hover ? steel.brighter (0.12f) : (small ? panel : steel)));
                 g.fillRoundedRectangle (r, 3.0f);
                 g.setColour (selected ? juce::Colours::white : text.withAlpha (0.9f));
-                g.setFont (juce::FontOptions (small ? 13.0f : 14.0f, selected ? juce::Font::bold : juce::Font::plain));
-                g.drawFittedText (name, getLocalBounds().reduced (5, 2), juce::Justification::centred, 2);
+                g.setFont (juce::FontOptions (sound ? 11.5f : (small ? 13.0f : 14.0f), selected ? juce::Font::bold : juce::Font::plain));
+                g.drawFittedText (name, getLocalBounds().reduced (5, sound ? 0 : 2), juce::Justification::centred, sound ? 1 : 2);
             }
             void mouseUp (const juce::MouseEvent& e) override { if (e.mouseWasClicked() && onClick) onClick(); }
             void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
@@ -225,7 +245,7 @@ namespace
             for (auto& f : factoryPatches())
             {
                 auto b = std::make_unique<PresetButton>();
-                b->name = T (f.name); b->key = "f:" + f.name; b->cat = f.category;
+                b->name = T (f.name); b->key = "f:" + f.name; b->cat = f.category; b->sound = true;
                 auto key = b->key;
                 b->onClick = [this, key] { p.loadPreset (key); p.preview(); tick(); };
                 addChildComponent (*b);
@@ -267,6 +287,15 @@ namespace
             ext.setTooltip (T ("Úplný editor zvuku: vrstvy, filtre, efekty, arpeggiátor, vlastné zvuky"));
             ext.onClick = [this] { juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<NovaEditor> (&ed)] { if (sp != nullptr) sp->setMode (1); }); };
             addAndMakeVisible (ext);
+            sizeB.setTooltip (T ("Veľkosť okna"));
+            sizeB.onClick = [this]
+            {
+                juce::PopupMenu m; const int cur = juce::roundToInt (p.uiScale * 100.0f);
+                for (int v : { 75, 90, 100, 110, 125, 150, 175, 200 }) m.addItem (v, juce::String (v) + " %", true, v == cur);
+                m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&sizeB), [sp = juce::Component::SafePointer<NovaEditor> (&ed)] (int r)
+                { if (sp != nullptr && r > 0) sp->setScale ((float) r / 100.0f); });
+            };
+            addAndMakeVisible (sizeB);
             setupSurprise (p, surprise, surCat, mutateB, [this] { tick(); });
             addAndMakeVisible (surprise); addAndMakeVisible (surCat); addAndMakeVisible (mutateB);
             setupLearn (p, learnB); addAndMakeVisible (learnB);
@@ -331,23 +360,21 @@ namespace
             g.setColour (text); g.setFont (juce::FontOptions (19.0f, juce::Font::bold));
             g.drawText ("KORGUS INSPIRIA", head.reduced (16, 0), juce::Justification::centredLeft);
             g.setColour (dim); g.setFont (juce::FontOptions (13.0f));
-            g.drawText (status, head.reduced (16, 0).withTrimmedRight (560).withTrimmedLeft (190), juce::Justification::centredRight);
-            // vysvetlenie Inspiracie vedla tlacidla
-            g.setColour (dim); g.setFont (juce::FontOptions (12.5f));
-            g.drawFittedText (T ("Zachytí, čo si práve zahral, aj bez nahrávania – v Korgus Sequenceri to vloží do stopy."), insp.getRight() + 12, insp.getY(), getWidth() - insp.getRight() - 28, insp.getHeight(), juce::Justification::centredLeft, 2);
+            g.drawText (status, head.reduced (16, 0).withTrimmedRight (600).withTrimmedLeft (190), juce::Justification::centredRight);
             g.setFont (juce::FontOptions (11.5f));
             g.drawText (T ("Klavír: Salamander Grand Piano V3 (A. Holm, CC-BY 3.0) · Rhodes: jRhodes3 (J. Learman, CC BY-NC 4.0) · ostatné: Versilian Studios, Karoryfer (CC0)"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
         }
         void resized() override
         {
-            ext.setBounds (getWidth() - 16 - 96, 9, 96, 26);
-            fxB.setBounds (ext.getX() - 8 - 40, 9, 40, 26);
-            pvB.setBounds (fxB.getX() - 4 - 84, 9, 84, 26);
+            sizeB.setBounds (getWidth() - 16 - 28, 9, 28, 26);
+            ext.setBounds (sizeB.getX() - 6 - 90, 9, 90, 26);
+            fxB.setBounds (ext.getX() - 6 - 40, 9, 40, 26);
+            pvB.setBounds (fxB.getX() - 4 - 74, 9, 74, 26);
             kbB.setBounds (pvB.getX() - 4 - 30, 9, 30, 26);
-            mutateB.setBounds (pvB.getX() - 8 - 84, 9, 84, 26);
+            mutateB.setBounds (pvB.getX() - 8 - 76, 9, 76, 26);
             surCat.setBounds (mutateB.getX() - 6 - 22, 9, 22, 26);
-            surprise.setBounds (surCat.getX() - 2 - 104, 9, 104, 26);
-            learnB.setBounds (surprise.getX() - 8 - 104, 9, 104, 26);
+            surprise.setBounds (surCat.getX() - 2 - 96, 9, 96, 26);
+            learnB.setBounds (surprise.getX() - 8 - 100, 9, 100, 26);
             auto r = getLocalBounds().reduced (16, 0);
             r.removeFromTop (44 + 10);
             {
@@ -366,19 +393,21 @@ namespace
             r.removeFromTop (8);
             // zvuky vzdy rovnako male tlacidla (vyska ako pri 3 riadkoch po 5), aby nevyzerali ako dalsia uroven sekcii
             int nVis = 0; for (auto& b : buttons) if (b->isVisible()) ++nVis;
-            const int cols = 5, gap = 6, rows = juce::jmax (3, (nVis + cols - 1) / cols), bh = (2 * (42 + gap) - gap * rows) / rows;
+            const int cols = 5, gap = 5, rows = juce::jmax (3, (nVis + cols - 1) / cols), bh = juce::jmin (16, (2 * (42 + 6) - gap * rows) / rows);   // zvuky polovicne oproti kategoriam
             const int bw = (r.getWidth() - gap * (cols - 1)) / cols;
             int k = 0;
             for (auto& b : buttons)
                 if (b->isVisible()) { b->setBounds (r.getX() + (k % cols) * (bw + gap), r.getY() + (k / cols) * (bh + gap), bw, bh); ++k; }
             r.removeFromTop (2 * (42 + gap) + 6);
-            auto kr = r.removeFromTop (124);
+            r.removeFromTop (6);
+            auto kr = r.removeFromTop (104);
             const int kw = kr.getWidth() / 6;
-            for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (12, 0));
-            insp.setBounds (16, getHeight() - 22 - 8 - 40, 240, 40);
+            for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (22, 0));
+            insp.setBounds (16, getHeight() - 22 - 8 - 30, 160, 30);
         }
         NovaEditor& ed; NovaProcessor& p;
         InspireButton insp { p };
+        SizeIconButton sizeB;
         std::vector<std::unique_ptr<PresetButton>> buttons, catButtons;
         PresetButton secButtons[2];
         int section = -1;
@@ -2381,7 +2410,7 @@ void NovaEditor::setScale (float s)
 void NovaEditor::layoutSize()
 {
     if (view == nullptr) return;
-    const float s = proc.uiMode == 1 ? proc.uiScale : 1.0f;
+    const float s = proc.uiScale;   // velkost okna plati pre jednoduchu aj rozsirenu verziu
     view->setTopLeftPosition (0, 0);
     content.setTransform ({});
     content.setBounds (0, 0, view->getWidth(), view->getHeight());

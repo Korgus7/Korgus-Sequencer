@@ -585,7 +585,7 @@ namespace nova
         {
             const juce::ParameterID pid { s.id, 2 };
             if (s.id == "release") { v.push_back (std::make_unique<juce::AudioParameterFloat> (pid, T ("Dozvuk", "Release"), juce::NormalisableRange<float> (s.lo, s.hi), s.def,
-                                         juce::AudioParameterFloatAttributes().withStringFromValueFunction ([] (float x, int) { return juce::String (juce::roundToInt (x * 100.0f)) + " %"; }))); continue; }
+                                         juce::AudioParameterFloatAttributes().withStringFromValueFunction ([s] (float x, int) { return formatValue (s, x); }))); continue; }
             if (s.kind == 1)
             {
                 juce::StringArray ch; for (auto& c : s.choices) ch.add (T (c));
