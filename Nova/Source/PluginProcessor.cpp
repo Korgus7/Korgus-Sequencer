@@ -804,6 +804,12 @@ void NovaProcessor::setSample (int layer, const juce::MemoryBlock& flac, const j
     s->rate = r->sampleRate; s->name = name; s->flac = flac;
     s->buf.setSize ((int) juce::jlimit (1u, 2u, r->numChannels), (int) r->lengthInSamples);
     r->read (&s->buf, 0, (int) r->lengthInSamples, 0, true, true);
+    // vlastny sampel: vyrovnat na plnu hlasitost (najhlasnejsie miesto tesne pod maximom), aby nebol tichsi ako oscilatory
+    if (smpBuiltin[layer & 1] < 0)
+    {
+        const float pk = s->buf.getMagnitude (0, s->buf.getNumSamples());
+        if (pk > 1.0e-4f) s->buf.applyGain (juce::jmin (0.98f / pk, 32.0f));
+    }
     synth.setUserSample (layer, s);
 }
 

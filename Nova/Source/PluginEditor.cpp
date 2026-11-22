@@ -8,6 +8,20 @@ using namespace nova::ui;
 
 namespace
 {
+    // nastroje v menu podla skupin (cisla = hodnota parametra "inst", poradie v subore sa nemeni)
+    struct InstGroup { const char* sk; const char* en; std::vector<int> ids; };
+    const std::vector<InstGroup>& instGroups()
+    {
+        static const std::vector<InstGroup> g {
+            { "Klávesy", "Keys", { 0, 1, 2, 3, 23 } },
+            { "Gitary a basy", "Guitars & basses", { 4, 5, 33, 6, 7 } },
+            { "Sláčiky a harfa", "Strings & harp", { 8, 9, 10, 20, 28, 29, 22 } },
+            { "Plechové dychy", "Brass", { 12, 11, 14, 24, 27 } },
+            { "Drevené dychy", "Woodwinds", { 15, 35, 16, 25, 26, 13, 34, 21 } },
+            { "Melodické bicie a zvony", "Mallets & bells", { 17, 18, 32, 19, 31, 30 } } };
+        return g;
+    }
+
     constexpr int SW = 780, SH = 446;       // jednoducha verzia
     constexpr int EW = 1322, EH = 886;      // rozsirena verzia
     const juce::Colour arcB (0xff9d93c4);
@@ -741,7 +755,11 @@ namespace
                 if (instMode())
                 {
                     const int cur = curInst();
-                    for (int i = 0; i < InstrBank::numInstr; ++i) m.addItem (i + 1, InstrBank::name (i, lang() == 1), true, i == cur);
+                    for (const auto& g : instGroups())
+                    {
+                        m.addSectionHeader (juce::String::fromUTF8 (lang() == 1 ? g.en : g.sk));
+                        for (int i : g.ids) if (juce::isPositiveAndBelow (i, InstrBank::numInstr)) m.addItem (i + 1, InstrBank::name (i, lang() == 1), true, i == cur);
+                    }
                     juce::Component::SafePointer<LayerPanel> sp (this);
                     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&nameBtn), [sp] (int r)
                     {
@@ -770,7 +788,13 @@ namespace
                 stepB[d].setTooltip (T (d == 0 ? "Predchádzajúci zvuk" : "Ďalší zvuk"));
                 stepB[d].onClick = [this, d]
                 {
-                    if (instMode()) { setInst ((curInst() + (d == 0 ? -1 : 1) + InstrBank::numInstr) % InstrBank::numInstr); return; }
+                    if (instMode())
+                    {   // dalsi / predosly nastroj v poradi ako v menu (podla skupin)
+                        std::vector<int> ord; for (const auto& g : instGroups()) for (int i : g.ids) ord.push_back (i);
+                        auto it = std::find (ord.begin(), ord.end(), curInst());
+                        const int k = it == ord.end() ? 0 : (int) (it - ord.begin()), n = (int) ord.size();
+                        setInst (ord[(size_t) ((k + (d == 0 ? -1 : 1) + n) % n)]); return;
+                    }
                     juce::String err;
                     if (! p.stepSample (li, d == 0 ? -1 : 1, err) && err.isNotEmpty())
                         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Korgus Inspiria", err);
