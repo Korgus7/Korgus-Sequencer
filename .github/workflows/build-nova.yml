@@ -42,6 +42,18 @@ jobs:
           name: KorgusInspiria-windows
           path: out/
 
+      - name: Collect map
+        shell: bash
+        run: |
+          mkdir -p map
+          find build -name "*.map" -exec cp {} map/ \;
+          ls -la map
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KorgusInspiria-map
+          path: map/
+
       - name: Publish to nova branch
         shell: bash
         run: |

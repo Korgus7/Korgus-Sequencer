@@ -1,6 +1,12 @@
 #include "CrashGuard.h"
 #include <cstdio>
 #include <cstring>
+#if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+#endif
 
 namespace CrashGuard
 {
@@ -14,7 +20,7 @@ namespace CrashGuard
         char loadUid[480] {}, loadName[160] {};
         std::atomic<bool> loading { false };
         juce::File dir;
-        char crashPath[2048] {};
+        char crashPath[2048] {}; char detail[700] {};
         Info last;
 
         void copy (char* dst, size_t n, const juce::String& s)
@@ -34,11 +40,28 @@ namespace CrashGuard
             std::fputs (uid, f); std::fputc ('\n', f);
             std::fputs (name, f); std::fputc ('\n', f);
             std::fputs (where, f); std::fputc ('\n', f);
+            std::fputs (detail, f); std::fputc ('\n', f);
             std::fclose (f);
         }
 
-        void onCrash (void*)
+        void onCrash (void* info)
         {
+           #if JUCE_WINDOWS
+            // presne miesto pada: kod vynimky, modul a posun v nom (na najdenie chyby)
+            if (auto* ep = static_cast<EXCEPTION_POINTERS*> (info); ep != nullptr && ep->ExceptionRecord != nullptr)
+            {
+                const auto* er = ep->ExceptionRecord;
+                HMODULE mod = nullptr; char path[MAX_PATH] = "?";
+                if (GetModuleHandleExA (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR) er->ExceptionAddress, &mod))
+                    GetModuleFileNameA (mod, path, MAX_PATH);
+                const char* fn = std::strrchr (path, '\\'); fn = fn != nullptr ? fn + 1 : path;
+                std::snprintf (detail, sizeof (detail), "code=%08lX module=%s offset=0x%llX",
+                               (unsigned long) er->ExceptionCode, fn,
+                               (unsigned long long) ((const char*) er->ExceptionAddress - (const char*) mod));
+            }
+           #else
+            juce::ignoreUnused (info);
+           #endif
             if (loading.load()) { writeCrash (loadUid, loadName, "load"); return; }
             if (const void* p = busy.load())
                 for (auto& e : table)
@@ -66,6 +89,7 @@ namespace CrashGuard
             last.crashed = true;
             last.uid = lines[0].trim(); last.name = lines[1].trim(); last.where = lines[2].trim();
         }
+        if (crashFile().existsAsFile()) crashFile().copyFileTo (dir.getChildFile ("crash_last.txt"));   // ostane na diagnostiku
         crashFile().deleteFile(); loadMarker().deleteFile();
         runFlag().replaceWithText ("1");
         juce::SystemStats::setApplicationCrashHandler (onCrash);

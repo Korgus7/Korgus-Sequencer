@@ -76,10 +76,15 @@ target_link_libraries(KorgusNova PRIVATE
     juce::juce_recommended_warning_flags)
 
 
+# mapa adries pre rozbor padov (offset z crash.txt -> funkcia)
+if(MSVC)
+    target_link_options(KorgusNova_VST3 PRIVATE /MAP)
+endif()
+
 if(NOVA_TEST)
     juce_add_console_app(NovaTest PRODUCT_NAME "NovaTest")
     target_sources(NovaTest PRIVATE Test/test.cpp Source/Synth.cpp Source/PianoBank.cpp Source/InstrBank.cpp Source/Params.cpp Source/PresetStore.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/Lang.cpp)
-    target_compile_definitions(NovaTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Korgus Nova" JucePlugin_IsSynth=1)
+    target_compile_definitions(NovaTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Korgus Nova" JucePlugin_IsSynth=1 JUCE_MODAL_LOOPS_PERMITTED=1)
     target_link_libraries(NovaTest PRIVATE NovaSamples juce::juce_dsp juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_formats)
 endif()
 

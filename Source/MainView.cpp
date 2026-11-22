@@ -553,6 +553,17 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     }
     blockedPlugins.addLines (props.getUserSettings()->getValue ("blockedPlugins"));
     blockedPlugins.removeEmptyStrings();
+    {   // po aktualizacii znova povolit vlastne pluginy (Korgus Inspiria), ktore boli zakazane po pade starej verzie
+        auto* us = props.getUserSettings();
+        const juce::String ver (JUCE_APPLICATION_VERSION_STRING);
+        if (us->getValue ("blockCheckVersion") != ver)
+        {
+            for (int i = blockedPlugins.size(); --i >= 0;)
+                if (blockedPlugins[i].fromFirstOccurrenceOf ("\t", false, false).startsWithIgnoreCase ("Korgus")) blockedPlugins.remove (i);
+            us->setValue ("blockedPlugins", blockedPlugins.joinIntoString ("\n"));
+            us->setValue ("blockCheckVersion", ver);
+        }
+    }
     enabledPlugins.addLines (props.getUserSettings()->getValue ("enabledPlugins"));
     enabledPlugins.removeEmptyStrings();
     held = obj();

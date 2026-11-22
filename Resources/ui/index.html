@@ -3424,7 +3424,7 @@ function arrMove(e){
 
 /* ---------------- editor ---------------- */
 let cols=[], curCol=-1;
-function openEditor(tr,p){ if(NATIVE){ if(mixOpen()){ $('mixWin').hidden=true; $('bMix').classList.remove('on'); } closeAuto(); }const isNew=!ed||ed.pId!==p.id; ed={trId:tr.id,pId:p.id,scrolled:false}; selPart=p.id; if(isNew){stepCur=0; stepChord=false; selNotes.clear();} const ti=song.tracks.indexOf(tr); if(ti>=0) selectTrack(ti); $('edWin').hidden=false; renderEditor();}
+function openEditor(tr,p){ setTimeout(()=>{ lastArea=tr.type==='synth'?'key':'drum'; const ae=document.activeElement; if(ae&&ae!==document.body&&!ae.matches('input[type=text],input[type=number],textarea')) ae.blur(); },0); if(NATIVE){ if(mixOpen()){ $('mixWin').hidden=true; $('bMix').classList.remove('on'); } closeAuto(); }const isNew=!ed||ed.pId!==p.id; ed={trId:tr.id,pId:p.id,scrolled:false}; selPart=p.id; if(isNew){stepCur=0; stepChord=false; selNotes.clear();} const ti=song.tracks.indexOf(tr); if(ti>=0) selectTrack(ti); $('edWin').hidden=false; renderEditor();}
 function closeEditor(){ed=null; $('edWin').hidden=true; $('edBody').innerHTML=''; $('velWrap').hidden=true;}
 function edGet(){
   if(!ed) return null;

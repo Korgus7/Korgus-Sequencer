@@ -1,3 +1,4 @@
+#include <thread>
 // lokalny test Korgus Nova: vyrenderuje kazdy zvuk do WAV a zmeria ho
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
@@ -84,12 +85,78 @@ int main (int argc, char** argv)
               auto w = WavAudioFormat().createWriterFor (os, AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (24));
               w->writeFromAudioSampleBuffer (out, 0, total); }
             q.uiMode = 1;
-            { std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (200);
+            { std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); Thread::sleep (200);
               auto img = ed->createComponentSnapshot (ed->getLocalBounds());
               File f (dir.getChildFile ("scene" + String (si) + ".png")); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os); }
             names.appendText (q.currentName + "|" + q.currentCategory + "\n", false, false, "\n");
             printf ("scena %d: %s (%s) peak %.2f\n", si, q.currentName.toRawUTF8(), q.currentCategory.toRawUTF8(), out.getMagnitude (0, total));
         }
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "race")
+    {   // audio vlakno bezi suhlasne, hlavne vlakno prepina vsetky presety ako klik v UI
+        ScopedJuceInitialiser_GUI gui;
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int i = 0; i < 300 && ! q.synth.pianoReady(); ++i) Thread::sleep (20);
+        q.uiMode = 0;
+        std::unique_ptr<AudioProcessorEditor> ed (q.createEditor());
+        std::atomic<bool> run { true };
+        std::thread au ([&] {
+            int k = 0;
+            while (run) {
+                MidiBuffer mb; AudioBuffer<float> blk (2, bs); blk.clear();
+                if (k % 40 == 0) mb.addEvent (MidiMessage::noteOn (1, 48 + (k / 40) % 24, (uint8) 100), 0);
+                if (k % 40 == 30) mb.addEvent (MidiMessage::allNotesOff (1), 0);
+                q.processBlock (blk, mb); ++k; Thread::sleep (1);
+            }
+        });
+        std::vector<String> keys; for (auto& e : q.presets.entries()) keys.push_back (e.key);
+        printf ("presetov: %d\n", (int) keys.size()); fflush (stdout);
+        for (int rep = 0; rep < 2; ++rep)
+            for (auto& k : keys) { printf ("%s\n", k.toRawUTF8()); fflush (stdout); q.loadPreset (k); q.preview(); MessageManager::getInstance()->runDispatchLoopUntil (40); }
+        run = false; au.join();
+        printf ("race ok\n"); return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "clickall")
+    {   // NovaTest clickall: jednoducha verzia, klikanie na vsetky zvuky (Nastroje aj Syntezator) a hranie medzi tym
+        ScopedJuceInitialiser_GUI gui;
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int i = 0; i < 300 && ! q.synth.pianoReady(); ++i) Thread::sleep (20);
+        q.uiMode = 0;
+        std::unique_ptr<AudioProcessorEditor> ed (q.createEditor());
+        auto play = [&] (int ms)
+        {
+            const int blocks = (int) (ms * 0.001 * sr / bs);
+            for (int k = 0; k < blocks; ++k)
+            {
+                MidiBuffer mb; if (k == 0) for (int n : { 48, 60, 64, 67 }) mb.addEvent (MidiMessage::noteOn (1, n, (uint8) 100), 0);
+                if (k == blocks - 1) for (int n : { 48, 60, 64, 67 }) mb.addEvent (MidiMessage::noteOff (1, n), 0);
+                AudioBuffer<float> blk (2, bs); blk.clear(); q.processBlock (blk, mb);
+            }
+        };
+        std::vector<Button*> all;
+        std::function<void (Component*)> collect = [&] (Component* c) { for (auto* ch : c->getChildren()) { if (auto* b = dynamic_cast<Button*> (ch)) all.push_back (b); collect (ch); } };
+        int clicked = 0;
+        for (const char* section : { "Instruments", "Nástroje", "Synthesizer", "Syntezátor" })
+        {
+            all.clear(); collect (ed.get());
+            for (auto* b : all) if (b->getButtonText() == String::fromUTF8 (section) && b->onClick) b->onClick();
+            for (int pass = 0; pass < 2; ++pass)
+            {
+                all.clear(); collect (ed.get());
+                std::vector<Component::SafePointer<Button>> list; for (auto* b : all) if (b->isVisible() && b->getWidth() > 0) list.push_back (b);
+                for (auto& sp : list)
+                {
+                    if (sp == nullptr) continue;
+                    const auto t = sp->getButtonText();
+                    if (t.isEmpty() || t == "size" || t == "FX" || t.containsIgnoreCase ("Rozšír") || t.containsIgnoreCase ("Advanced") || t.containsIgnoreCase ("Nauč") || t.containsIgnoreCase ("Learn")) continue;
+                    if (sp->onClick) { printf ("klik %s\n", t.toRawUTF8()); fflush (stdout); sp->onClick(); ++clicked; }
+                    for (int k = 0; k < 3; ++k) { MessageManager::getInstance()->runDispatchLoopUntil (5); }
+                    play (150);
+                }
+            }
+        }
+        printf ("kliknute: %d, bez pada\n", clicked);
         return 0;
     }
     if (argc > 2 && String (argv[1]) == "eqshot")
@@ -98,7 +165,7 @@ int main (int argc, char** argv)
         NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
         if (argc > 3) q.loadPreset ("f:" + String::fromUTF8 (argv[3]));
         q.uiMode = 1;
-        std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true);
+        std::unique_ptr<AudioProcessorEditor> ed (q.createEditor());
 
         std::function<void (Component*, const String&)> click = [&] (Component* c, const String& t)
         { for (auto* ch : c->getChildren()) { if (auto* b = dynamic_cast<Button*> (ch)) if (b->getButtonText() == t && b->onClick) { b->onClick(); } click (ch, t); } };
@@ -249,7 +316,7 @@ int main (int argc, char** argv)
         for (int m = 0; m < 2; ++m)
         {
             q.uiMode = m;
-            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);
+            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); Thread::sleep (150);
             auto img = ed->createComponentSnapshot (ed->getLocalBounds());
             File f (dir.getChildFile (m ? "ed_adv.png" : "ed_simple.png")); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
         }
@@ -767,7 +834,7 @@ int main (int argc, char** argv)
         for (int w : { 2, 7, 9, 77, 78 })
         {
             base(); if (w == 7) { setParam (q, "a_wave", 7); setParam (q, "a_src", 0); setParam (q, "a_inst", 13); } else if (w == 77) q.loadBuiltinSample (0, 2); else if (w == 78) { setParam (q, "a_wave", 7); q.setSourceMode (0, 1); } else setParam (q, "a_wave", (float) w);
-            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);
+            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); Thread::sleep (150);
             auto img = ed->createComponentSnapshot (ed->getLocalBounds());
             File f ("/home/claude/shp/shot_" + String (k++) + ".png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
         }
@@ -775,7 +842,7 @@ int main (int argc, char** argv)
         for (const char* nm : { "Koncertný klavír", "Trúbka s dusítkom", "Teplý pad", "Synth pluck" })
         {
             q.loadPreset (String ("f:") + String::fromUTF8 (nm));
-            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true); Thread::sleep (150);
+            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); Thread::sleep (150);
             auto img = ed->createComponentSnapshot (ed->getLocalBounds());
             File f ("/home/claude/shp/simple_" + String (k++) + ".png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
         }
@@ -790,7 +857,7 @@ int main (int argc, char** argv)
         for (const char* nm : { "WT Vokál pad", "Roj Mellotron", "Teplý pad", "Koncertné piano", "Elektrické piano", "WT Analog bas" })
         {
             q.loadPreset (String ("f:") + String::fromUTF8 (nm));
-            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true);
+            std::unique_ptr<AudioProcessorEditor> ed (q.createEditor());
             Thread::sleep (100);
             auto img = ed->createComponentSnapshot (ed->getLocalBounds());
             File f ("/home/claude/wt/shot_" + String (k++) + ".png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);

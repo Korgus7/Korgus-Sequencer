@@ -401,7 +401,7 @@ namespace
             r.removeFromTop (2 * (42 + gap) + 6);
             r.removeFromTop (6);
             auto kr = r.removeFromTop (104);
-            const int kw = kr.getWidth() / (int) knobs.size();
+            const int kw = kr.getWidth() / juce::jmax (1, (int) knobs.size());
             for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (18, 0));
             insp.setBounds (16, getHeight() - 22 - 8 - 30, 160, 30);
         }
