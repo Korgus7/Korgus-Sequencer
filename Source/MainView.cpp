@@ -4608,6 +4608,10 @@ void MainView::learnProgressMsg (int pct, const juce::String& msg)
     if (lv.bestLoss < 99.0f) put (o, "match", juce::roundToInt (juce::jlimit (0.0f, 1.0f, 1.0f - lv.bestLoss / 3.0f) * 100.0f));
     juce::Array<juce::var> vals; for (const auto& x : lv.vals) vals.add (x);
     put (o, "vals", vals); put (o, "evals", lv.evals);
+    auto arr = [] (const std::vector<float>& v) { juce::Array<juce::var> a; for (float x : v) a.add (juce::roundToInt (x * 10.0f) / 10.0); return a; };
+    if (! lv.src.empty()) put (o, "src", arr (lv.src));
+    if (! lv.cur.empty()) put (o, "cur", arr (lv.cur));
+    if (! lv.best.empty()) put (o, "best", arr (lv.best));
     emit ("learnProgress", o);
 }
 

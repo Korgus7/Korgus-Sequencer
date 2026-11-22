@@ -25,7 +25,7 @@ namespace SoundMatch
     using Progress = std::function<bool (double, const juce::String&)>;
 
     // zive udaje pre zobrazenie pocas ucenia: najlepsia zhoda doteraz a posledne skusane hodnoty
-    struct Live { float bestLoss = 99.0f; juce::StringArray vals; int evals = 0; };
+    struct Live { float bestLoss = 99.0f; juce::StringArray vals; int evals = 0; std::vector<float> src, cur, best; };   // spektra (dB, 40 pasiem): zdroj, posledny pokus, najlepsi
     Live liveSnapshot();
 
     // priecinok diagnostiky: Dokumenty\Korgus Sequencer\Ucenie

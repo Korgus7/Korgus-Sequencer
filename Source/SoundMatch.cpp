@@ -231,6 +231,20 @@ namespace
         bool hasSt = false;
     };
 
+    // priemerne spektrum noty (dB, kBands pasiem) z dostupnych segmentov – pre zobrazenie v okne ucenia
+    std::vector<float> liveSpec (const Feat& f)
+    {
+        std::vector<float> o ((size_t) kBands, -90.0f);
+        int n = 0; for (int k = 0; k < 4; ++k) if (f.have[k]) ++n;
+        if (n == 0) return o;
+        for (int b = 0; b < kBands; ++b)
+        {
+            float a = 0; for (int k = 0; k < 4; ++k) if (f.have[k]) a += f.seg[k][b];
+            o[(size_t) b] = a / (float) n;
+        }
+        return o;
+    }
+
     struct Bands
     {
         int edge[kBands + 1];
@@ -1153,6 +1167,8 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
         ++res.evals;
         const float d = distance (quick ? Sq : S, C, &lastT);
         if (d >= 99.0f) ++n99;
+        std::vector<float> spec;
+        if (! C.empty()) spec = liveSpec (C[C.size() == 1 ? 0 : 1]);
         if (outC != nullptr) *outC = std::move (C);
         {   // zive udaje pre okno ucenia (3 nahodne parametre tohto pokusu)
             juce::StringArray v;
@@ -1163,6 +1179,8 @@ Result run (juce::AudioPluginInstance& src, juce::AudioPluginInstance& insp, con
                 v.add (juce::String (dm.id) + " " + (dm.kind == Lin || dm.kind == Log ? juce::String (x, std::abs (x) < 10.0f ? 3 : 0) : juce::String ((int) x)));
             }
             const juce::SpinLock::ScopedLockType l (liveLock);
+            if (! spec.empty()) { liveData.cur = spec; if (d < liveData.bestLoss) liveData.best = spec; }
+            if (liveData.src.empty() && S.size() > 1) liveData.src = liveSpec (S[1]);
             if (d < 99.0f) liveData.bestLoss = juce::jmin (liveData.bestLoss, d);
             liveData.vals = v; liveData.evals = res.evals;
         }
