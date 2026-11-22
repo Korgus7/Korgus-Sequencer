@@ -76,6 +76,15 @@ namespace nova
         }
         float lp (float x) { float b; return process (x, b); }
         float bpf (float x) { float b; process (x, b); return b; }
+        // "analogovy" filter vrstvy: rezonancny stav sa jemne saturuje (pri silnej rezonancii zvuk zahusti, nespieva ostro)
+        static float sat (float y) { y = clampf (y, -3.0f, 3.0f); return y * (27.0f + y * y) / (27.0f + 9.0f * y * y); }
+        float processSat (float x, float& bp)
+        {
+            const float v3 = x - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3;
+            ic1 = 2.5f * sat ((2 * v1 - ic1) * 0.4f); ic2 = 2 * v2 - ic2;
+            bp = v1;
+            return v2;
+        }
     };
 
     struct OnePole

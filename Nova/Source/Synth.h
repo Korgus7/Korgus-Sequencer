@@ -45,7 +45,7 @@ namespace nova
         bool arpOn = false, arpHold = false; int arpPat = 0, arpSpeed = 3, arpOct = 1; float arpLen = 0.6f;
         bool mono = false; float glide = 0, veltrack = 0.7f, morphX = 0, morphY = 0;
         // makra jednoduchej verzie
-        float bright = 0.5f, attack = 0.5f, release = 0.5f, space = 0.5f, width = 0.5f;
+        float bright = 0.5f, attack = 0.5f, release = 0.5f, space = 0.5f, width = 0.5f, full = 0;
         bool playing = false; double ppq = 0;
         // rytmicky gater
         bool gtOn = false; int gtRate = 3; float gtDepth = 0.85f, gtSmooth = 0.25f, gtSwing = 0; bool gtPat[16] {};
@@ -81,7 +81,7 @@ namespace nova
         {
             bool active = false; int wave = 2;
             Env amp, fenv;
-            float ph[8] {}, det[8] {}, pl[8] {}, pr[8] {};
+            float ph[16] {}, det[16] {}, pl[16] {}, pr[16] {};
             Svf f1L, f1R, f2L, f2R, body[5]; int cnt = 0;
             float lfoPh = 0, lfoHold = 0, lfoPrev = 0; float t = 0; float lfoOut = 0;
             OnePole noiseL, tiltL, tiltR;

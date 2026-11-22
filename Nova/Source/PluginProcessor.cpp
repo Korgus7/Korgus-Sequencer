@@ -119,7 +119,7 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
         const juce::String m = "mm" + juce::String (k + 1) + "_";
         s.mm[k].src = (int) g (m + "src"); s.mm[k].dst = (int) g (m + "dst"); s.mm[k].amt = g (m + "amt");
     }
-    s.bright = g ("bright"); s.attack = g ("attack"); s.release = g ("release"); s.space = g ("space"); s.width = g ("width");
+    s.bright = g ("bright"); s.attack = g ("attack"); s.release = g ("release"); s.space = g ("space"); s.width = g ("width"); s.full = g ("full");
 }
 
 void NovaProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)

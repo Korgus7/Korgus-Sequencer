@@ -28,6 +28,7 @@ namespace nova
             F ("release", "Dozvuk", 0, 1, 0.5f, "rel");
             F ("space", "Priestor", 0, 1, 0.5f, "rel");
             F ("width", "Šírka", 0, 1, 0.5f, "rel");
+            F ("full", "Plnosť", 0, 1, 0, "%");
             F ("volume", "Hlasitosť", -24, 6, 0, "dB");
 
             for (auto L : { juce::String ("a"), juce::String ("b") })
@@ -38,7 +39,7 @@ namespace nova
                 F (p + "oct", "Oktáva", -3, 3, 0, "oct");
                 F (p + "semi", "Poltón", -12, 12, 0, "st");
                 F (p + "fine", "Jemne", -100, 100, 0, "ct");
-                F (p + "uni", "Unison", 1, 8, 1, "x");
+                F (p + "uni", "Unison", 1, 16, 1, "x");
                 F (p + "spread", "Rozladenie", 0, 50, 10, "ct");
                 F (p + "level", "Úroveň", 0, 1, 0.7f, "%");
                 F (p + "pan", "Panoráma", -1, 1, 0, "pan");
@@ -465,6 +466,23 @@ namespace nova
                 const auto c = f.category.toStdString();
                 const char* to = (c == "Klavír" || c == "Klávesy") ? "Synth klávesy" : c == "Sláčiky" ? "Synth sláčiky" : c == "Zvonky" ? "Plucky" : c == "Basy" ? "Synth basy" : nullptr;
                 if (to != nullptr) f.category = juce::String::fromUTF8 (to);
+                // plnsie syntezatorove zvuky: viac hlasov unisona (az 16 je mozne), trochu sirsie rozladenie, jemne analogove teplo
+                const auto cat = f.category;
+                const bool padLike = cat == "Pady" || cat == juce::String::fromUTF8 ("Synth sláčiky"), lead = cat == "Leady";
+                if (padLike || lead)
+                {
+                    for (const char* L : { "a_", "b_" })
+                    {
+                        const juce::String pw = juce::String (L) + "wave", pu = juce::String (L) + "uni", ps = juce::String (L) + "spread";
+                        const auto w = f.values.find (pw), u = f.values.find (pu);
+                        if (w == f.values.end() || u == f.values.end()) continue;
+                        const int wave = juce::roundToInt (w->second), uni = juce::roundToInt (u->second);
+                        if (! (wave == 2 || wave == 3 || wave == 9) || uni < 3) continue;
+                        u->second = (float) juce::jmin (padLike ? 14 : 10, uni * 2);
+                        if (auto sp = f.values.find (ps); sp != f.values.end()) sp->second = juce::jmin (50.0f, sp->second * (padLike ? 1.2f : 1.1f));
+                    }
+                    if (f.values.find ("tube") == f.values.end()) f.values["tube"] = 0.15f;
+                }
             }
             // realisticke nastroje (InstrBank): a_inst = cislo nastroja, 0 = koncertny klavir
             auto I = [] (const char* n, const char* c, int inst, float aa, float ar)
@@ -538,7 +556,7 @@ namespace nova
 
     bool isPatchParam (const juce::String& id)
     {
-        static const juce::StringArray macros { "preset", "bright", "attack", "release", "space", "width", "volume", "x_rnd", "x_mut", "fx_all" };
+        static const juce::StringArray macros { "preset", "bright", "attack", "release", "space", "width", "full", "volume", "x_rnd", "x_mut", "fx_all" };
         return ! macros.contains (id);
     }
 

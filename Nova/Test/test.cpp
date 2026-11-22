@@ -92,6 +92,27 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 3 && String (argv[1]) == "render")
+    {   // NovaTest render "<nazov tovarenskeho zvuku>" <plnost 0..1> <vystup.wav>: akord C dur 2.5 s
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        for (int i = 0; i < 300 && ! q.synth.pianoReady(); ++i) Thread::sleep (50);
+        if (! q.loadPreset ("f:" + String::fromUTF8 (argv[2]))) { printf ("zvuk nenajdeny\n"); return 1; }
+        if (auto* prm = q.params.getParameter ("full")) prm->setValueNotifyingHost (String (argv[3]).getFloatValue());
+        const int total = (int) (3.5 * sr); AudioBuffer<float> out (2, total); out.clear();
+        for (int pos = 0; pos < total; pos += bs)
+        {
+            const int n = std::min (bs, total - pos); MidiBuffer mb;
+            if (pos == 0) for (int nt : { 48, 60, 64, 67 }) mb.addEvent (MidiMessage::noteOn (1, nt, (uint8) 100), 0);
+            const int off = (int) (2.5 * sr); if (pos <= off && pos + n > off) for (int nt : { 48, 60, 64, 67 }) mb.addEvent (MidiMessage::noteOff (1, nt), off - pos);
+            AudioBuffer<float> blk (2, n); blk.clear(); q.processBlock (blk, mb);
+            for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, n);
+        }
+        double m2 = 0, s2 = 0; for (int i = 0; i < total; ++i) { const float l = out.getSample (0, i), r = out.getSample (1, i); m2 += (l + r) * (l + r) * 0.25; s2 += (l - r) * (l - r) * 0.25; }
+        printf ("%s full=%s peak %.3f rms %.3f sirka(side/mid) %.2f\n", argv[2], argv[3], out.getMagnitude (0, total), std::sqrt (m2 / total), std::sqrt (s2 / std::max (1e-12, m2)));
+        if (argc > 4) { File f (argv[4]); f.deleteFile(); std::unique_ptr<OutputStream> os (new FileOutputStream (f));
+            auto w = WavAudioFormat().createWriterFor (os, AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (24)); w->writeFromAudioSampleBuffer (out, 0, total); }
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "inspire")
     {
         // Inspiracia: vytiahnutie poslednej frazy, MIDI, WAV, stav pre hostitela

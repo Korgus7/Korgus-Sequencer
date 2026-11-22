@@ -1797,7 +1797,9 @@ function renderTracksNative(L){
     } else {
       const cur=natTrackPlugins[tr.id]||{}, r3=el('div','r');
       const inst='<option value="">Žiadny nástroj</option>'+natPlugins.filter(p=>p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('');
-      const di=dd('',inst,cur.uid||'',cur.uid?cur.name+' (dvojklik = okno nástroja)':'VST nástroj',(v,sl)=>{ if(v==='__scan'){ sl.value=cur.uid||''; nat('showPlugins'); return; } nat('trackPlugin',{track:tr.id,uid:v,name:tr.name}); });
+      const di=dd('',inst,cur.uid||'',cur.uid?cur.name+' (dvojklik = okno nástroja)':'VST nástroj',(v,sl)=>{ if(v==='__scan'){ sl.value=cur.uid||''; nat('showPlugins'); return; } nat('trackPlugin',{track:tr.id,uid:v,name:tr.name});
+        // po vybere nastroja hra z klaves prave tato stopa: vybrat ju a zrusit reproduktor / zaznam na ostatnych
+        if(v){ song.tracks.forEach(t=>{ if(t!==tr&&t.type!=='audio'){ t.mon=false; t.arm=false; delete t._monAuto; } }); selectTrack(i); natSel(); renderTracks(); save(); } });
       di.ondblclick=()=>{ if(cur.uid) nat('openPlugin',{track:tr.id,name:tr.name}); };
       const ko=el('button','tg',ICO_KBD); ko.title=cur.uid?'Otvoriť okno nástroja '+cur.name:'Otvoriť okno nástroja'; ko.onmousedown=e=>e.stopPropagation();
       ko.onclick=()=>{ const c=natTrackPlugins[tr.id]; if(c&&c.uid){ nat('openPlugin',{track:tr.id,name:tr.name}); return; }

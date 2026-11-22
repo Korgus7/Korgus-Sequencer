@@ -66,6 +66,7 @@ namespace nova
         float dlEqLow = 0, dlEqMid = 0, dlEqMidF = 1000, dlEqHigh = 0;
         bool mfOn = false; int mfType = 0; float mfCut = 20000, mfReso = 0, mfDrive = 0;
         float gainDb = 0, volumeDb = 0;
+        float full = 0;   // Plnost: spodne stredy, hustota, sirka aj pre mono zvuky
         double bpm = 120;
     };
 
@@ -108,6 +109,7 @@ namespace nova
             if (dlTimeSm < 0) dlTimeSm = dTarget;
             dlTone.setHz (s.dlTone, sr);
             mfL.set (s.mfCut, 0.6f + 9.0f * s.mfReso * s.mfReso, sr); mfR.set (s.mfCut, 0.6f + 9.0f * s.mfReso * s.mfReso, sr);
+            fullL.set (220.0f, 0.8f, sr); fullR.set (220.0f, 0.8f, sr);
             const float pre = dbToGain (s.gainDb), post = dbToGain (s.volumeDb);
             const float sm = 1.0f - std::exp (-1.0f / (0.03f * sr));
             const float thr = -6.0f - 24.0f * s.comp, ratio = 3.0f;
@@ -122,6 +124,23 @@ namespace nova
                 dlSm += sm * ((s.dlOn ? s.dlMix : 0.0f) - dlSm);
                 wSm += sm * (s.width - wSm);
                 float l = L[i] * pre, r = R[i] * pre;
+                // Plnost: spodne stredy (~220 Hz), jemna saturacia (hustota) a sirka aj pre mono zvuky (allpass do stran)
+                fullSm += sm * (s.full - fullSm);
+                if (fullSm > 0.002f)
+                {
+                    float bl, br; fullL.process (l, bl); fullR.process (r, br);
+                    const float k = 0.9f * fullSm; l += k * bl; r += k * br;
+                    const float d = 1.0f + 1.2f * fullSm, nrm = 1.0f / std::tanh (d), w = 0.45f * fullSm;
+                    l = (1 - w) * l + w * std::tanh (l * d) * nrm; r = (1 - w) * r + w * std::tanh (r * d) * nrm;
+                    const float m = 0.5f * (l + r);
+                    const int dA = (int) (0.0071f * sr), dB = (int) (0.0113f * sr);
+                    const float a = fullAp[0][(fullW - dA) & 2047], b = fullAp[1][(fullW - dB) & 2047];
+                    fullAp[0][fullW] = m; fullAp[1][fullW] = m; fullW = (fullW + 1) & 2047;
+                    const float sd = 0.22f * fullSm * (a - b);
+                    l += sd; r -= sd;
+                    const float comp = 1.0f / (1.0f + fullSm);   // rovnaka hlasitost – Plnost meni charakter, nie silu
+                    l *= comp; r *= comp;
+                }
                 // tube: analogove teplo (jemna saturacia)
                 if (s.tube > 0.001f)
                 {
@@ -202,5 +221,6 @@ namespace nova
         Eq3 eq, rvEq, dlEq;
         Svf mfL, mfR, mf2L, mf2R;
         float rvSm = 0, chSm = 0, dlSm = 0, wSm = 1, compEnv = 0, grDb = 0, pf = 0, ps = 0;
+        float fullSm = 0; Svf fullL, fullR; float fullAp[2][2048] {}; int fullW = 0;
     };
 }

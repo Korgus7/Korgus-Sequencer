@@ -276,7 +276,7 @@ namespace
                 bool has = false; for (auto& cb : catButtons) has = has || cb->key == c;
                 setCat (has ? c : categories()[0]);
             }
-            for (auto id : { "bright", "attack", "release", "space", "width", "volume" })
+            for (auto id : { "bright", "attack", "release", "space", "width", "full", "volume" })
             {
                 auto k = std::make_unique<Knob> (p.params, id, juce::String (id) == "release" ? T ("Dozvuk", "Release") : juce::String());
                 k->label.setFont (juce::FontOptions (14.0f)); k->label.setColour (juce::Label::textColourId, text);
@@ -401,8 +401,8 @@ namespace
             r.removeFromTop (2 * (42 + gap) + 6);
             r.removeFromTop (6);
             auto kr = r.removeFromTop (104);
-            const int kw = kr.getWidth() / 6;
-            for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (22, 0));
+            const int kw = kr.getWidth() / (int) knobs.size();
+            for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (18, 0));
             insp.setBounds (16, getHeight() - 22 - 8 - 30, 160, 30);
         }
         NovaEditor& ed; NovaProcessor& p;
@@ -1605,9 +1605,10 @@ namespace
             // EQ
             for (int t = 0; t < NEQ; ++t) targets[t].setBounds (12 + t * 64, 38, 61, 24);
             flatBtn.setBounds (getWidth() - 12 - 70, 38, 70, 24);
-            for (auto& tg : eqOn) tg->setBounds (flatBtn.getX() - 6 - 96, 39, 96, 22);
+            // prepinac Zapnuty pod tlacidlom Plochy (v jednom riadku s tlacidlami vrstiev sa neprekryva)
+            for (auto& tg : eqOn) tg->setBounds (getWidth() - 12 - 96, 66, 96, 22);
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setBounds (12 + (i % 4) * 62, 66, 58, 70);
-            help.setBounds (270, 70, getWidth() - 282, 64);
+            help.setBounds (270, 92, getWidth() - 282, 52);
             graph.setBounds (12, 140, getWidth() - 24, getHeight() - 150);
         }
         NovaProcessor& p;

@@ -84,14 +84,14 @@ namespace nova
         if (s.wave <= 4 || s.wave == 9)
         {
             lv.wtPos = -1; lv.wtMip = -1; lv.wtTab = -1;
-            const int n = juce::jlimit (1, 8, s.uni);
+            const int n = juce::jlimit (1, 16, s.uni);
             for (int k = 0; k < n; ++k)
             {
                 const float pos = n > 1 ? (float) k / (float) (n - 1) * 2.0f - 1.0f : 0.0f;
                 const float cents = s.spread * pos * (0.85f + 0.3f * std::abs (v.rng.next()));
                 lv.det[k] = std::pow (2.0f, cents / 1200.0f);
                 lv.ph[k] = (n == 1 && (s.wave == 0 || s.wave == 9)) ? 0.0f : 0.5f + 0.5f * v.rng.next();
-                const float pan = pos * 0.8f;
+                const float pan = pos * (n >= 4 ? 0.95f : 0.8f);   // viac hlasov = sirsie stereo
                 lv.pl[k] = std::cos ((pan + 1.0f) * pi * 0.25f); lv.pr[k] = std::sin ((pan + 1.0f) * pi * 0.25f);
             }
         }
@@ -121,7 +121,7 @@ namespace nova
         else if (s.wave == 8)
         {
             // Roj: pocet alikvot 4*uni (skutocny unison sa nepouziva); Schroederove fazy a pevne rozhodene startovne fazy
-            const int N = 4 * juce::jlimit (1, 8, s.uni);
+            const int N = juce::jmin (32, 4 * juce::jlimit (1, 16, s.uni));
             for (int k = 0; k < 32; ++k)
             {
                 const float kk = (float) (k + 1);
@@ -365,7 +365,7 @@ namespace nova
         const float kt = s.ktrk * ((float) v.note - 60.0f) / 12.0f + 1.6f * s.fvel * (v.vel - 0.7f) + 2.0f * bright;
         const bool hasPEnv = std::abs (s.penv) > 0.01f;
         const float invSr = 1.0f / (float) sr;
-        const int nu = juce::jlimit (1, 8, s.uni);
+        const int nu = juce::jlimit (1, 16, s.uni);
         const float uniNorm = 1.0f / std::sqrt ((float) nu);
         const float tilt = 0.8f * bright;
         bool anyMod = false, cutMod = false;
@@ -702,13 +702,13 @@ namespace nova
             if (useFilter)
             {
                 float bl, br;
-                float yl = lv.f1L.process (l, bl), yr = lv.f1R.process (r, br);
+                float yl = lv.f1L.processSat (l, bl), yr = lv.f1R.processSat (r, br);
                 if (s.ftype == 1) { yl = bl; yr = br; }
                 else if (s.ftype == 2) { yl = l - yl - bl * (1.0f / q); yr = r - yr - br * (1.0f / q); }
                 if (s.f24)
                 {
                     float b2l, b2r;
-                    const float zl = lv.f2L.process (yl, b2l), zr = lv.f2R.process (yr, b2r);
+                    const float zl = lv.f2L.processSat (yl, b2l), zr = lv.f2R.processSat (yr, b2r);
                     if (s.ftype == 1) { yl = b2l; yr = b2r; }
                     else if (s.ftype == 2) { yl = yl - zl - b2l * (1.0f / q); yr = yr - zr - b2r * (1.0f / q); }
                     else { yl = zl; yr = zr; }
@@ -749,6 +749,7 @@ namespace nova
         f.rvSize = clampf (f.rvSize + (s.space - 0.5f) * 0.4f, 0.0f, 1.0f);
         f.chMix = clampf (f.chMix * 2.0f * s.width, 0.0f, 1.0f);
         f.width = f.width * (0.4f + 1.2f * s.width);
+        f.full = s.full;
 
         if (fadeRequest)
         {
