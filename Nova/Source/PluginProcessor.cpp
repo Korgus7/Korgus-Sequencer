@@ -140,18 +140,7 @@ void NovaProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     }
     buffer.clear();
     keyboard.processNextMidiBuffer (midi, 0, buffer.getNumSamples(), true);
-    if (const int vc = velCurve.load(); vc != 1)   // citlivost kláves
-    {
-        const float gam = vc == 0 ? 0.6f : 1.6f;
-        juce::MidiBuffer out;
-        for (const auto meta : midi)
-        {
-            auto msg = meta.getMessage();
-            if (msg.isNoteOn()) msg.setVelocity (juce::jlimit (0.01f, 1.0f, std::pow (msg.getFloatVelocity(), gam)));
-            out.addEvent (msg, meta.samplePosition);
-        }
-        midi.swapWith (out);
-    }
+    // citlivost kláves je v Korgus Sequenceri (plati pre vsetky nastroje)
     recordCapture (midi, buffer.getNumSamples());
     // MIDI learn a priradene CC (priradene CC sa do syntetizatora neposielaju)
     bool anyCc = false;

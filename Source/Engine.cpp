@@ -358,8 +358,12 @@ void Engine::liveNote (int slot, int pitch, float vel, bool on)
     else if (scope.blockSize2 > 0) liveBuf[(size_t) scope.startIndex2] = { slot, m };
 }
 
-void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMessage& m)
+void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMessage& mIn)
 {
+    // citlivost kláves (0 = lahky uder, 1 = normalna, 2 = tvrdy uder) - plati pre vsetky nastroje aj nahravanie
+    juce::MidiMessage m (mIn);
+    if (const int vc = velCurve.load(); vc != 1 && m.isNoteOn())
+        m.setVelocity (juce::jlimit (0.01f, 1.0f, std::pow (m.getFloatVelocity(), vc == 0 ? 0.6f : 1.6f)));
     if (m.isController() && m.getChannel() >= 1)
     {
         // MIDI learn / priradene ovladace (z akehokolvek zariadenia)

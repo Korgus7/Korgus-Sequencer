@@ -257,7 +257,7 @@ namespace
             addAndMakeVisible (surprise); addAndMakeVisible (surCat); addAndMakeVisible (mutateB);
             setupLearn (p, learnB); addAndMakeVisible (learnB);
             setupFx (p, fxB, fxAtt); addAndMakeVisible (fxB);
-            setupPreview (p, pvB); addAndMakeVisible (pvB); addAndMakeVisible (kbB);
+            setupPreview (p, pvB); addAndMakeVisible (pvB);
             addAndMakeVisible (insp);
             setSize (SW, SH);
             setSection (juce::jmax (0, section), false);   // tlacidla syntezatora pridane az po vybere kategorie
@@ -327,7 +327,7 @@ namespace
             fxB.setBounds (ext.getX() - 8 - 40, 9, 40, 26);
             pvB.setBounds (fxB.getX() - 4 - 30, 9, 30, 26);
             kbB.setBounds (pvB.getX() - 4 - 30, 9, 30, 26);
-            mutateB.setBounds (kbB.getX() - 8 - 84, 9, 84, 26);
+            mutateB.setBounds (pvB.getX() - 8 - 84, 9, 84, 26);
             surCat.setBounds (mutateB.getX() - 6 - 22, 9, 22, 26);
             surprise.setBounds (surCat.getX() - 2 - 104, 9, 104, 26);
             learnB.setBounds (surprise.getX() - 8 - 104, 9, 104, 26);
@@ -1958,7 +1958,7 @@ namespace
             vol.setSliderStyle (juce::Slider::LinearHorizontal); vol.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             volAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.params, "volume", vol);
             vol.setDoubleClickReturnValue (true, 0.0);
-            for (auto* c : std::initializer_list<juce::Component*> { &advanced, &kbB, &pvB, &fxB, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &learnB, &size, &vol }) addAndMakeVisible (c);
+            for (auto* c : std::initializer_list<juce::Component*> { &advanced, &pvB, &fxB, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &learnB, &size, &vol }) addAndMakeVisible (c);
             tick();
         }
         void saveDialog()

@@ -958,6 +958,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 d.gain = f ("gain", 0); d.pan = f ("pan", 0); d.aA = f ("aA", 0); d.aH = f ("aH", 2); d.aD = f ("aD", 4); d.aVel = f ("aVel", 1);
                                 engine.setDrumSetLive (engine.getOrCreateSlot (v["track"].toString()), (int) v["lane"], d);
                             })
+        .withEventListener ("velCurve",    [this] (const juce::var& v) { engine.velCurve.store (juce::jlimit (0, 2, (int) v.getProperty ("c", 1))); })
         .withEventListener ("drumHit",     [this] (const juce::var& v)
                             {
                                 engine.triggerSample (engine.getOrCreateSlot (v["track"].toString()), store->get (v["id"].toString()),

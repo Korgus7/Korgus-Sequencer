@@ -395,6 +395,9 @@ private:
     int masterSlot = -1;
     std::array<int, 8> extraSlots {}; int numExtra = 0;
     std::array<bool, 128> skipPitch {};
+public:
+    std::atomic<int> velCurve { 1 };
+private:
     int auxSlot[2] { -1, -1 };
     juce::AudioBuffer<float> keyBuf { 2, 512 };   // sidechain kluc
     AudioBufPtr refBuf;
