@@ -961,6 +961,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                 }
             }
 
+            if (! td.audible) { gL = 0.0f; gR = 0.0f; }   // stlmena stopa: ticho hned (plynulo cez rampu), aj doznievajuce tony a dozvuk
             bool any = false;
             if (td.frozen) { slot.midi.clear(); any = true; }   // zmrazena: len nahrane audio, setri procesor
             else {
