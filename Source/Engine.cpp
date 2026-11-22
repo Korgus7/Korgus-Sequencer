@@ -622,7 +622,7 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
 
         if (td.isAudio || td.frozen)
         {
-            if (td.audible) mixClips (td, s.buf, p0, off, len, sps);
+            mixClips (td, s.buf, p0, off, len, sps);   // aj stlmena stopa hra potichu (zisk 0), aby po zruseni M znela hned
             continue;
         }
 
@@ -638,7 +638,7 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
             }
             else ++i;
         }
-        if (! td.audible) continue;
+        // stlmena stopa posiela noty dalej (stisi ju zisk pri mixovani), aby po zruseni M hned hrala aj drzane tony
 
         // MIDI CC a pitch bend (pred notami v tom istom okamihu)
         auto cit = std::lower_bound (td.ccs.begin(), td.ccs.end(), p0, [] (const CcEv& c, double v) { return c.start < v; });
