@@ -362,7 +362,7 @@ namespace
             g.setColour (dim); g.setFont (juce::FontOptions (13.0f));
             g.drawText (status, head.reduced (16, 0).withTrimmedRight (600).withTrimmedLeft (190), juce::Justification::centredRight);
             g.setFont (juce::FontOptions (11.5f));
-            g.drawText (T ("Klavír: Salamander Grand Piano V3 (A. Holm, CC-BY 3.0) · Rhodes: jRhodes3 (J. Learman, CC BY-NC 4.0) · ostatné: Versilian Studios, Karoryfer (CC0)"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
+            g.drawText (T ("Klavír: Steinway B z VCSL (Versilian Studios, CC0) · Rhodes: jRhodes3 (J. Learman, CC BY-NC 4.0) · ostatné: Versilian Studios, Karoryfer (CC0)"), getLocalBounds().removeFromBottom (22).reduced (16, 0), juce::Justification::centredLeft);
         }
         void resized() override
         {
@@ -1226,20 +1226,43 @@ namespace
             sr = an.rate.load();
             repaint();
         }
+        // pasmo v grafe: typ (0 basy shelf, 1 spicka, 2 vysky shelf, 3 orezanie basov, 4 orezanie vysok), indexy parametrov (-1 = pevna hodnota)
+        struct Band { int type, f, g, q; float fFix, qFix, fMin, fMax, fDef; };
         void setTarget (const juce::String& prefix, juce::Colour c, int tap)
         {
             col = c; tapIdx = tap; lastW = 0;
             std::fill (spec.begin(), spec.end(), -120.0f);
             updateTap();
             const bool snd = prefix == "eq_";
-            ids = snd ? juce::StringArray { "eq_low", "eq_mid", "eq_midf", "eq_high" }
-                      : juce::StringArray { prefix + "eql", prefix + "eqm", prefix + "eqmf", prefix + "eqh" };
-            atts.clear();
-            for (int i = 0; i < 4; ++i)
+            bands.clear();
+            if (snd)
+            {   // 8 pasiem celeho zvuku
+                ids = { "eq_hpf", "eq_low", "eq_lowf", "eq_mid", "eq_midf", "eq_q1", "eq_p2g", "eq_p2f", "eq_p2q", "eq_p3g", "eq_p3f", "eq_p3q", "eq_p4g", "eq_p4f", "eq_p4q", "eq_high", "eq_highf", "eq_lpf" };
+                bands = { { 3, 0, -1, -1, 0, 0.707f, 20, 1000, 20 }, { 0, 2, 1, -1, 0, 0.7f, 40, 600, 150 },
+                          { 1, 4, 3, 5, 0, 0, 40, 16000, 1000 }, { 1, 7, 6, 8, 0, 0, 40, 16000, 300 }, { 1, 10, 9, 11, 0, 0, 40, 16000, 3000 }, { 1, 13, 12, 14, 0, 0, 40, 16000, 6000 },
+                          { 2, 16, 15, -1, 0, 0.7f, 1000, 16000, 2500 }, { 4, 17, -1, -1, 0, 0.707f, 1000, 20000, 20000 } };
+            }
+            else
             {
-                atts.push_back (std::make_unique<juce::ParameterAttachment> (*p.params.getParameter (ids[i]), [this, i] (float v) { val[i] = v; repaint(); }, &p.undo));
+                ids = { prefix + "eql", prefix + "eqm", prefix + "eqmf", prefix + "eqh" };
+                bands = { { 0, -1, 0, -1, 150, 0.7f, 150, 150, 150 }, { 1, 2, 1, -1, 0, 0.8f, 200, 8000, 1000 }, { 2, -1, 3, -1, 2500, 0.7f, 2500, 2500, 2500 } };
+            }
+            atts.clear(); val.assign ((size_t) ids.size(), 0.0f);
+            for (int i = 0; i < ids.size(); ++i)
+            {
+                atts.push_back (std::make_unique<juce::ParameterAttachment> (*p.params.getParameter (ids[i]), [this, i] (float v) { val[(size_t) i] = v; repaint(); }, &p.undo));
                 atts.back()->sendInitialUpdate();
             }
+            repaint();
+        }
+        float bf (const Band& b) const { return b.f >= 0 ? val[(size_t) b.f] : b.fFix; }
+        float bg (const Band& b) const { return b.g >= 0 ? val[(size_t) b.g] : 0.0f; }
+        float bq (const Band& b) const { return b.q >= 0 ? val[(size_t) b.q] : b.qFix; }
+        bool bandActive (const Band& b) const
+        {
+            if (b.type == 3) return bf (b) > 21.0f;
+            if (b.type == 4) return bf (b) < 19900.0f;
+            return bg (b) != 0.0f;
         }
         static constexpr float fLo = 20.0f, fHi = 20000.0f, dbR = 18.0f;
         float xOf (float hz) const { return (float) getWidth() * std::log (hz / fLo) / std::log (fHi / fLo); }
@@ -1247,12 +1270,7 @@ namespace
         float yOf (float db) const { return graphH() * 0.5f - db / dbR * (graphH() * 0.5f - 6.0f); }
         float dbOf (float y) const { return -(y - graphH() * 0.5f) / (graphH() * 0.5f - 6.0f) * dbR; }
         float graphH() const { return (float) getHeight() - 18.0f; }
-        juce::Point<float> pt (int k) const
-        {
-            if (k == 0) return { xOf (150.0f), yOf (val[0]) };
-            if (k == 1) return { xOf (val[2]), yOf (val[1]) };
-            return { xOf (2500.0f), yOf (val[3]) };
-        }
+        juce::Point<float> pt (int k) const { const auto& b = bands[(size_t) k]; return { xOf (bf (b)), yOf (bg (b)) }; }
         void paint (juce::Graphics& g) override
         {
             const auto gr = getLocalBounds().toFloat().withHeight (graphH());
@@ -1289,69 +1307,121 @@ namespace
                 g.fillPath (sp);
                 g.setColour (sc.brighter (0.2f).withAlpha (0.6f)); g.strokePath (sp, juce::PathStrokeType (1.0f));
             }
-            // krivka
-            Biquad b[3];
-            b[0].set (0, 150, 0.7f, val[0], 48000); b[1].set (1, val[2], 0.8f, val[1], 48000); b[2].set (2, 2500, 0.7f, val[3], 48000);
+            // krivka (sucin vsetkych pasiem)
+            std::vector<Biquad> bq2;
+            for (auto& b : bands) { Biquad q; q.set (b.type, bf (b), bq (b), bg (b), 48000); bq2.push_back (q); }
             juce::Path path;
             for (int x = 0; x <= getWidth(); x += 2)
             {
                 const double w = juce::MathConstants<double>::twoPi * hzOf ((float) x) / 48000.0;
                 const std::complex<double> z1 = std::polar (1.0, -w), z2 = z1 * z1;
                 double mag = 1;
-                for (auto& q : b) mag *= std::abs (((double) q.b0 + (double) q.b1 * z1 + (double) q.b2 * z2) / (1.0 + (double) q.a1 * z1 + (double) q.a2 * z2));
-                const float y = juce::jlimit (0.0f, graphH(), yOf ((float) (20.0 * std::log10 (mag))));
+                for (size_t k = 0; k < bq2.size(); ++k)
+                {
+                    if (! bandActive (bands[k])) continue;
+                    const auto& q = bq2[k];
+                    mag *= std::abs (((double) q.b0 + (double) q.b1 * z1 + (double) q.b2 * z2) / (1.0 + (double) q.a1 * z1 + (double) q.a2 * z2));
+                }
+                const float y = juce::jlimit (0.0f, graphH(), yOf ((float) (20.0 * std::log10 (juce::jmax (1.0e-6, mag)))));
                 if (x == 0) path.startNewSubPath ((float) x, y); else path.lineTo ((float) x, y);
             }
             g.setColour (enabled ? col : col.withAlpha (0.35f)); g.strokePath (path, juce::PathStrokeType (2.5f));
-            for (int k = 0; k < 3; ++k)
+            // tahane pasmo: jeho vlastna krivka zvyraznena (vidno sirku)
+            if (drag >= 0 && drag < (int) bands.size())
             {
-                const auto c = pt (k);
-                g.setColour (k == drag ? text : col); g.fillEllipse (c.x - 8, c.y - 8, 16, 16);
+                const auto& q = bq2[(size_t) drag]; juce::Path one; const float y0 = yOf (0);
+                one.startNewSubPath (0, y0);
+                for (int x = 0; x <= getWidth(); x += 2)
+                {
+                    const double w = juce::MathConstants<double>::twoPi * hzOf ((float) x) / 48000.0;
+                    const std::complex<double> z1 = std::polar (1.0, -w), z2 = z1 * z1;
+                    const double mag = std::abs (((double) q.b0 + (double) q.b1 * z1 + (double) q.b2 * z2) / (1.0 + (double) q.a1 * z1 + (double) q.a2 * z2));
+                    one.lineTo ((float) x, juce::jlimit (0.0f, graphH(), yOf ((float) (20.0 * std::log10 (juce::jmax (1.0e-6, mag))))));
+                }
+                one.lineTo ((float) getWidth(), y0); one.closeSubPath();
+                g.setColour (col.withAlpha (0.18f)); g.fillPath (one);
+            }
+            // body pasiem (orezania ako stvorceky na nulovej ciare), cisla pasiem pri 8-pasmovom EQ
+            const bool many = bands.size() > 3;
+            for (int k = 0; k < (int) bands.size(); ++k)
+            {
+                const auto c = pt (k); const auto& b = bands[(size_t) k];
+                const bool act = bandActive (b);
+                g.setColour (k == drag ? text : (act ? col : col.withAlpha (0.45f)));
+                const float r = many ? 7.0f : 8.0f;
+                if (b.type >= 3) g.fillRect (c.x - r + 1, c.y - r + 1, 2 * r - 2, 2 * r - 2); else g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
+                if (many) { g.setColour (juce::Colour (0xff1a2029)); g.setFont (juce::FontOptions (10.0f, juce::Font::bold)); g.drawText (juce::String (k + 1), (int) (c.x - r), (int) (c.y - r), (int) (2 * r), (int) (2 * r), juce::Justification::centred); }
+            }
+            if (drag >= 0 && drag < (int) bands.size())
+            {   // hodnoty prave tahaneho bodu
+                const auto& b = bands[(size_t) drag];
+                const float f = bf (b);
+                juce::String t = (f >= 1000 ? juce::String (f / 1000.0f, 1) + " kHz" : juce::String (juce::roundToInt (f)) + " Hz");
+                if (b.g >= 0) t += "   " + juce::String (bg (b), 1) + " dB";
+                if (b.q >= 0) t += "   Q " + juce::String (bq (b), 1);
+                g.setColour (text); g.setFont (juce::FontOptions (11.5f)); g.drawText (t, getWidth() - 200, 4, 194, 14, juce::Justification::centredRight);
             }
         }
         int hit (juce::Point<float> m) const
         {
-            int best = -1; float bd = 18.0f;
-            for (int k = 0; k < 3; ++k) { const float d = pt (k).getDistanceFrom (m); if (d < bd) { bd = d; best = k; } }
+            int best = -1; float bd = 16.0f;
+            for (int k = 0; k < (int) bands.size(); ++k) { const float d = pt (k).getDistanceFrom (m); if (d < bd) { bd = d; best = k; } }
             return best;
         }
-        int dbParam (int k) const { return k == 0 ? 0 : (k == 1 ? 1 : 3); }
+        void gesture (int k, bool begin)
+        {
+            const auto& b = bands[(size_t) k];
+            for (int id : { b.f, b.g }) if (id >= 0 && ! (b.f >= 0 && b.fMin == b.fMax && id == b.f)) { if (begin) atts[(size_t) id]->beginGesture(); else atts[(size_t) id]->endGesture(); }
+        }
         void mouseDown (const juce::MouseEvent& e) override
         {
-            drag = hit (e.position);
-            if (drag < 0) return;
-            atts[(size_t) dbParam (drag)]->beginGesture();
-            if (drag == 1) atts[2]->beginGesture();
+            drag = hit (e.position); qDrag = false;
+            if (drag < 0) { repaint(); return; }
+            // ako FabFilter: pravym tlacidlom / Shift / Alt + tahanie hore-dole = sirka pasma (uzsie / sirsie)
+            const auto& b = bands[(size_t) drag];
+            if (b.q >= 0 && (e.mods.isRightButtonDown() || e.mods.isShiftDown() || e.mods.isAltDown()))
+            { qDrag = true; qStart = val[(size_t) b.q]; yStart = e.position.y; atts[(size_t) b.q]->beginGesture(); }
+            else gesture (drag, true);
             repaint();
         }
         void mouseDrag (const juce::MouseEvent& e) override
         {
             if (drag < 0) return;
-            atts[(size_t) dbParam (drag)]->setValueAsPartOfGesture (juce::jlimit (-15.0f, 15.0f, dbOf (e.position.y)));
-            if (drag == 1) atts[2]->setValueAsPartOfGesture (juce::jlimit (200.0f, 8000.0f, hzOf (e.position.x)));
+            const auto& b = bands[(size_t) drag];
+            if (qDrag) { atts[(size_t) b.q]->setValueAsPartOfGesture (juce::jlimit (0.3f, 8.0f, qStart * std::pow (2.0f, (yStart - e.position.y) / 40.0f))); return; }
+            if (b.g >= 0) atts[(size_t) b.g]->setValueAsPartOfGesture (juce::jlimit (-15.0f, 15.0f, dbOf (e.position.y)));
+            if (b.f >= 0 && b.fMin < b.fMax) atts[(size_t) b.f]->setValueAsPartOfGesture (juce::jlimit (b.fMin, b.fMax, hzOf (e.position.x)));
         }
-        void mouseUp (const juce::MouseEvent&) override
-        {
-            if (drag < 0) return;
-            atts[(size_t) dbParam (drag)]->endGesture();
-            if (drag == 1) atts[2]->endGesture();
-            drag = -1; repaint();
+        void mouseUp (const juce::MouseEvent&) override { if (drag < 0) return; if (qDrag) atts[(size_t) bands[(size_t) drag].q]->endGesture(); else gesture (drag, false); drag = -1; qDrag = false; repaint(); }
+        void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+        {   // koliesko nad bodom = sirka pasma (Q)
+            const int k = hit (e.position);
+            if (k < 0 || bands[(size_t) k].q < 0) return;
+            const int id = bands[(size_t) k].q;
+            atts[(size_t) id]->setValueAsCompleteGesture (juce::jlimit (0.3f, 8.0f, val[(size_t) id] * (w.deltaY > 0 ? 1.15f : 1.0f / 1.15f)));
         }
         void mouseDoubleClick (const juce::MouseEvent& e) override
         {
             const int k = hit (e.position);
             if (k < 0) return;
-            atts[(size_t) dbParam (k)]->setValueAsCompleteGesture (0);
-            if (k == 1) atts[2]->setValueAsCompleteGesture (1000);
+            const auto& b = bands[(size_t) k];
+            if (b.g >= 0) atts[(size_t) b.g]->setValueAsCompleteGesture (0);
+            if (b.f >= 0 && b.fMin < b.fMax) atts[(size_t) b.f]->setValueAsCompleteGesture (b.fDef);
+            if (b.q >= 0) atts[(size_t) b.q]->setValueAsCompleteGesture (k == 2 && bands.size() > 3 ? 0.8f : 1.0f);
         }
         void flat()
         {
             p.undo.beginNewTransaction (T ("Plochý EQ"));
-            for (int i = 0; i < 4; ++i) atts[(size_t) i]->setValueAsCompleteGesture (i == 2 ? 1000.0f : 0.0f);
+            for (int k = 0; k < (int) bands.size(); ++k)
+            {
+                const auto& b = bands[(size_t) k];
+                if (b.g >= 0) atts[(size_t) b.g]->setValueAsCompleteGesture (0);
+                if (b.f >= 0 && b.fMin < b.fMax) atts[(size_t) b.f]->setValueAsCompleteGesture (b.fDef);
+            }
         }
         NovaProcessor& p; juce::StringArray ids; juce::Colour col = arc;
         std::vector<std::unique_ptr<juce::ParameterAttachment>> atts;
-        float val[4] { 0, 0, 1000, 0 }; int drag = -1;
+        std::vector<Band> bands; std::vector<float> val; int drag = -1; bool qDrag = false; float qStart = 1, yStart = 0;
         bool enabled = true; int tapIdx = 0; unsigned lastW = 0; float sr = 48000;
         juce::dsp::FFT fft; std::vector<float> spec;
     };
@@ -1407,10 +1477,11 @@ namespace
                 eqOn[t]->onStateChange = [this] { syncEnabled(); };
                 addAndMakeVisible (*eqOn[t]);
             }
+            excK = std::make_unique<Knob> (p.params, "exc", T ("Lesk")); excK->s.setTooltip (T ("Doplní jemné výšky (vzduch) – hlavne nahrávkam s orezanými výškami, napr. klavíru")); addChildComponent (*excK);
             flatBtn.setButtonText (T ("Plochý")); flatBtn.setTooltip (T ("Vynulovať tento EQ"));
             flatBtn.onClick = [this] { graph.flat(); };
             addAndMakeVisible (flatBtn); addAndMakeVisible (graph);
-            help.setText (T ("Ťahaj body v grafe:\nhore / dole = hlasnejšie alebo tichšie,\nstredný aj vľavo / vpravo.\nDvojklik na bod ho vynuluje."), juce::dontSendNotification);
+            help.setText (T ("Ťahaj body: hore / dole = hlasnejšie / tichšie, vľavo / vpravo = výška. Pravé tlačidlo (alebo Shift) + ťahanie hore / dole = užšie / širšie pásmo, rovnako koliesko. Dvojklik = vynulovať."), juce::dontSendNotification);
             help.setFont (juce::FontOptions (12.0f)); help.setColour (juce::Label::textColourId, dim); help.setJustificationType (juce::Justification::topLeft);
             addAndMakeVisible (help);
             for (auto* b : { &tabFx, &tabEq, &tabGate, &tabMod }) addAndMakeVisible (b);
@@ -1549,7 +1620,7 @@ namespace
             for (int k = 0; k < 4; ++k) { mSrc[k]->setVisible (mv); mDst[k]->setVisible (mv); mAmt[k]->setVisible (mv); }
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setVisible (e && i / 4 == target);
             for (auto& b : targets) b.setVisible (e);
-            flatBtn.setVisible (e); graph.setVisible (e); help.setVisible (e);
+            flatBtn.setVisible (e); graph.setVisible (e); help.setVisible (e); if (excK) excK->setVisible (e && target == 2);
             for (int t = 0; t < NEQ; ++t) eqOn[t]->setVisible (e && t == target);
             syncEnabled();
             repaint();
@@ -1608,12 +1679,14 @@ namespace
             // prepinac Zapnuty pod tlacidlom Plochy (v jednom riadku s tlacidlami vrstiev sa neprekryva)
             for (auto& tg : eqOn) tg->setBounds (getWidth() - 12 - 96, 66, 96, 22);
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setBounds (12 + (i % 4) * 62, 66, 58, 70);
-            help.setBounds (270, 92, getWidth() - 282, 52);
+            if (excK) excK->setBounds (getWidth() - 12 - 62, 76, 62, 66);
+            help.setBounds (270, 92, getWidth() - 282 - 62, 52);
             graph.setBounds (12, 140, getWidth() - 24, getHeight() - 150);
         }
         NovaProcessor& p;
         Toggle drive, chorus, delay, reverb, pp; Seg sync, chType;
         std::vector<std::unique_ptr<Knob>> fx, eq;
+        std::unique_ptr<Knob> excK;
         juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help, gtHelp;
         std::unique_ptr<Toggle> gtOn; std::unique_ptr<Seg> gtRate; std::unique_ptr<Combo> mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing, mAmt[4]; juce::ComboBox gtPreset;
         juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[6]; juce::Label vcHelp;

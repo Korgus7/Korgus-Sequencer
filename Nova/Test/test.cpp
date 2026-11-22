@@ -92,6 +92,22 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 2 && String (argv[1]) == "eqshot")
+    {   // NovaTest eqshot <vystup.png> [zvuk]: rozsirena verzia, zalozka EQ, zvuk "Zvuk"
+        ScopedJuceInitialiser_GUI gui;
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        if (argc > 3) q.loadPreset ("f:" + String::fromUTF8 (argv[3]));
+        q.uiMode = 1;
+        std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); ed->setVisible (true);
+
+        std::function<void (Component*, const String&)> click = [&] (Component* c, const String& t)
+        { for (auto* ch : c->getChildren()) { if (auto* b = dynamic_cast<Button*> (ch)) if (b->getButtonText() == t && b->onClick) { b->onClick(); } click (ch, t); } };
+        click (ed.get(), "EQ"); Thread::sleep (300);
+        click (ed.get(), "Zvuk"); click (ed.get(), "Sound"); Thread::sleep (300);
+        auto img = ed->createComponentSnapshot (ed->getLocalBounds());
+        File f (argv[2]); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
     if (argc > 3 && String (argv[1]) == "knova")
     {   // NovaTest knova <subor.knova> <vystup.wav> [nota]: nacita zvuk a zahra notu 2 s
         NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
@@ -120,6 +136,7 @@ int main (int argc, char** argv)
         for (int i = 0; i < 300 && ! q.synth.pianoReady(); ++i) Thread::sleep (50);
         if (! q.loadPreset ("f:" + String::fromUTF8 (argv[2]))) { printf ("zvuk nenajdeny\n"); return 1; }
         if (auto* prm = q.params.getParameter ("full")) prm->setValueNotifyingHost (String (argv[3]).getFloatValue());
+        { MidiBuffer mb; AudioBuffer<float> blk (2, bs); for (int k = 0; k < 40; ++k) { blk.clear(); q.processBlock (blk, mb); Thread::sleep (100); } }   // nastroj sa nacitava na pozadi
         const int total = (int) (3.5 * sr); AudioBuffer<float> out (2, total); out.clear();
         for (int pos = 0; pos < total; pos += bs)
         {

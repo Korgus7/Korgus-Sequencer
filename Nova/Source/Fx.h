@@ -15,6 +15,15 @@ namespace nova
         {
             const float A = std::pow (10.0f, db / 40.0f), w = twoPi * clampf (f, 20.0f, sr * 0.45f) / sr, cw = std::cos (w), sw = std::sin (w);
             float a0, B0, B1, B2, A1, A2;
+            if (type == 3 || type == 4)   // 3 = orezanie basov (horna priepust), 4 = orezanie vysok (dolna priepust), 12 dB/okt
+            {
+                const float al = sw / (2 * 0.707f);
+                if (type == 3) { B0 = (1 + cw) / 2; B1 = -(1 + cw); B2 = (1 + cw) / 2; }
+                else { B0 = (1 - cw) / 2; B1 = 1 - cw; B2 = (1 - cw) / 2; }
+                a0 = 1 + al; A1 = -2 * cw; A2 = 1 - al;
+                b0 = B0 / a0; b1 = B1 / a0; b2 = B2 / a0; a1 = A1 / a0; a2 = A2 / a0;
+                return;
+            }
             if (type == 0)        // dolny shelf
             {
                 const float al = sw / 2.0f * std::sqrt ((A + 1 / A) * (1 / 0.8f - 1) + 2), sa = 2 * std::sqrt (A) * al;
@@ -53,6 +62,28 @@ namespace nova
         void process (float& l, float& r) { l = hi[0].process (md[0].process (lo[0].process (l))); r = hi[1].process (md[1].process (lo[1].process (r))); }
     };
 
+    // 8-pasmovy EQ celeho zvuku: orezanie basov, basy (shelf), 4 nastavitelne pasma so sirkou, vysky (shelf), orezanie vysok
+    struct Eq8
+    {
+        Biquad b[8][2]; float last[18] {}; bool act[8] {};
+        void reset() { for (auto& x : b) for (auto& y : x) y.z1 = y.z2 = 0; last[0] = -1; }
+        bool update (const float* v, float sr)   // v: hpf, lowG, lowF, p1G, p1F, p1Q, p2G, p2F, p2Q, p3G, p3F, p3Q, p4G, p4F, p4Q, highG, highF, lpf
+        {
+            bool ch = false; for (int i = 0; i < 18; ++i) if (v[i] != last[i]) { ch = true; last[i] = v[i]; }
+            if (ch)
+                for (int c = 0; c < 2; ++c)
+                {
+                    b[0][c].set (3, v[0], 0.707f, 0, sr); b[1][c].set (0, v[2], 0.7f, v[1], sr);
+                    for (int k = 0; k < 4; ++k) b[2 + k][c].set (1, v[4 + k * 3], v[5 + k * 3], v[3 + k * 3], sr);
+                    b[6][c].set (2, v[16], 0.7f, v[15], sr); b[7][c].set (4, v[17], 0.707f, 0, sr);
+                }
+            act[0] = v[0] > 21.0f; act[1] = v[1] != 0; for (int k = 0; k < 4; ++k) act[2 + k] = v[3 + k * 3] != 0; act[6] = v[15] != 0; act[7] = v[17] < 19900.0f;
+            bool any = false; for (bool a : act) any = any || a;
+            return any;
+        }
+        void process (float& l, float& r) { for (int k = 0; k < 8; ++k) if (act[k]) { l = b[k][0].process (l); r = b[k][1].process (r); } }
+    };
+
     struct FxSettings
     {
         float tube = 0; bool compOn = false; float comp = 0.35f;
@@ -66,6 +97,8 @@ namespace nova
         float dlEqLow = 0, dlEqMid = 0, dlEqMidF = 1000, dlEqHigh = 0;
         bool mfOn = false; int mfType = 0; float mfCut = 20000, mfReso = 0, mfDrive = 0;
         float gainDb = 0, volumeDb = 0;
+        float eq8[18] { 20, 0, 150, 0, 1000, 0.8f, 0, 300, 1, 0, 3000, 1, 0, 6000, 1, 0, 2500, 20000 };   // 8-pasmovy EQ celeho zvuku
+        float exc = 0;    // Lesk: doplni jemne vysky (harmonicke nad ~5 kHz) – pre nahravky s orezanymi vyskami (klavir)
         float full = 0;   // Plnost: spodne stredy, hustota, sirka aj pre mono zvuky
         double bpm = 120;
     };
@@ -93,7 +126,7 @@ namespace nova
 
         void process (float* L, float* R, int n, const FxSettings& s)
         {
-            const bool eqOn = eq.update (s.eqLow, s.eqMid, s.eqMidF, s.eqHigh, sr) && s.eqEnabled;
+            const bool eqOn = eq.update (s.eq8, sr) && s.eqEnabled;
             const bool rvEqOn = rvEq.update (s.rvEqLow, s.rvEqMid, s.rvEqMidF, s.rvEqHigh, sr) && s.rvEqEnabled;
             const bool tapRv = an != nullptr && an->wants (3), tapOut = an != nullptr && an->wants (2), tapDl = an != nullptr && an->wants (4);
             const bool dlEqOn = dlEq.update (s.dlEqLow, s.dlEqMid, s.dlEqMidF, s.dlEqHigh, sr) && s.dlEqEnabled;
@@ -111,6 +144,7 @@ namespace nova
             dlTone.setHz (s.dlTone, sr);
             mfL.set (s.mfCut, 0.6f + 9.0f * s.mfReso * s.mfReso, sr); mfR.set (s.mfCut, 0.6f + 9.0f * s.mfReso * s.mfReso, sr);
             fullL.set (220.0f, 0.8f, sr); fullR.set (220.0f, 0.8f, sr);
+            for (int c = 0; c < 2; ++c) { exA[c].setHz (3000.0f, sr); exB[c].setHz (5000.0f, sr); }
             const float pre = dbToGain (s.gainDb), post = dbToGain (s.volumeDb);
             const float sm = 1.0f - std::exp (-1.0f / (0.03f * sr));
             const float thr = -6.0f - 24.0f * s.comp, ratio = 3.0f;
@@ -165,6 +199,17 @@ namespace nova
                     l = std::tanh (l * d) * nrm * (1.0f - 0.4f * s.drive); r = std::tanh (r * d) * nrm * (1.0f - 0.4f * s.drive);
                 }
                 if (eqOn) eq.process (l, r);
+                if (s.exc > 0.001f)
+                {   // Lesk: z vyssich stredov sa vytvoria harmonicke o oktavu vyssie a necha sa len to nad ~5 kHz
+                    float* ch[2] = { &l, &r };
+                    for (int c = 0; c < 2; ++c)
+                    {
+                        const float x = *ch[c], hp = x - exA[c].lp (x);
+                        exEnv[c] += 0.002f * (std::abs (hp) - exEnv[c]);
+                        const float h = hp * std::abs (hp) / (exEnv[c] + 1.0e-5f), h2 = h - exB[c].lp (h);   // nezavisle od hlasitosti
+                        *ch[c] = x + s.exc * h2;
+                    }
+                }
                 if (chSm > 0.001f) mod.process (l, r, s.chType, chSm, s.chDepth, s.chRate, s.chFb);
                 if (dlSm > 0.001f || s.dlOn)
                 {
@@ -221,9 +266,9 @@ namespace nova
         float sr = 48000;
         ModFx mod; korgus::SuperVerb reverb;
         std::vector<float> dlL, dlR; int dw = 0; float dlTimeSm = -1; OnePole dlTone;
-        Eq3 eq, rvEq, dlEq;
+        Eq8 eq; Eq3 rvEq, dlEq;
         Svf mfL, mfR, mf2L, mf2R;
         float rvSm = 0, chSm = 0, dlSm = 0, wSm = 1, compEnv = 0, grDb = 0, pf = 0, ps = 0;
-        float fullSm = 0; Svf fullL, fullR; OnePole rvHpL, rvHpR; float fullAp[2][2048] {}; int fullW = 0;
+        float fullSm = 0; Svf fullL, fullR; OnePole rvHpL, rvHpR, exA[2], exB[2]; float exEnv[2] {}; float fullAp[2][2048] {}; int fullW = 0;
     };
 }

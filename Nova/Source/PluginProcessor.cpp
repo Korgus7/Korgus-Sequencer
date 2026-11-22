@@ -101,11 +101,15 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
     f.dlOn = g ("dl_on") > 0.5f; f.dlSync = (int) g ("dl_sync"); f.dlTime = g ("dl_time"); f.dlFb = g ("dl_fb"); f.dlTone = g ("dl_tone"); f.dlMix = g ("dl_mix"); f.dlPP = g ("dl_pp") > 0.5f;
     f.rvOn = g ("rv_on") > 0.5f; f.rvSize = g ("rv_size"); f.rvDamp = g ("rv_damp"); f.rvMix = g ("rv_mix"); f.rvPre = g ("rv_pre");
     f.width = g ("fx_width"); f.punch = g ("fx_punch"); f.eqLow = g ("eq_low"); f.eqMid = g ("eq_mid"); f.eqMidF = g ("eq_midf"); f.eqHigh = g ("eq_high");
+    {
+        static const char* ids[18] = { "eq_hpf", "eq_low", "eq_lowf", "eq_mid", "eq_midf", "eq_q1", "eq_p2g", "eq_p2f", "eq_p2q", "eq_p3g", "eq_p3f", "eq_p3q", "eq_p4g", "eq_p4f", "eq_p4q", "eq_high", "eq_highf", "eq_lpf" };
+        for (int i = 0; i < 18; ++i) f.eq8[i] = g (ids[i]);
+    }
     f.eqEnabled = g ("eq_on") > 0.5f; f.rvEqEnabled = g ("rv_eqon") > 0.5f; f.dlEqEnabled = g ("dl_eqon") > 0.5f;
     f.dlEqLow = g ("dl_eql"); f.dlEqMid = g ("dl_eqm"); f.dlEqMidF = g ("dl_eqmf"); f.dlEqHigh = g ("dl_eqh");
     f.rvEqLow = g ("rv_eql"); f.rvEqMid = g ("rv_eqm"); f.rvEqMidF = g ("rv_eqmf"); f.rvEqHigh = g ("rv_eqh");
     f.mfOn = g ("mf_on") > 0.5f; f.mfType = (int) g ("mf_type"); f.mfCut = g ("mf_cut"); f.mfReso = g ("mf_reso"); f.mfDrive = g ("mf_drive");
-    f.gainDb = g ("p_gain"); f.volumeDb = g ("volume");
+    f.gainDb = g ("p_gain"); f.volumeDb = g ("volume"); f.exc = g ("exc");
     s.arpOn = g ("arp_on") > 0.5f; s.arpHold = g ("arp_hold") > 0.5f; s.arpPat = (int) g ("arp_pat"); s.arpSpeed = (int) g ("arp_speed");
     s.arpOct = (int) g ("arp_oct"); s.arpLen = g ("arp_len");
     s.mono = g ("mono") > 0.5f; s.glide = g ("glide"); s.veltrack = g ("veltrack"); s.morphX = g ("morph_x"); s.morphY = g ("morph_y");
