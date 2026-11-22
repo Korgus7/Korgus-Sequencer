@@ -903,6 +903,15 @@ namespace nova
         }
         else { vocWasOn = false; vocLevel.store (0.0f); }
         fx.process (bufL.data(), bufR.data(), total, f);
+        {   // odstranenie jednosmernej zlozky (pulzne vlny, saturacia) - viac rezervy a ziadne lupnutia
+            const float R = 1.0f - 6.2831853f * 8.0f / (float) sr;
+            for (int i = 0; i < total; ++i)
+            {
+                const float l = bufL[(size_t) i], r = bufR[(size_t) i];
+                dcY[0] = l - dcX[0] + R * dcY[0]; dcX[0] = l; bufL[(size_t) i] = dcY[0];
+                dcY[1] = r - dcX[1] + R * dcY[1]; dcX[1] = r; bufR[(size_t) i] = dcY[1];
+            }
+        }
         if (s.gtOn)   // gater az za efektmi: seka aj dozvuk a delay (typicky "trance gate")
             for (int i = 0; i < total; ++i) { bufL[(size_t) i] *= gateBuf[(size_t) i]; bufR[(size_t) i] *= gateBuf[(size_t) i]; }
         // prepnutie zvuku: 25 ms stlmit vsetko (aj dozvuk), vymazat chvosty efektov, 5 ms nabeh

@@ -123,6 +123,7 @@ namespace nova
         void arpStopNotes();
 
         std::array<Voice, 48> voices;
+        float dcX[2] {}, dcY[2] {};
         std::shared_ptr<PianoBank> bank, bank2; std::atomic<PianoBank*> bank2Raw { nullptr };
         std::shared_ptr<InstrBank> ibank;
         UserSamplePtr userSmp[2];
