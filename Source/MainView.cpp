@@ -275,7 +275,7 @@ struct MainView::KbdPoll : juce::Timer
     bool pageFocus = true;                    // stranka (WebView) ma fokus klavesnice - skratky spracuje sama
     struct Held { juce::String track; int slot; int pitch; std::vector<std::pair<juce::String, int>> extra; };
     std::map<int, Held> held;                 // index klavesy -> nota
-    bool down[17] = {}, zD = false, xD = false, cD = false, vD = false, spD = false;
+    bool down[17] = {}, zD = false, xD = false, cD = false, vD = false, bD = false, spD = false;
 
     // stopa okna pluginu v popredi ("" ak ziadne okno nie je v popredi)
     bool foregroundPlugin (juce::String& winTrack)
@@ -311,7 +311,7 @@ struct MainView::KbdPoll : juce::Timer
         }
         held.clear();
         for (auto& d : down) d = false;
-        zD = xD = cD = vD = spD = false;
+        zD = xD = cD = vD = bD = spD = false;
     }
 
     // skratky programu z okna pluginu (sipky, Delete, Home, Ctrl+Z...) -> stranka ako keby boli stlacene v hlavnom okne
@@ -407,15 +407,16 @@ struct MainView::KbdPoll : juce::Timer
 
         if (! on) { releaseAll(); return; }
 
-        // oktava / sila uderu (Z X C V)
+        // oktava (Z X), metronom (C), sila uderu (V B)
         bool chg = false;
         const bool z = KbdKeys::isScanDown (0x2C, 'Z'), x = KbdKeys::isScanDown (0x2D, 'X'),
-                   c = KbdKeys::isScanDown (0x2E, 'C'), v = KbdKeys::isScanDown (0x2F, 'V');
+                   c = KbdKeys::isScanDown (0x2E, 'C'), v = KbdKeys::isScanDown (0x2F, 'V'), b = KbdKeys::isScanDown (0x30, 'B');
         if (z && ! zD) { oct = juce::jmax (0, oct - 1); chg = true; }
         if (x && ! xD) { oct = juce::jmin (7, oct + 1); chg = true; }
-        if (c && ! cD) { vel = juce::jlimit (1, 127, vel - 20); chg = true; }
-        if (v && ! vD) { vel = juce::jlimit (1, 127, vel + 20); chg = true; }
-        zD = z; xD = x; cD = c; vD = v;
+        if (c && ! cD && ! textFocus) mv.emit ("kbdMetro", obj());
+        if (v && ! vD) { vel = juce::jlimit (1, 127, vel - 20); chg = true; }
+        if (b && ! bD) { vel = juce::jlimit (1, 127, vel + 20); chg = true; }
+        zD = z; xD = x; cD = c; vD = v; bD = b;
         if (chg) sendState();
 
         // cielova stopa: stopa okna pluginu (ak prijma noty), inak stopa vybrana v programe
