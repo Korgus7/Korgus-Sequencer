@@ -3,6 +3,8 @@ on: workflow_dispatch
 jobs:
   convert:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -10,9 +12,9 @@ jobs:
       - run: pip install --index-url https://download.pytorch.org/whl/cpu torch && pip install transformers numpy
       - run: python tools/ai_convert.py
       - run: ls -la melody.kamt reference.json && sha256sum melody.kamt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: melody-model
-          path: |
-            melody.kamt
-            reference.json
+      - name: Publish to ai-model branch (casti po 90 MB)
+        run: |
+          mkdir out && cp reference.json out/ && split -b 90m -d -a 1 melody.kamt out/melody.kamt.part
+          sha256sum melody.kamt | cut -d' ' -f1 > out/melody.sha256 && stat -c %s melody.kamt > out/melody.size
+          cd out && git init -q && git checkout -q -b ai-model && git add . && git -c user.name=ci -c user.email=ci@local commit -qm model
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ai-model
