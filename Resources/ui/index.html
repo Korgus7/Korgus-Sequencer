@@ -872,6 +872,7 @@ function setupNative(){
   $('bWav').onclick=()=>{ const r=exportRange(); stopIfPlaying(); toast('Export WAV: '+r.txt); nat('exportWav',{start:r.start,end:r.end}); };
   onNat('busy',e=>{ dialog('Import audio','<p>'+esc(e.text)+'</p>'); });
   onNat('audioPeaks',natPeaks);
+  onNat('masterAction',e=>{ if(e.what==='refPick'){ nat('raiseMain',{}); refDialog(); } else if(e.what==='refToggle'){ if(!song.ref){ nat('raiseMain',{}); refDialog(); } else refToggle(); } });
   onNat('aiState',e=>{ aiHasKey=!!e.hasKey; });
   onNat('boot',e=>{ $('bootTxt').textContent=e.text; if(e.p>=0) $('bootBar').style.width=Math.round(e.p*100)+'%'; });
   onNat('bootDone',()=>{ $('bootBar').style.width='100%'; setTimeout(()=>$('boot').classList.add('done'),150); let t=null; try{ t=localStorage.getItem('korgus.tour1'); }catch(e){} if(!t) setTimeout(()=>tourStart(0),1200); });

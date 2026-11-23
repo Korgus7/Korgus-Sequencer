@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <atomic>
 #include <vector>
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -9,6 +10,9 @@ namespace BuiltinFx
     inline const juce::String formatName { "Korgus" };
     // ak je nastavene, sampler vybera subor cez prehliadac programu (namiesto okna Windows)
     inline std::function<void (std::function<void (const juce::File&)>)> requestFile;
+    // akcie z okien efektov pre program (Korgus Master: "refPick" = vyber referencnej pesnicky, "refToggle" = A/B)
+    inline std::function<void (const juce::String&)> hostAction;
+    inline std::atomic<bool> refOn { false }, refLoaded { false };   // stav referencie pre tlacidla v Korgus Master
 
     juce::Array<juce::PluginDescription> descriptions();
     bool isBuiltin (const juce::PluginDescription&);

@@ -1489,9 +1489,15 @@ namespace
                 const juce::String m = "mm" + juce::String (k + 1) + "_";
                 mSrc[k] = std::make_unique<Combo> (p.params, m + "src");
                 mDst[k] = std::make_unique<Combo> (p.params, m + "dst");
-                mAmt[k] = std::make_unique<Knob> (p.params, m + "amt", T ("Množstvo"));
+                mAmt[k] = std::make_unique<juce::Slider> (juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight);
+                mAmt[k]->setTextBoxStyle (juce::Slider::TextBoxRight, true, 56, 20);
+                mAmt[k]->setColour (juce::Slider::trackColourId, amber); mAmt[k]->setColour (juce::Slider::backgroundColourId, juce::Colour (0xff1a2029));
+                mAmt[k]->setColour (juce::Slider::thumbColourId, text); mAmt[k]->setColour (juce::Slider::textBoxTextColourId, text);
+                mAmt[k]->setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+                mAmt[k]->setTooltip (T ("Množstvo modulácie (dvojklik = 0)"));
+                mAmtAtt[k] = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.params, m + "amt", *mAmt[k]);
+                mAmt[k]->setDoubleClickReturnValue (true, 0.0);
                 mSrc[k]->setTooltip (T ("Zdroj modulácie")); mDst[k]->setTooltip (T ("Čím sa bude hýbať"));
-                mAmt[k]->setArc (amber);
                 for (auto* c : std::initializer_list<juce::Component*> { mSrc[k].get(), mDst[k].get(), mAmt[k].get() }) addAndMakeVisible (c);
             }
             auto mkSlider = [this] (juce::Slider& s, juce::Label& l, const char* id, const char* t)
@@ -1576,9 +1582,9 @@ namespace
             for (int k = 0; k < 4; ++k)
             {
                 const int y = 44 + k * 48;
-                mSrc[k]->setBounds (30, y + 2, 170, 24);
-                mDst[k]->setBounds (210, y + 2, 150, 24);
-                mAmt[k]->setBounds (getWidth() - 74, y - 4, 60, 46);
+                mSrc[k]->setBounds (30, y + 2, 140, 24);
+                mDst[k]->setBounds (178, y + 2, 132, 24);
+                mAmt[k]->setBounds (322, y + 2, getWidth() - 322 - 12, 24);
             }
             drive.setBounds (12, 40, 100, 22);
             fx[0]->setBounds (12, 62, 58, 72);
@@ -1605,7 +1611,7 @@ namespace
         std::vector<std::unique_ptr<Knob>> fx, eq;
         std::unique_ptr<Knob> excK;
         juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL; HelpBtn help, gtHelp;
-        std::unique_ptr<Toggle> gtOn; std::unique_ptr<Seg> gtRate; std::unique_ptr<Combo> mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing, mAmt[4]; juce::ComboBox gtPreset;
+        std::unique_ptr<Toggle> gtOn; std::unique_ptr<Seg> gtRate; std::unique_ptr<Combo> mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing; std::unique_ptr<juce::Slider> mAmt[4]; std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mAmtAtt[4]; juce::ComboBox gtPreset;
         juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[6]; HelpBtn vcHelp;
         juce::ComboBox vcSrc; bool vcSrcSync = false; juce::String vcSrcList;
         // zoznam spevovych stop zapisuje Korgus Sequencer do docasneho suboru

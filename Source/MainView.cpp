@@ -592,6 +592,10 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
     web = std::make_unique<juce::WebBrowserComponent> (makeOptions());
     bootLog ("WebView2 vytvorene");
     web->setWantsKeyboardFocus (true);
+    BuiltinFx::hostAction = [this] (const juce::String& what)
+    {   // z okna Korgus Master: vyber referencnej pesnicky / prepnutie A/B (rieši UI)
+        auto o = obj(); put (o, "what", what); emit ("masterAction", o);
+    };
     BuiltinFx::requestFile = [this] (std::function<void (const juce::File&)> cb)
     {
         pendingFileCb = std::move (cb);
@@ -630,6 +634,7 @@ MainView::~MainView()
     saveSettings();
     PluginWindow::hostKey = nullptr;
     BuiltinFx::requestFile = nullptr;
+    BuiltinFx::hostAction = nullptr;
     pluginWindows.clear();
     for (auto& [k, w] : watches) if (w->proc != nullptr) w->proc->removeListener (w.get());
     watches.clear();
@@ -891,7 +896,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 engine.setReference (b, juce::Decibels::decibelsToGain ((float) (double) v.getProperty ("gainDb", 0.0)));
                                 if (b == nullptr) engine.refOn = false;
                             })
-        .withEventListener ("refOn",       [this] (const juce::var& v) { engine.refOn = (bool) v.getProperty ("on", false); })
+        .withEventListener ("refOn",       [this] (const juce::var& v) { engine.refOn = (bool) v.getProperty ("on", false); BuiltinFx::refOn = engine.refOn.load(); })
         .withEventListener ("refMatch",    [this] (const juce::var& v) { onRefMatch (v); })
         .withEventListener ("trackArp",    [this] (const juce::var& v)
                             {
@@ -3343,6 +3348,7 @@ void MainView::onRefLoad (const juce::String& path)
         const double lufs = measureLufs (*b, sp->store->getSampleRate());
         sp->engine.setReference (b, 1.0f);
         computeEqReference (*b, sp->store->getSampleRate());
+        BuiltinFx::refLoaded = true;
         put (o, "id", id); put (o, "name", f.getFileNameWithoutExtension()); put (o, "lufs", std::round (lufs * 10.0) / 10.0);
         sp->emit ("refLoaded", o);
     };

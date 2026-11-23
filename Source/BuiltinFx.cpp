@@ -3383,6 +3383,7 @@ public:
 private:
     void timerCallback() override;
     // asistent: pocuva piesen a nastavi styl a gombiky
+    FlatBtn refPick, refAB;
     FlatBtn asst; bool listening = false; int heard = 0; double acc[31] {}; double crestSum = 0; int crestN = 0; String result;
     Spectrum inSpec;
     std::unique_ptr<Component> meterView;
@@ -3487,6 +3488,10 @@ MasterDisplay::MasterDisplay (MasterFx& f) : fx (f)
     asst.text = String::fromUTF8 ("✦ ") + sk ("Asistent");
     asst.onClick = [this] { asstToggle(); };
     addAndMakeVisible (asst);
+    refPick.text = sk ("Referencia…"); refAB.text = "A/B";
+    refPick.onClick = [] { if (BuiltinFx::hostAction) BuiltinFx::hostAction ("refPick"); };
+    refAB.onClick = [] { if (BuiltinFx::hostAction) BuiltinFx::hostAction (BuiltinFx::refLoaded.load() ? "refToggle" : "refPick"); };
+    addAndMakeVisible (refPick); addAndMakeVisible (refAB);
     meterView = std::make_unique<MeterDisplay> (fx.meter, true);
     addAndMakeVisible (*meterView);
     startTimerHz (30);
@@ -3495,6 +3500,7 @@ MasterDisplay::MasterDisplay (MasterFx& f) : fx (f)
 void MasterDisplay::resized()
 {
     btn.setBounds (getWidth() - 146, 8, 108, 26); asst.setBounds (getWidth() - 146, 38, 108, 24);
+    refPick.setBounds (getWidth() - 146, 66, 72, 22); refAB.setBounds (getWidth() - 70, 66, 32, 22);
     if (meterView != nullptr) meterView->setBounds (0, MasterFx::kTopH + 8, getWidth(), getHeight() - MasterFx::kTopH - 8);
 }
 
@@ -3561,6 +3567,7 @@ void MasterDisplay::timerCallback()
 {
     m = fx.mm.getMeters();
     if (listening) asstStep();
+    if (refAB.on != BuiltinFx::refOn.load()) { refAB.on = BuiltinFx::refOn.load(); refAB.repaint(); }
     btn.on = fx.cmp->get() > 0.5f;
     asst.repaint();
     btn.repaint();
@@ -3615,7 +3622,7 @@ void MasterDisplay::paint (Graphics& g)
         g.drawFittedText (String (bandName[i]) + "  " + String (m.bandGrDb[i], 1), c.translated (0, 10).withHeight (14).toNearestInt(), Justification::centredLeft, 1);
     }
     // cielova hlasitost a napoveda k meracom
-    auto right = r.reduced (8, 0).withTrimmedTop (68).removeFromRight (146).toNearestInt();
+    auto right = r.reduced (8, 0).withTrimmedTop (92).removeFromRight (146).toNearestInt();
     g.setColour (mvcol::text);
     g.drawFittedText (tTarget + String (m.targetLufs, 1) + " LUFS", right.removeFromTop (16), Justification::centredRight, 1);
     g.setColour (mvcol::dim);
