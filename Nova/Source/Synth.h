@@ -21,7 +21,9 @@ namespace nova
     };
     using UserSamplePtr = std::shared_ptr<const UserSample>;
     // editor samplu (nedestruktivne): zaciatok/koniec a slucka ako cast dlzky 0..1, nabeh/doznenie v sekundach, prelinanie slucky v s, odzadu
-    struct SmpEdit { float start = 0, end = 1, fin = 0, fout = 0, ls = 0, le = 1, xf = 0.01f; bool rev = false; };
+    struct SmpEdit { float start = 0, end = 1, fin = 0, fout = 0, ls = 0, le = 1, xf = 0.01f; bool rev = false;
+                     // skenovanie: slucka sa sama posuva po sampli (tvar 0 tam a spat, 1 dopredu, 2 nahodne)
+                     bool scan = false; float scanRate = 0.25f, scanRange = 0.5f; int scanShape = 0; };
 
     struct LayerSettings
     {
@@ -95,7 +97,7 @@ namespace nova
             // wavetable: vyhladena pozicia, aktualna uroven harmonickych a tabulka (pri zmene sa v bloku prelinaju)
             float wtPos = -1; int wtMip = -1, wtTab = -1;
             // sampel
-            const PianoBank::Sample* smp = nullptr; UserSamplePtr user; SmpEdit ued; float human = 0; double pos = 0; float gain = 1, level = 1, dampCoef = 1, atk = 1, atkInc = 1; bool damping = false, noDamper = false;
+            const PianoBank::Sample* smp = nullptr; UserSamplePtr user; SmpEdit ued; float human = 0; double pos = 0, scanPh = 0, scanOff = 0; float scanRnd = 0; int scanStep = -1; float gain = 1, level = 1, dampCoef = 1, atk = 1, atkInc = 1; bool damping = false, noDamper = false;
             float velGain = 1, peak = 0;
         };
         struct Voice

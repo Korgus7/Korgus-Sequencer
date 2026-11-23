@@ -1313,7 +1313,8 @@ bool NovaProcessor::hostedInKorgus()
 juce::String NovaProcessor::encodeSmpEdit (const nova::SmpEdit& e)
 {
     return juce::String (e.start, 5) + "," + juce::String (e.end, 5) + "," + juce::String (e.fin, 4) + "," + juce::String (e.fout, 4) + ","
-         + juce::String (e.ls, 5) + "," + juce::String (e.le, 5) + "," + juce::String (e.xf, 4) + "," + (e.rev ? "1" : "0");
+         + juce::String (e.ls, 5) + "," + juce::String (e.le, 5) + "," + juce::String (e.xf, 4) + "," + (e.rev ? "1" : "0")
+         + "," + (e.scan ? "1" : "0") + "," + juce::String (e.scanRate, 4) + "," + juce::String (e.scanRange, 4) + "," + juce::String (e.scanShape);
 }
 nova::SmpEdit NovaProcessor::decodeSmpEdit (const juce::String& t)
 {
@@ -1324,5 +1325,10 @@ nova::SmpEdit NovaProcessor::decodeSmpEdit (const juce::String& t)
     e.fin = juce::jlimit (0.0f, 10.0f, a[2].getFloatValue()); e.fout = juce::jlimit (0.0f, 10.0f, a[3].getFloatValue());
     e.ls = juce::jlimit (0.0f, 0.999f, a[4].getFloatValue()); e.le = juce::jlimit (e.ls + 0.001f, 1.0f, a[5].getFloatValue());
     e.xf = juce::jlimit (0.0f, 0.5f, a[6].getFloatValue()); e.rev = a[7].getIntValue() != 0;
+    if (a.size() >= 12)
+    {
+        e.scan = a[8].getIntValue() != 0; e.scanRate = juce::jlimit (0.01f, 8.0f, a[9].getFloatValue());
+        e.scanRange = juce::jlimit (0.0f, 1.0f, a[10].getFloatValue()); e.scanShape = juce::jlimit (0, 2, a[11].getIntValue());
+    }
     return e;
 }

@@ -777,7 +777,38 @@ namespace
                 info = T ("Tón: ") + juce::MidiMessage::getMidiNoteName (root, true, true, 4);
                 repaint(); if (onChanged) onChanged();
             };
-            setSize (620, 270);
+            // skenovanie: slucka sa sama posuva po sampli (zvuk sa stale meni)
+            btn (scanB, juce::String::fromUTF8 ("≋ ") + T ("Skenovať"), T ("Slučka sa bude sama posúvať po sampli – tón ostane, ale stále mení farbu (ako wavetable). Najlepšie s krátkou slučkou."));
+            scanB.setClickingTogglesState (true); scanB.setToggleState (ed.scan, juce::dontSendNotification);
+            scanB.onClick = [this]
+            {
+                ed.scan = scanB.getToggleState();
+                if (ed.scan && ! loopOn()) { loopB.setToggleState (true, juce::sendNotification); }
+                apply();
+            };
+            auto sl = [this] (juce::Slider& x, juce::Label& l, const juce::String& t, double lo, double hi, double v, double skew)
+            {
+                x.setSliderStyle (juce::Slider::LinearHorizontal); x.setTextBoxStyle (juce::Slider::TextBoxRight, true, 52, 20);
+                x.setRange (lo, hi, 0.0); x.setSkewFactor (skew); x.setValue (v, juce::dontSendNotification);
+                x.setColour (juce::Slider::trackColourId, amber); x.setColour (juce::Slider::backgroundColourId, panel);
+                x.setColour (juce::Slider::thumbColourId, text); x.setColour (juce::Slider::textBoxTextColourId, text);
+                x.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+                l.setText (t, juce::dontSendNotification); l.setFont (juce::FontOptions (12.0f)); l.setColour (juce::Label::textColourId, dim.brighter (0.3f));
+                addAndMakeVisible (x); addAndMakeVisible (l);
+            };
+            sl (scanRate, scanRateL, T ("Rýchlosť"), 0.02, 4.0, ed.scanRate, 0.35);
+            sl (scanRange, scanRangeL, T ("Rozsah"), 0.0, 100.0, ed.scanRange * 100.0, 1.0);
+            scanRate.textFromValueFunction = [] (double v) { return juce::String (v, v < 1 ? 2 : 1) + " Hz"; };
+            scanRange.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v)) + " %"; };
+            scanRate.updateText(); scanRange.updateText();
+            scanRate.onValueChange = [this] { ed.scanRate = (float) scanRate.getValue(); apply(); };
+            scanRange.onValueChange = [this] { ed.scanRange = (float) scanRange.getValue() / 100.0f; apply(); };
+            scanShape.addItemList ({ T ("Tam a späť"), T ("Dopredu"), T ("Náhodne") }, 1);
+            scanShape.setSelectedItemIndex (ed.scanShape, juce::dontSendNotification);
+            scanShape.onChange = [this] { ed.scanShape = scanShape.getSelectedItemIndex(); apply(); };
+            scanShape.setTooltip (T ("Ako sa slučka posúva: tam a späť, stále dopredu, alebo náhodne skáče"));
+            addAndMakeVisible (scanShape);
+            setSize (620, 306);
         }
         ~SampleEditor() override { if (playing) p.keyboard.noteOff (1, playNote, 0.0f); }
         void timerCallback() override { stopTimer(); }
@@ -800,7 +831,7 @@ namespace
                 peaks[(size_t) x] = { lo, hi };
             }
         }
-        juce::Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (12.0f).withTrimmedTop (24.0f).withTrimmedBottom (44.0f); }
+        juce::Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (12.0f).withTrimmedTop (24.0f).withTrimmedBottom (80.0f); }
         float xOf (float f) const { const auto r = waveArea(); return r.getX() + f * r.getWidth(); }
         float fOf (float x) const { const auto r = waveArea(); return juce::jlimit (0.0f, 1.0f, (x - r.getX()) / r.getWidth()); }
         double durSec() const { return smp != nullptr ? smp->buf.getNumSamples() / smp->rate : 1.0; }
@@ -817,6 +848,12 @@ namespace
             const float cy = r.getCentreY(), hh = r.getHeight() * 0.46f;
             // slucka
             if (loopOn()) { g.setColour (steelHi.withAlpha (0.25f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (ed.ls), r.getY(), xOf (ed.le), r.getBottom())); }
+            if (loopOn() && ed.scan)
+            {   // kam az sa slucka pri skenovani posunie
+                const float x0 = xOf (ed.le), x1 = xOf (ed.le + (ed.end - ed.le) * ed.scanRange);
+                g.setColour (amber.withAlpha (0.12f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (x0, r.getY(), juce::jmax (x0, x1), r.getBottom()));
+                g.setColour (amber.withAlpha (0.6f)); g.drawLine (x0, r.getY() + 8, juce::jmax (x0, x1), r.getY() + 8, 1.0f);
+            }
             // vlna (vybrana cast jasnejsie)
             for (int x = 0; x < (int) peaks.size(); ++x)
             {
@@ -851,13 +888,18 @@ namespace
             auto ms = [] (double sec) { return sec < 1.0 ? juce::String (juce::roundToInt (sec * 1000.0)) + " ms" : juce::String (sec, 2) + " s"; };
             juce::String t = T ("Začiatok ") + ms (ed.start * d) + "   " + T ("Koniec ") + ms (ed.end * d) + "   " + T ("Nábeh ") + ms (ed.fin) + (loopOn() ? juce::String() : "   " + T ("Doznenie ") + ms (ed.fout));
             if (info.isNotEmpty()) t += "   ·   " + info;
-            g.drawText (t, 12, getHeight() - 70, getWidth() - 24, 18, juce::Justification::centredLeft);
+            g.drawText (t, 12, getHeight() - 106, getWidth() - 24, 18, juce::Justification::centredLeft);
         }
         void resized() override
         {
             int x = 12; const int y = getHeight() - 38, h = 28;
             for (auto* b : { &play, &rev, &loopB, &pitch }) { b->setBounds (x, y, 112, h); x += 118; }
             reset.setBounds (getWidth() - 12 - 90, y, 90, h);
+            const int y2 = getHeight() - 74;
+            scanB.setBounds (12, y2, 112, h);
+            scanRateL.setBounds (130, y2, 60, h); scanRate.setBounds (190, y2, 150, h);
+            scanRangeL.setBounds (346, y2, 52, h); scanRange.setBounds (398, y2, 110, h);
+            scanShape.setBounds (getWidth() - 12 - 100, y2 + 2, 100, h - 4);
         }
         int hit (juce::Point<float> m) const
         {
@@ -898,7 +940,8 @@ namespace
 
         NovaProcessor& p; int li; juce::String pre; std::function<void()> onChanged;
         nova::SmpEdit ed; nova::UserSamplePtr smp; std::vector<std::pair<float, float>> peaks;
-        juce::TextButton play, rev, loopB, pitch, reset;
+        juce::TextButton play, rev, loopB, pitch, reset, scanB;
+        juce::Slider scanRate, scanRange; juce::Label scanRateL, scanRangeL; juce::ComboBox scanShape;
         juce::String info; int drag = -1, playNote = 60; bool playing = false;
     };
 

@@ -124,6 +124,26 @@ int main (int argc, char** argv)
         printf ("Shift jemne: f %.0f Hz, g %.1f dB\n", m.b.f, m.b.g);
         return 0;
     }
+    if (argc > 2 && String (argv[1]) == "scan")
+    {   // skenovanie slucky: NovaTest scan subor.wav vystup.wav [0/1 = bez/so skenovanim]
+        ScopedJuceInitialiser_GUI gui;
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        String err; if (! q.loadSampleFile (0, File (argv[2]), err)) { printf ("chyba %s\n", err.toRawUTF8()); return 1; }
+        auto setP = [&] (const char* id, float v) { if (auto* pr = q.params.getParameter (id)) pr->setValueNotifyingHost (pr->convertTo0to1 (v)); };
+        setP ("a_loop", 1); setP ("b_on", 0); setP ("a_ar", 0.3f);
+        nova::SmpEdit e; e.ls = 0.20f; e.le = 0.2008f; e.xf = 0.0002f; e.scan = argc > 4 && String (argv[4]) == "1"; e.scanRate = 0.5f; e.scanRange = 0.8f;
+        q.synth.setSmpEdit (0, e);
+        AudioBuffer<float> out (2, (int) (sr * 4)); out.clear();
+        for (int pos = 0; pos < out.getNumSamples(); pos += bs)
+        {
+            MidiBuffer mb; if (pos == 0) mb.addEvent (MidiMessage::noteOn (1, 60, (uint8) 100), 0);
+            if (pos >= (int) (sr * 3.5) && pos < (int) (sr * 3.5) + bs) mb.addEvent (MidiMessage::noteOff (1, 60), 0);
+            AudioBuffer<float> blk (2, bs); blk.clear(); q.processBlock (blk, mb);
+            for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, jmin (bs, out.getNumSamples() - pos));
+        }
+        WavAudioFormat wf; std::unique_ptr<AudioFormatWriter> w (wf.createWriterFor (new FileOutputStream (File (argv[3])), sr, 2, 24, {}, 0));
+        w->writeFromAudioSampleBuffer (out, 0, out.getNumSamples()); return 0;
+    }
     if (argc > 1 && String (argv[1]) == "eqasst")
     {   // asistent EQ: zvuk s nadbytkom 250-400 Hz (zahuhnany), chybajucimi vyskami a rezonanciou 2 kHz
         ScopedJuceInitialiser_GUI gui;

@@ -182,7 +182,7 @@ namespace nova
                 if (lv.user == nullptr || lv.user->buf.getNumSamples() < 4) return;
                 lv.ued = getSmpEdit (li);
             }
-            lv.pos = 0;
+            lv.pos = 0; lv.scanPh = 0; lv.scanOff = 0; lv.scanStep = -1;
         }
         lv.active = true;
     }
@@ -700,7 +700,25 @@ namespace nova
                 {
                     lsO = juce::jlimit (0.0, L - 2.0, (double) (e.ls * (float) len) - s0);
                     leO = juce::jlimit (lsO + 2.0, L, (double) (e.le * (float) len) - s0);
-                    if (lv.pos >= leO) lv.pos -= (leO - lsO);
+                    if (e.scan)
+                    {   // skenovanie: okno slucky sa posuva po sampli; posun sa meni len pri prechode slucky (bez kolisania vysky)
+                        lv.scanPh += (double) e.scanRate / sr;
+                        lsO += lv.scanOff; leO += lv.scanOff;
+                    }
+                    if (lv.pos >= leO)
+                    {
+                        lv.pos -= (leO - lsO);
+                        if (e.scan)
+                        {
+                            const double room = juce::jmax (0.0, L - (leO - lv.scanOff)) * (double) e.scanRange;
+                            double f = 0;
+                            if (e.scanShape == 0) { const double ph = std::fmod (lv.scanPh, 1.0); f = ph < 0.5 ? ph * 2.0 : 2.0 - ph * 2.0; }
+                            else if (e.scanShape == 1) f = std::fmod (lv.scanPh, 1.0);
+                            else { const int st = (int) lv.scanPh; if (st != lv.scanStep) { lv.scanStep = st; lv.scanRnd = (float) (0.5 + 0.5 * v.rng.next()); } f = lv.scanRnd; }
+                            const double nOff = room * f;
+                            lv.pos += nOff - lv.scanOff; lsO += nOff - lv.scanOff; leO += nOff - lv.scanOff; lv.scanOff = nOff;
+                        }
+                    }
                 }
                 else if (lv.pos >= L - 1.0) { lv.active = false; break; }
                 rd (lv.pos, l, r);
