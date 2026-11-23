@@ -2996,12 +2996,18 @@ class MasterDisplay final : public Component, private Timer
 {
 public:
     explicit MasterDisplay (MasterFx& f);
-    ~MasterDisplay() override { stopTimer(); }
+    ~MasterDisplay() override;
     void paint (Graphics& g) override;
-    void resized() override { btn.setBounds (getWidth() - 116, 12, 108, 28); }
+    void resized() override { btn.setBounds (getWidth() - 116, 8, 108, 26); asst.setBounds (getWidth() - 116, 38, 108, 24); }
     void mouseDoubleClick (const MouseEvent&) override;
 private:
     void timerCallback() override;
+    // asistent: pocuva piesen a nastavi styl a gombiky
+    FlatBtn asst; bool listening = false; int heard = 0; double acc[31] {}; double crestSum = 0; int crestN = 0; String result;
+    Spectrum inSpec;
+    void asstToggle();
+    void asstStep();
+    void asstFinish();
     static String num (float v, int dec) { return v <= -99.0f ? String::fromUTF8 ("\xe2\x80\x93") : String (v, dec); }
     MasterFx& fx;
     FlatBtn btn;
@@ -3026,12 +3032,13 @@ public:
         bright = add ("bright",   kn (M::Bright),  -100, 100, 0, "%", 1.0f, 0);
         bass   = add ("bass",     kn (M::Bass),    -100, 100, 0, "%", 1.0f, 0);
         width  = add ("width",    kn (M::Width),      0, 150, 100, "%", 1.0f, 0);
+        style->inEditor = false;   // styl vybera asistent (tlacidlo v okne)
         cmp = add ("compare", "Porovnať", 0, 1, 0, "", 1.0f, 0);   // A/B, neuklada sa
         cmp->toggle = true; cmp->transient = true; cmp->inEditor = false;
     }
 
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<MasterDisplay> (*this); }
-    int displayHeight() const override { return 128; }
+    int displayHeight() const override { return 144; }
     bool showHeader() const override { return false; }   // ma vlastne porovnanie
 
     void newSong() override { learnReq = true; }
@@ -3049,6 +3056,7 @@ public:
     korgus::KorgusMaster mm;
     FxParam *style, *loud, *punch, *bright, *bass, *width, *cmp;
     std::atomic<bool> learnReq { false }, resetReq { false }, exporting { false };
+    ScopeFifo inScope;   // vstup pred masteringom (pre asistenta)
 
 private:
     void prepare() override
@@ -3064,6 +3072,7 @@ private:
         mm.setParams (roundToInt (style->get()), (loud->get() + 18.0f) * 0.1f, punch->get() * 0.01f,
                       (bright->get() + 100.0f) * 0.005f, (bass->get() + 100.0f) * 0.005f, width->get() / 150.0f);
         mm.setBypass (cmp->get() > 0.5f && ! exporting.load(), true);
+        inScope.push (b.getReadPointer (0), b.getNumChannels() > 1 ? b.getReadPointer (1) : nullptr, b.getNumSamples());
         mm.process (b.getWritePointer (0), b.getNumChannels() > 1 ? b.getWritePointer (1) : nullptr, b.getNumSamples());
     }
 };
@@ -3078,13 +3087,77 @@ MasterDisplay::MasterDisplay (MasterFx& f) : fx (f)
     btn.text = sk ("Porovnať");
     btn.onClick = [this] { fx.cmp->beginChangeGesture(); fx.cmp->setValueNotifyingHost (fx.cmp->get() > 0.5f ? 0.0f : 1.0f); fx.cmp->endChangeGesture(); };
     addAndMakeVisible (btn);
+    asst.text = String::fromUTF8 ("✦ ") + sk ("Asistent");
+    asst.onClick = [this] { asstToggle(); };
+    addAndMakeVisible (asst);
     startTimerHz (30);
+}
+
+MasterDisplay::~MasterDisplay() { stopTimer(); if (listening) --fx.inScope.users; }
+
+void MasterDisplay::asstToggle()
+{
+    if (listening) { listening = false; --fx.inScope.users; asst.on = false; asst.text = String::fromUTF8 ("✦ ") + sk ("Asistent"); result = {}; repaint(); return; }
+    listening = true; heard = 0; crestSum = 0; crestN = 0; for (auto& v : acc) v = 0; result = {};
+    ++fx.inScope.users; asst.on = true; asst.text = sk ("Zastaviť");
+    repaint();
+}
+
+void MasterDisplay::asstStep()
+{
+    std::vector<float> x (2048); fx.inScope.read (x.data(), 2048);
+    float pk = 0; double ss = 0; for (float v : x) { pk = jmax (pk, std::abs (v)); ss += (double) v * v; }
+    const double rms = std::sqrt (ss / 2048.0);
+    if (rms < 0.003) return;   // ticho nepocitat
+    inSpec.update (fx.inScope, 0.0f);
+    const double sr = fx.sampleRate();
+    for (int k = 0; k < 31; ++k)
+    {
+        double s2 = 0;
+        for (int j = -1; j <= 1; ++j) s2 += std::pow (10.0, inSpec.at ((float) (20.0 * std::pow (2.0, k / 3.0 + j / 9.0)), sr) / 10.0);
+        acc[k] += s2 / 3.0;
+    }
+    crestSum += Decibels::gainToDecibels ((double) pk / rms); ++crestN;
+    if (++heard >= 450) asstFinish();
+}
+
+void MasterDisplay::asstFinish()
+{
+    listening = false; --fx.inScope.users; asst.on = false; asst.text = String::fromUTF8 ("✦ ") + sk ("Asistent");
+    float D[31]; float mean = 0; int cnt = 0;
+    for (int k = 0; k < 31; ++k)
+    {
+        const float hz = 20.0f * std::pow (2.0f, (float) k / 3.0f);
+        D[k] = 10.0f * (float) std::log10 (jmax (1.0e-12, acc[k] / heard)) + 4.5f * std::log2 (hz / 1000.0f);   // voci ruzovemu sumu -4.5 dB/okt
+        if (hz >= 100 && hz <= 8000) { mean += D[k]; ++cnt; }
+    }
+    mean /= (float) jmax (1, cnt);
+    auto avg = [&] (float lo, float hi) { float s2 = 0; int c = 0; for (int k = 0; k < 31; ++k) { const float hz = 20.0f * std::pow (2.0f, (float) k / 3.0f); if (hz >= lo && hz <= hi) { s2 += D[k] - mean; ++c; } } return c ? s2 / (float) c : 0.0f; };
+    const float bassDev = avg (40, 120), midDev = avg (1000, 4000), highDev = avg (5000, 12000);
+    const float crest = crestN ? (float) (crestSum / crestN) : 14.0f;
+    int st = 0;
+    if (crest < 11.0f && bassDev > 1.5f) st = 3;
+    else if (crest > 17.0f && bassDev < 0.0f) st = midDev > 1.0f ? 5 : 4;
+    else if (highDev > 1.0f && midDev > 0.5f && crest < 15.0f) st = 2;
+    else if (crest < 14.0f) st = 1;
+    const float br = jlimit (-60.0f, 60.0f, std::round (-highDev * 15.0f / 5.0f) * 5.0f);
+    const float ba = jlimit (-60.0f, 60.0f, std::round (-bassDev * 15.0f / 5.0f) * 5.0f);
+    const float pu = crest > 17.0f ? 60.0f : (crest < 10.0f ? 35.0f : 50.0f);
+    auto set = [] (FxParam* p, float v) { p->beginChangeGesture(); p->setFromUi (v); p->endChangeGesture(); };
+    set (fx.style, (float) st); set (fx.bright, br); set (fx.bass, ba); set (fx.punch, pu);
+    const bool en = appLang() == 1;
+    auto pct = [] (float v) { return (v > 0 ? "+" : "") + String ((int) v) + " %"; };
+    result = (en ? String ("Style: ") : sk ("Štýl: ")) + String::fromUTF8 (en ? korgus::KorgusMaster::styleNameEn (st) : korgus::KorgusMaster::styleNameSk (st))
+           + "  " + sk ("Jas") + " " + pct (br) + "  " + sk ("Basy") + " " + pct (ba) + "  " + sk ("Dynamika") + " " + String ((int) pu) + " %";
+    repaint();
 }
 
 void MasterDisplay::timerCallback()
 {
     m = fx.mm.getMeters();
+    if (listening) asstStep();
     btn.on = fx.cmp->get() > 0.5f;
+    asst.repaint();
     btn.repaint();
     repaint();
 }
@@ -3142,7 +3215,14 @@ void MasterDisplay::paint (Graphics& g)
     g.drawFittedText (tTarget + String (m.targetLufs, 1) + " LUFS", right.removeFromTop (16), Justification::centredRight, 1);
     g.setColour (mvcol::dim);
     g.setFont (FontOptions (10.0f));
-    g.drawFittedText (tReset, right.withTrimmedTop (4).removeFromTop (28), Justification::topRight, 2);
+    if (listening || result.isNotEmpty())
+    {   // stav asistenta cez celu sirku pod pasmami
+        const String t = listening ? sk ("Asistent počúva pieseň… ") + String (heard * 100 / 450) + " %" + (heard == 0 ? sk ("  (pusti prehrávanie)") : String())
+                                   : result;
+        g.setColour (listening ? mvcol::text : mvcol::gold); g.setFont (FontOptions (11.5f));
+        g.drawFittedText (t, Rectangle<int> (8, getHeight() - 16, getWidth() - 16, 14), Justification::centredLeft, 1);
+    }
+    else g.drawFittedText (tReset, right.withTrimmedTop (4).removeFromTop (28), Justification::topRight, 2);
 }
 
 //==============================================================================

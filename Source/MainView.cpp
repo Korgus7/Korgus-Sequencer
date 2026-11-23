@@ -16,6 +16,8 @@
 #include <set>
 #include <array>
 #include "SoundMatch.h"
+#include "KorgusEqView.h"
+#include <juce_dsp/juce_dsp.h>
 
 // Rozhranie moze prist aj ako samostatny subor korgus-ui.html vedla programu (aktualizacia bez noveho .exe,
 // ktory by Windows mohol zablokovat). Pouzije sa len ak je novsi ako vstavane rozhranie a ma rovnake API.
@@ -3292,6 +3294,42 @@ namespace
     };
 }
 
+// tretinooktavove spektrum referencnej pesnicky pre asistenta EQ (rovnake meranie ako v grafe EQ)
+static void computeEqReference (const juce::AudioBuffer<float>& b, double sr)
+{
+    constexpr int order = 11, size = 1 << order;
+    juce::dsp::FFT fft (order); juce::dsp::WindowingFunction<float> win ((size_t) size, juce::dsp::WindowingFunction<float>::hann, false);
+    std::vector<float> d ((size_t) size * 2);
+    double acc[31] {}; int frames = 0;
+    const int n = b.getNumSamples(), ch = b.getNumChannels();
+    for (int pos = 0; pos + size <= n; pos += size)
+    {
+        float pk = 0;
+        for (int i = 0; i < size; ++i) { float v = 0; for (int c = 0; c < ch; ++c) v += b.getSample (c, pos + i); d[(size_t) i] = v / (float) juce::jmax (1, ch); pk = juce::jmax (pk, std::abs (d[(size_t) i])); }
+        if (pk < 0.003f) continue;   // ticho nepocitat
+        std::fill (d.begin() + size, d.end(), 0.0f);
+        win.multiplyWithWindowingTable (d.data(), (size_t) size);
+        fft.performFrequencyOnlyForwardTransform (d.data());
+        const float norm = 4.0f / (float) size;
+        for (int k = 0; k < 31; ++k)
+        {
+            double s2 = 0;
+            for (int j = -1; j <= 1; ++j)
+            {
+                const double hz = 20.0 * std::pow (2.0, k / 3.0) * std::pow (2.0, j / 9.0);
+                const int bin = juce::jlimit (1, size / 2 - 2, (int) (hz / sr * size));
+                const double a = d[(size_t) bin] * norm; s2 += a * a;
+            }
+            acc[k] += s2 / 3.0;
+        }
+        ++frames;
+    }
+    auto& r = korgus::eqReference();
+    if (frames < 20) { r.valid = false; return; }
+    for (int k = 0; k < 31; ++k) r.db[k] = (float) (10.0 * std::log10 (juce::jmax (1.0e-12, acc[k] / frames)));
+    r.valid = true;
+}
+
 void MainView::onRefLoad (const juce::String& path)
 {
     juce::Component::SafePointer<MainView> sp (this);
@@ -3304,6 +3342,7 @@ void MainView::onRefLoad (const juce::String& path)
         if (b == nullptr) { put (o, "error", sk ("Súbor sa nedá prečítať.")); sp->emit ("refLoaded", o); return; }
         const double lufs = measureLufs (*b, sp->store->getSampleRate());
         sp->engine.setReference (b, 1.0f);
+        computeEqReference (*b, sp->store->getSampleRate());
         put (o, "id", id); put (o, "name", f.getFileNameWithoutExtension()); put (o, "lufs", std::round (lufs * 10.0) / 10.0);
         sp->emit ("refLoaded", o);
     };

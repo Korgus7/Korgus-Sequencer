@@ -4,11 +4,16 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <cmath>
 #include <functional>
+#include <atomic>
 #include <algorithm>
 #include <vector>
 
 namespace korgus
 {
+// referencna pesnicka pre asistenta EQ (tretinooktavove spektrum v dB, 31 pasiem od 20 Hz); nastavuje Sequencer
+struct EqReference { float db[31] {}; std::atomic<bool> valid { false }; };
+inline EqReference& eqReference() { static EqReference r; return r; }
+
 struct EqBand
 {
     int type = 1;                 // 0 basy (shelf), 1 spicka, 2 vysky (shelf), 3 orezanie basov, 4 orezanie vysok
@@ -286,6 +291,7 @@ private:
         juce::PopupMenu m;
         static const char* names[] = { "Celá pieseň / mix", "Spev", "Gitara / klavír", "Basa", "Bicie", "Syntezátor / pad" };
         for (int i = 0; i < 6; ++i) m.addItem (i + 1, tr (juce::String::fromUTF8 (names[i])));
+        if (eqReference().valid.load()) { m.addSeparator(); m.addItem (7, tr (juce::String::fromUTF8 ("Podľa referenčnej pesničky"))); }
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (asst), [this] (int r)
         {
             if (r <= 0) return;
@@ -337,7 +343,7 @@ private:
         {
             M[k] = 10.0f * (float) std::log10 (juce::jmax (1.0e-12, acc[k] / heard));
             if (model.spectrumPostEq()) M[k] -= 20.0f * (float) std::log10 (juce::jmax (1.0e-6, model.magnitude (centre (k))));   // bez sucasneho EQ
-            D[k] = M[k] - target (centre (k));
+            D[k] = M[k] - (profile == 6 ? eqReference().db[k] : target (centre (k)));
         }
         // uroven nezavisla: odcitat priemer v 100 Hz - 8 kHz
         float mean = 0; int cnt = 0; for (int k = 0; k < NB; ++k) if (centre (k) >= 100 && centre (k) <= 8000) { mean += D[k]; ++cnt; }
