@@ -4789,7 +4789,7 @@ const NKITS=[['Pop','Vyvážená súprava zo skutočných zvukov – pop, rock, 
 const RHYTHM_KIT={'Pop':0,'Rock':0,'Hip-hop':0,'Trap':0,'Funk':0,'Balada':0,'Polka':0,'Shuffle':0,'Chillout':0,'Dubstep':2,'Breakbeat':2,'Drum & Bass':2,
   'Disco / House':1,'House':1,'Dance':1,'Techno':1,'Trance':1,'Afro':3,'Afro house':3,'Latino':4,'Samba':4,'Bossa nova':4,'Cha-cha':4,'Karibik':4,'Reggaeton':4};
 function kitAuto(tr,rhythm){ const k=RHYTHM_KIT[rhythm]; if(k==null||!NATIVE||tr.kitManual) return;   // sadu vybratu rucne rytmus nemeni
-  const own=tr.smp&&Object.keys(tr.smp).length&&!NKITS.some(x=>x[0]===tr.nkit); if(own||tr.nkit===NKITS[k][0]) return;
+  if(tr.noKit||tr.nkit||(tr.smp&&Object.keys(tr.smp).length)) return;   // zmena rytmu nikdy nemeni zvuky, ktore uz stopa ma
   kitReq[tr.id]=1; nat('drumKit',{track:tr.id,kit:k}); }
 let kitReq={};
 // stopa bicich bez zvukov (bez sady, samplov aj VST nastroja) dostane hned sadu Pop, aby zaciatocnikovi hned bubnovala
