@@ -124,6 +124,33 @@ int main (int argc, char** argv)
         printf ("Shift jemne: f %.0f Hz, g %.1f dB\n", m.b.f, m.b.g);
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "eqasst")
+    {   // asistent EQ: zvuk s nadbytkom 250-400 Hz (zahuhnany), chybajucimi vyskami a rezonanciou 2 kHz
+        ScopedJuceInitialiser_GUI gui;
+        struct M : korgus::EqModel
+        {
+            korgus::EqBand b[8];
+            M() { const int t[8] = { 3, 0, 1, 1, 1, 1, 2, 4 }; const float f[8] = { 20, 120, 1000, 300, 3000, 6000, 8000, 20000 };
+                  for (int i = 0; i < 8; ++i) { b[i].type = t[i]; b[i].f = f[i]; b[i].g = 0; b[i].q = 1; b[i].hasG = t[i] < 3; b[i].hasQ = t[i] == 1; b[i].fMin = 20; b[i].fMax = 20000; b[i].active = false; } }
+            int numBands() const override { return 8; } korgus::EqBand band (int i) const override { return b[i]; }
+            void setF (int i, float v) override { b[i].f = v; } void setG (int i, float v) override { b[i].g = v; } void setQ (int i, float v) override { b[i].q = v; }
+            void begin (int) override {} void end (int) override {}
+            double magnitude (float) const override { return 1; } double bandMagnitude (int, float) const override { return 1; }
+            float spectrumDb (float hz) const override
+            {
+                const float o = std::log2 (hz / 1000.0f); float d = -30.0f - 4.5f * o;
+                d += 6.0f * std::exp (-std::pow (std::log2 (hz / 320.0f) / 0.6f, 2.0f));   // zahuhnane
+                if (hz > 5000) d -= 4.0f * std::log2 (hz / 5000.0f);                        // chybaju vysky
+                d += 7.0f * std::exp (-std::pow (std::log2 (hz / 2000.0f) / 0.08f, 2.0f));  // rezonancia
+                if (hz < 60) d -= 12.0f * std::log2 (60.0f / hz);
+                return d;
+            }
+        } m;
+        korgus::EqView v (m); v.setBounds (0, 0, 600, 200);
+        v.startListening (0); for (int i = 0; i < 400; ++i) v.stepForTest();
+        for (int i = 0; i < 8; ++i) printf ("pasmo %d: f %.0f Hz  g %+.1f dB  Q %.2f\n", i + 1, m.b[i].f, m.b[i].g, m.b[i].q);
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "race")
     {   // audio vlakno bezi suhlasne, hlavne vlakno prepina vsetky presety ako klik v UI
         ScopedJuceInitialiser_GUI gui;

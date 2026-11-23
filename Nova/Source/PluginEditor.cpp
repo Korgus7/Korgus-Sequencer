@@ -1267,6 +1267,7 @@ namespace
                 bands = { { 0, -1, 0, -1, 150, 0.7f, 150, 150, 150 }, { 1, 2, 1, -1, 0, 0.8f, 200, 8000, 1000 }, { 2, -1, 3, -1, 2500, 0.7f, 2500, 2500, 2500 } };
             }
             atts.clear(); val.assign ((size_t) ids.size(), 0.0f);
+            juce::Component::SafePointer<korgus::EqView> sv (&view); juce::MessageManager::callAsync ([sv] { if (sv != nullptr) sv->resetAssistant(); });
             for (int i = 0; i < ids.size(); ++i)
             {
                 atts.push_back (std::make_unique<juce::ParameterAttachment> (*p.params.getParameter (ids[i]), [this, i] (float v) { val[(size_t) i] = v; repaint(); }, &p.undo));
@@ -1320,6 +1321,11 @@ namespace
             return m + 4.5f * std::log2 (juce::jmax (20.0f, hz) / 1000.0f) - 6.0f;   // sklon -4.5 dB/okt (ako pocuje ucho)
         }
         bool enabled() const override { return enabledFlag; }
+        float spectrumDbRaw (float hz) const override
+        {
+            const int bins = (int) spec.size(); const int b0 = juce::jlimit (1, bins - 1, (int) (hz / sr * 4096.0f));
+            return juce::jmax (spec[(size_t) b0], spec[(size_t) juce::jmin (bins - 1, b0 + 1)]);
+        }
         void resized() override { view.setBounds (getLocalBounds()); }
         void repaintAll() { view.repaint(); }
         void flat()

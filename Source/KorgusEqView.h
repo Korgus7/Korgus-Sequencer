@@ -4,6 +4,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <cmath>
 #include <functional>
+#include <algorithm>
+#include <vector>
 
 namespace korgus
 {
@@ -31,12 +33,25 @@ struct EqModel
     virtual double bandMagnitudeAt (int i, float hz, float gainDb) const { juce::ignoreUnused (gainDb); return bandMagnitude (i, hz); }
     virtual float spectrumDb (float hz) const { juce::ignoreUnused (hz); return -200.0f; }   // -200 = bez spektra
     virtual bool enabled() const { return true; }
+    virtual float spectrumDbRaw (float hz) const { return spectrumDb (hz); }   // spektrum bez sklonu (pre asistenta)
+    virtual bool spectrumPostEq() const { return true; }                       // spektrum je az za EQ
 };
 
-class EqView final : public juce::Component, public juce::SettableTooltipClient
+class EqView final : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
 {
 public:
-    explicit EqView (EqModel& m) : model (m) {}
+    explicit EqView (EqModel& m) : model (m)
+    {
+        asst.setButtonText (juce::String::fromUTF8 ("✦ Asistent"));
+        asst.onClick = [this] { asstMenu(); };
+        addAndMakeVisible (asst);
+        sila.setSliderStyle (juce::Slider::LinearHorizontal); sila.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        sila.setRange (0, 100, 1); sila.setValue (80, juce::dontSendNotification);
+        sila.onValueChange = [this] { applySuggestion(); };
+        back.setButtonText (juce::String::fromUTF8 ("Späť")); back.onClick = [this] { restore(); };
+        addChildComponent (sila); addChildComponent (back);
+    }
+    ~EqView() override { stopTimer(); }
     std::function<juce::String (const juce::String&)> tr = [] (const juce::String& s) { return s; };
     juce::Colour accent { 0xffc9a35a };
     float dbRange = 18.0f;
@@ -47,6 +62,27 @@ public:
         return juce::Colour (c[(size_t) juce::jlimit (0, 7, i)]);
     }
     void refresh() { repaint(); }
+    void startListening (int prof)
+    {
+        profile = prof; heard = 0; for (auto& v : acc) v = 0; for (auto& v : accF) v = 0;
+        listening = true; asst.setButtonText (juce::String::fromUTF8 ("■ Zastaviť")); startTimerHz (25); repaint();
+    }
+    void stepForTest() { timerCallback(); }
+    // novy ciel EQ (ina vrstva / efekt): zrusi rozpracovany navrh asistenta
+    void resetAssistant()
+    {
+        stopTimer(); listening = false; sug.clear(); saved.clear();
+        sila.setVisible (false); back.setVisible (false);
+        asst.setButtonText (juce::String::fromUTF8 ("✦ Asistent")); asst.setVisible (model.numBands() >= 8);
+        repaint();
+    }
+    void resized() override
+    {
+        const auto a = area().toNearestInt();
+        asst.setBounds (a.getX() + 4, a.getY() + 3, 92, 20);
+        sila.setBounds (a.getX() + 140, a.getY() + 3, 110, 20);
+        back.setBounds (a.getX() + 254, a.getY() + 3, 54, 20);
+    }
     int selected() const { return sel; }
 
     void paint (juce::Graphics& g) override
@@ -136,6 +172,22 @@ public:
             g.setColour (juce::Colour (0xff161c25)); g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
             g.drawText (juce::String (i + 1), juce::Rectangle<float> (c.x - r, c.y - r, 2 * r, 2 * r), juce::Justification::centred);
         }
+        if (listening)
+        {
+            auto box = juce::Rectangle<float> (a.getCentreX() - 170, a.getCentreY() - 26, 340, 52);
+            g.setColour (juce::Colour (0xe0161c25)); g.fillRoundedRectangle (box, 3.0f);
+            g.setColour (juce::Colour (0xffe4e9ef)); g.setFont (juce::FontOptions (13.0f));
+            g.drawText (tr (juce::String::fromUTF8 (heard < 1 ? "Asistent počúva – pusti skladbu…" : "Asistent počúva…")) + "  " + juce::String (juce::roundToInt (100.0f * (float) heard / (float) needFrames)) + " %",
+                        box.withHeight (26).reduced (8, 0), juce::Justification::centred);
+            const auto bar = box.removeFromBottom (18).reduced (14, 5);
+            g.setColour (juce::Colour (0xff232b37)); g.fillRoundedRectangle (bar, 2.0f);
+            g.setColour (accent); g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * (float) heard / (float) needFrames), 2.0f);
+        }
+        if (sila.isVisible())
+        {
+            g.setColour (juce::Colour (0xffb7c2cf)); g.setFont (juce::FontOptions (11.0f));
+            g.drawText (tr (juce::String::fromUTF8 ("Sila")) + " " + juce::String ((int) sila.getValue()) + " %", sila.getX() - 44, sila.getY(), 42, 20, juce::Justification::centredRight);
+        }
         // hodnoty vybraneho / tahaneho pasma
         const int k = drag >= 0 ? drag : (hover >= 0 ? hover : sel);
         if (k >= 0 && k < n)
@@ -216,6 +268,163 @@ public:
     }
 
 private:
+    // ---------------------------------------------------------------- asistent: pocuva hudbu a navrhne EQ
+    static constexpr int NB = 31;   // tretinooktavove pasma 20 Hz - 20 kHz
+    static float centre (int k) { return 20.0f * std::pow (2.0f, (float) k / 3.0f); }
+    juce::TextButton asst, back; juce::Slider sila;
+    bool listening = false; int heard = 0, needFrames = 300, profile = 0;
+    double acc[NB] {};
+    static constexpr int NF = 120;   // jemna mriezka 1/12 oktavy (na rezonancie)
+    static float fine (int k) { return 20.0f * std::pow (2.0f, (float) k / 12.0f); }
+    double accF[NF] {};
+    struct Sug { int band; float f, g, q; };
+    std::vector<Sug> sug; std::vector<EqBand> saved;
+    void asstMenu()
+    {
+        if (listening) { stopTimer(); listening = false; asst.setButtonText (juce::String::fromUTF8 ("✦ Asistent")); repaint(); return; }
+        if (model.numBands() < 8) return;
+        juce::PopupMenu m;
+        static const char* names[] = { "Celá pieseň / mix", "Spev", "Gitara / klavír", "Basa", "Bicie", "Syntezátor / pad" };
+        for (int i = 0; i < 6; ++i) m.addItem (i + 1, tr (juce::String::fromUTF8 (names[i])));
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (asst), [this] (int r)
+        {
+            if (r <= 0) return;
+            startListening (r - 1);
+        });
+    }
+    void timerCallback() override
+    {
+        if (! listening) { stopTimer(); return; }
+        float lvl[NB]; float loud = -200.0f;
+        for (int k = 0; k < NB; ++k)
+        {   // priemer troch bodov v tretinooktave
+            float s = 0; for (int j = -1; j <= 1; ++j) s += std::pow (10.0f, model.spectrumDbRaw (centre (k) * std::pow (2.0f, (float) j / 9.0f)) / 10.0f);
+            lvl[k] = 10.0f * std::log10 (juce::jmax (1.0e-12f, s / 3.0f)); loud = juce::jmax (loud, lvl[k]);
+        }
+        if (loud > -70.0f)
+        {   // len ked hra zvuk
+            for (int k = 0; k < NB; ++k) acc[k] += std::pow (10.0, lvl[k] / 10.0);
+            for (int k = 0; k < NF; ++k) accF[k] += std::pow (10.0, model.spectrumDbRaw (fine (k)) / 10.0);
+            ++heard;
+        }
+        if (heard >= needFrames) { stopTimer(); listening = false; asst.setButtonText (juce::String::fromUTF8 ("✦ Asistent")); computeSuggestion(); }
+        repaint();
+    }
+    // cielovy priebeh (dB) podla druhu zvuku - dlhodoby priemer vyvazenej nahravky
+    float target (float hz) const
+    {
+        const float oct = std::log2 (hz / 1000.0f);
+        float slope = -4.5f, lowKnee = 60.0f, hiKnee = 14000.0f;
+        switch (profile)
+        {
+            case 1: slope = -4.0f; lowKnee = 110.0f; hiKnee = 13000.0f; break;   // spev
+            case 2: slope = -4.5f; lowKnee = 80.0f; break;                       // gitara / klavir
+            case 3: slope = -7.0f; lowKnee = 40.0f; hiKnee = 6000.0f; break;     // basa
+            case 4: slope = -3.0f; lowKnee = 45.0f; break;                       // bicie
+            case 5: slope = -4.0f; lowKnee = 50.0f; break;                       // syntezator
+            default: break;                                                      // mix
+        }
+        float t = slope * oct;
+        if (hz < lowKnee) t -= 12.0f * std::log2 (lowKnee / hz);    // pod kolenom basy klesaju
+        if (hz > hiKnee) t -= 10.0f * std::log2 (hz / hiKnee);
+        return t;
+    }
+    void computeSuggestion()
+    {
+        if (heard < 10) return;
+        float M[NB], D[NB], Ds[NB];
+        for (int k = 0; k < NB; ++k)
+        {
+            M[k] = 10.0f * (float) std::log10 (juce::jmax (1.0e-12, acc[k] / heard));
+            if (model.spectrumPostEq()) M[k] -= 20.0f * (float) std::log10 (juce::jmax (1.0e-6, model.magnitude (centre (k))));   // bez sucasneho EQ
+            D[k] = M[k] - target (centre (k));
+        }
+        // uroven nezavisla: odcitat priemer v 100 Hz - 8 kHz
+        float mean = 0; int cnt = 0; for (int k = 0; k < NB; ++k) if (centre (k) >= 100 && centre (k) <= 8000) { mean += D[k]; ++cnt; }
+        mean /= (float) juce::jmax (1, cnt); for (auto& d : D) d -= mean;
+        for (int k = 0; k < NB; ++k) { float s = 0, w = 0; for (int j = -1; j <= 1; ++j) { const int i = juce::jlimit (0, NB - 1, k + j); const float ww = j == 0 ? 2.0f : 1.0f; s += D[i] * ww; w += ww; } Ds[k] = s / w; }
+        auto avg = [&] (float lo, float hi) { float s = 0; int c = 0; for (int k = 0; k < NB; ++k) if (centre (k) >= lo && centre (k) <= hi) { s += Ds[k]; ++c; } return c ? s / (float) c : 0.0f; };
+        auto clampG = [] (float g) { return juce::jlimit (-5.0f, 5.0f, g); };
+        sug.clear();
+        // 1 orezanie basov: spev vzdy, ostatne ak je hlboko vela zbytocnej energie
+        if (profile == 1) sug.push_back ({ 0, 90.0f, 0, 0.707f });
+        else if (profile != 3 && avg (20, 35) > 6.0f) sug.push_back ({ 0, 30.0f, 0, 0.707f });
+        else sug.push_back ({ 0, 20.0f, 0, 0.707f });
+        // 2 basy a 7 vysky (shelfy)
+        sug.push_back ({ 1, 120.0f, clampG (-avg (45, 140)), 0.7f });
+        sug.push_back ({ 6, profile == 3 ? 4000.0f : 8000.0f, clampG (-avg (profile == 3 ? 3000 : 6000, profile == 3 ? 6000 : 14000)), 0.7f });
+        // 3-5 spicky: najvacsie odchylky 160 Hz - 6 kHz, aspon oktavu od seba
+        std::vector<int> used;
+        for (int n = 0; n < 3; ++n)
+        {
+            int best = -1; float bv = 1.0f;
+            for (int k = 0; k < NB; ++k)
+            {
+                const float f = centre (k); if (f < 160 || f > 6000) continue;
+                bool near = false; for (int u : used) if (std::abs (u - k) < 3) near = true; if (near) continue;
+                if (std::abs (Ds[k]) > bv) { bv = std::abs (Ds[k]); best = k; }
+            }
+            if (best < 0) break;
+            used.push_back (best);
+            int w = 0; while (w < 4 && best - w - 1 >= 0 && best + w + 1 < NB && std::abs (Ds[best - w - 1]) > bv * 0.5f && std::abs (Ds[best + w + 1]) > bv * 0.5f) ++w;
+            const float q = juce::jlimit (0.6f, 2.5f, 1.4f / (float) (w + 1) * 1.5f);
+            sug.push_back ({ -1, centre (best), clampG (-Ds[best]), q });
+        }
+        // rezonancia: uzky vrchol nad okolim (plechovy / pistiaci ton) - pasmo 6
+        {   // jemna mriezka: vrchol o viac ako 3 dB nad okolim (+-1/2 oktavy)
+            float F[NF]; for (int k = 0; k < NF; ++k) F[k] = 10.0f * (float) std::log10 (juce::jmax (1.0e-12, accF[k] / heard));
+            int best = -1; float bv = 3.0f;
+            for (int k = 6; k < NF - 6; ++k)
+            {
+                const float f = fine (k); if (f < 200 || f > 9000) continue;
+                float s2 = 0; for (int j = -6; j <= 6; ++j) if (std::abs (j) > 1) s2 += F[k + j]; s2 /= 10.0f;
+                const float r = F[k] - s2; if (r > bv && F[k] >= F[k - 1] && F[k] >= F[k + 1]) { bv = r; best = k; }
+            }
+            if (best >= 0) sug.push_back ({ 5, fine (best), juce::jlimit (-6.0f, -2.0f, -bv), 6.0f });
+        }
+        // spicky do pasiem 3, 4, 5 (pasmo 3 len 200 Hz - 8 kHz)
+        std::vector<Sug> peaks; for (auto& x : sug) if (x.band == -1) peaks.push_back (x);
+        sug.erase (std::remove_if (sug.begin(), sug.end(), [] (const Sug& x) { return x.band == -1; }), sug.end());
+        std::sort (peaks.begin(), peaks.end(), [] (const Sug& a2, const Sug& b2) { return a2.f < b2.f; });
+        int slots[3] = { 2, 3, 4 }; int si = 0;
+        for (auto& pk : peaks) { if (si >= 3) break; pk.band = slots[si++]; sug.push_back (pk); }
+        sug.push_back ({ 7, 20000.0f, 0, 0.707f });
+        // ulozit povodny stav (pre Spat) a pouzit navrh
+        saved.clear(); for (int i = 0; i < model.numBands(); ++i) saved.push_back (model.band (i));
+        sila.setValue (80, juce::dontSendNotification); sila.setVisible (true); back.setVisible (true);
+        applySuggestion();
+    }
+    void applySuggestion()
+    {
+        if (sug.empty() || saved.empty()) return;
+        const float s = (float) sila.getValue() / 100.0f;
+        for (int i = 0; i < model.numBands(); ++i)
+        {   // pasma bez navrhu na nulu
+            bool has = false; for (auto& x : sug) if (x.band == i) has = true;
+            if (has) continue; const auto b = model.band (i);
+            model.begin (i); if (b.hasG) model.setG (i, 0.0f); model.end (i);
+        }
+        for (auto& x : sug)
+        {
+            const auto b = model.band (x.band);
+            model.begin (x.band);
+            if (b.hasF) model.setF (x.band, juce::jlimit (b.fMin, b.fMax, x.f));
+            if (b.hasG) model.setG (x.band, std::round (x.g * s * 10.0f) / 10.0f);
+            if (b.hasQ) model.setQ (x.band, juce::jlimit (b.qMin, b.qMax, x.q));
+            model.end (x.band);
+        }
+        repaint();
+    }
+    void restore()
+    {
+        for (int i = 0; i < (int) saved.size() && i < model.numBands(); ++i)
+        {
+            const auto& b = saved[(size_t) i]; model.begin (i);
+            if (b.hasF) model.setF (i, b.f); if (b.hasG) model.setG (i, b.g); if (b.hasQ) model.setQ (i, b.q);
+            model.end (i);
+        }
+        sug.clear(); saved.clear(); sila.setVisible (false); back.setVisible (false); repaint();
+    }
     enum Mode { None, Move, QDrag, Width };
     EqModel& model;
     int hover = -1, drag = -1, sel = -1; Mode mode = None;
