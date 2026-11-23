@@ -93,6 +93,10 @@ void NovaProcessor::settingsFrom (Settings& s, const std::function<float (const 
         L.src = (int) g (p + "src"); L.inst = (int) g (p + "inst"); L.root = (int) g (p + "root"); L.loop = g (p + "loop") > 0.5f; L.wt = (int) g (p + "wt");
         L.penv = g (p + "penv"); L.ptime = g (p + "ptime"); L.ktrk = g (p + "ktrk"); L.fvel = g (p + "fvel"); L.noise = g (p + "noise"); L.lsync = (int) g (p + "lsync");
         L.eqLow = g (p + "eql"); L.eqMid = g (p + "eqm"); L.eqMidF = g (p + "eqmf"); L.eqHigh = g (p + "eqh"); L.eqEnabled = g (p + "eqon") > 0.5f;
+        {
+            static const char* sfx[18] = { "eqhpf", "eql", "eqlowf", "eqm", "eqmf", "eqq1", "eqp2g", "eqp2f", "eqp2q", "eqp3g", "eqp3f", "eqp3q", "eqp4g", "eqp4f", "eqp4q", "eqh", "eqhighf", "eqlpf" };
+            for (int i = 0; i < 18; ++i) L.eq8[i] = g (p + sfx[i]);
+        }
     }
     auto& f = s.fx;
     f.tube = g ("tube"); f.compOn = g ("comp_on") > 0.5f; f.comp = g ("comp");

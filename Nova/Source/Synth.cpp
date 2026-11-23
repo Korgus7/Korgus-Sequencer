@@ -863,8 +863,8 @@ namespace nova
         active.store (act);
 
         // EQ vrstiev A a B, potom spolu
-        const bool eqA = layerEq[0].update (s.L[0].eqLow, s.L[0].eqMid, s.L[0].eqMidF, s.L[0].eqHigh, (float) sr) && s.L[0].eqEnabled;
-        const bool eqB = layerEq[1].update (s.L[1].eqLow, s.L[1].eqMid, s.L[1].eqMidF, s.L[1].eqHigh, (float) sr) && s.L[1].eqEnabled;
+        const bool eqA = layerEq[0].update (s.L[0].eq8, (float) sr) && s.L[0].eqEnabled;
+        const bool eqB = layerEq[1].update (s.L[1].eq8, (float) sr) && s.L[1].eqEnabled;
         const bool tapA = analyzer.wants (0), tapB = analyzer.wants (1);
         for (int i = 0; i < total; ++i)
         {

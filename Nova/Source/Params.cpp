@@ -126,6 +126,17 @@ namespace nova
                 F (px + "eqmf", "EQ stredy Hz", 200, 8000, 1000, "Hz", 0.35f);
                 F (px + "eqh", "EQ výšky", -15, 15, 0, "dB");
                 B (px + "eqon", "EQ zapnutý", true);
+                if (px == "a_" || px == "b_")
+                {   // 8 pasiem aj pre vrstvy (predvolene hodnoty nemenia stare zvuky)
+                    F (px + "eqhpf", "EQ orezať basy", 20, 1000, 20, "Hz", 0.3f);
+                    F (px + "eqlowf", "EQ basy Hz", 40, 600, 150, "Hz", 0.4f);
+                    F (px + "eqq1", "EQ stredy šírka", 0.3f, 8, 0.8f, "x", 0.4f);
+                    F (px + "eqp2g", "EQ pásmo 2", -15, 15, 0, "dB"); F (px + "eqp2f", "EQ pásmo 2 Hz", 40, 16000, 300, "Hz", 0.3f); F (px + "eqp2q", "EQ pásmo 2 šírka", 0.3f, 8, 1, "x", 0.4f);
+                    F (px + "eqp3g", "EQ pásmo 3", -15, 15, 0, "dB"); F (px + "eqp3f", "EQ pásmo 3 Hz", 40, 16000, 3000, "Hz", 0.3f); F (px + "eqp3q", "EQ pásmo 3 šírka", 0.3f, 8, 1, "x", 0.4f);
+                    F (px + "eqp4g", "EQ pásmo 4", -15, 15, 0, "dB"); F (px + "eqp4f", "EQ pásmo 4 Hz", 40, 16000, 6000, "Hz", 0.3f); F (px + "eqp4q", "EQ pásmo 4 šírka", 0.3f, 8, 1, "x", 0.4f);
+                    F (px + "eqhighf", "EQ výšky Hz", 1000, 16000, 2500, "Hz", 0.4f);
+                    F (px + "eqlpf", "EQ orezať výšky", 1000, 20000, 20000, "Hz", 0.3f);
+                }
             }
             // arpeggiator, hlas
             B ("arp_on", "Arpeggiátor", false);

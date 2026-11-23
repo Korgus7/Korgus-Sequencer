@@ -28,7 +28,7 @@ namespace nova
         bool on = true; int wave = 2; float oct = 0, semi = 0, fine = 0; int uni = 1; float spread = 10, level = 0.7f, pan = 0, color = 0.5f, ratio = 1;
         int ftype = 0; bool f24 = false; float cut = 20000, reso = 0.1f, fenv = 0, fa = 0.005f, fd = 0.3f, fs = 1, fr = 0.3f, aa = 0.003f, ad = 0.3f, as = 1, ar = 0.3f;
         int lshape = 0, ltgt = 0; float lrate = 5, ldepth = 0, ldelay = 0; int src = 0; int root = 60; bool loop = false;
-        float eqLow = 0, eqMid = 0, eqMidF = 1000, eqHigh = 0; bool eqEnabled = true;
+        float eqLow = 0, eqMid = 0, eqMidF = 1000, eqHigh = 0; bool eqEnabled = true; float eq8[18] { 20, 0, 150, 0, 1000, 0.8f, 0, 300, 1, 0, 3000, 1, 0, 6000, 1, 0, 2500, 20000 };
         int wt = 0;                     // wavetable (wave 9): cislo tabulky; pozicia = color
         // tvarovanie zvuku: obalka vysky (skok na zaciatku tonu), filter podla klavesu a sily uderu, primiesany sum
         float penv = 0, ptime = 0.08f;  // poltony, s
@@ -145,7 +145,7 @@ namespace nova
         std::atomic<float> vocLevel { 0.0f };   // uroven hlasu pre ukazovatel v okne
     private:
         korgus::KorgusVocoder vocoder; korgus::VoxPrep voxPrep; korgus::DeEsser deEss; Eq3 vcEq; std::vector<float> voxBuf; bool vocWasOn = false;
-        Eq3 layerEq[2];
+        Eq8 layerEq[2];
         FxChain fx;
         Noise noise;
         std::atomic<int> active { 0 };

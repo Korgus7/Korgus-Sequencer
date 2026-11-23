@@ -170,7 +170,8 @@ int main (int argc, char** argv)
         std::function<void (Component*, const String&)> click = [&] (Component* c, const String& t)
         { for (auto* ch : c->getChildren()) { if (auto* b = dynamic_cast<Button*> (ch)) if (b->getButtonText() == t && b->onClick) { b->onClick(); } click (ch, t); } };
         click (ed.get(), "EQ"); Thread::sleep (300);
-        click (ed.get(), "Zvuk"); click (ed.get(), "Sound"); Thread::sleep (300);
+        { const String tg = std::getenv ("EQTARGET") != nullptr ? String::fromUTF8 (std::getenv ("EQTARGET")) : String ("Zvuk"); click (ed.get(), tg); click (ed.get(), "Sound"); }
+        Thread::sleep (300);
         auto img = ed->createComponentSnapshot (ed->getLocalBounds());
         File f (argv[2]); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
         return 0;
