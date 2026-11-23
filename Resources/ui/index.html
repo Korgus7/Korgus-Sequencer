@@ -3672,7 +3672,7 @@ function renderDrum({tr,p}){
     ['Vymazať všetky údery',()=>{pushUndo(); p.grid=emptyGrid(p.plen); renderEditor(); drawArrange(); save(); toast('Údery vymazané. Ctrl+Z vráti späť.');}]]); };
   $('dKit').onclick=e=>{ e.stopPropagation(); e.currentTarget.blur(); if(!NATIVE){ toast('Súpravy zvukov fungujú v programe.'); return; }
     menuAt($('dKit'),NKITS.map((k,i)=>[(k[0]===tr.nkit?'✓ ':'')+k[0],()=>{ tr.kitManual=true; kitReq[tr.id]=1; nat('drumKit',{track:tr.id,kit:i}); }])); };
-  $('dSmpClr').onclick=e=>{ e.currentTarget.blur(); if(!tr.smp||!Object.keys(tr.smp).length) return; pushUndo(); tr.smp={}; tr.smpN={}; delete tr.nkit; tr.kitManual=true; save(); renderEditor(); drawArrange(); natSmpSync(); toast('Zvuky padov vymazané. Ctrl+Z vráti späť.'); };
+  $('dSmpClr').onclick=e=>{ e.currentTarget.blur(); if(!tr.smp||!Object.keys(tr.smp).length) return; pushUndo(); tr.smp={}; tr.smpN={}; delete tr.nkit; tr.kitManual=true; tr.noKit=true; save(); renderEditor(); drawArrange(); natSmpSync(); toast('Zvuky padov vymazané. Ctrl+Z vráti späť.'); };
   $('dSmpRnd').onclick=e=>{ e.currentTarget.blur(); if(!NATIVE){ toast('Súpravy zvukov fungujú v programe.'); return; }
     const all=NKITS.map((_,i)=>i).sort(()=>Math.random()-.5).slice(0,Math.min(4,NKITS.length));
     kitReq[tr.id]={mix:all,got:{}}; all.forEach(i=>nat('drumKit',{track:tr.id,kit:i})); };
@@ -4793,7 +4793,7 @@ function kitAuto(tr,rhythm){ const k=RHYTHM_KIT[rhythm]; if(k==null||!NATIVE||tr
   kitReq[tr.id]=1; nat('drumKit',{track:tr.id,kit:k}); }
 let kitReq={};
 // stopa bicich bez zvukov (bez sady, samplov aj VST nastroja) dostane hned sadu Pop, aby zaciatocnikovi hned bubnovala
-function ensureKit(tr){ if(!NATIVE||!tr||tr.type!=='drum'||kitReq[tr.id]) return; if(tr.nkit||(tr.smp&&Object.keys(tr.smp).length)) return;
+function ensureKit(tr){ if(!NATIVE||!tr||tr.type!=='drum'||kitReq[tr.id]||tr.noKit) return;   // noKit = zvuky padov vymazane naschval if(tr.nkit||(tr.smp&&Object.keys(tr.smp).length)) return;
   const ip=natTrackPlugins[tr.id]; if(ip&&ip.uid) return; kitReq[tr.id]='auto'; nat('drumKit',{track:tr.id,kit:0}); }
 function drumKitDialog(tr){
   dialog('Súprava zvukov bicích – '+esc(tr.name),`<p>Nahradí zvuky všetkých 9 riadkov krokového sekvencera. Jednotlivý riadok môžeš potom zmeniť tlačidlom ♪ / ×.</p><div id="tplList">${NKITS.map((k,i)=>`<button class="tplc" data-i="${i}"><b>${esc(k[0])}</b><span>${esc(k[1])}</span><i>${tr.nkit===k[0]?'✓ použitá':'9 zvukov'}</i></button>`).join('')}<button class="tplc" data-i="-1"><b>Bez súpravy</b><span>Bicie hrá nástroj stopy (VST, GM noty).</span><i></i></button></div>`);
@@ -4806,9 +4806,9 @@ function drumKitLoaded(e){
   const mx=kitReq[e.track]; if(mx&&mx.mix){ mx.got[e.kit]=e; if(Object.keys(mx.got).length<mx.mix.length) return; delete kitReq[e.track];
     pushUndo(); tr.smp={}; tr.smpN={}; const ks=Object.values(mx.got);
     for(let l=0;l<9;l++){ const k=ks[Math.floor(Math.random()*ks.length)]; const id=k.ids&&k.ids[l]; if(id){ tr.smp[l]=id; tr.smpN[l]=String(k.names[l]||'').slice(0,24); } }
-    tr.nkit='Mix'; tr.kitManual=true; save(); if(edGet()&&edGet().tr===tr) renderEditor(); drawArrange(); natSmpSync(); previewDrum(tr,0,1); toast('Náhodné zvuky na padoch. Ctrl+Z vráti späť.'); return; } const auto=kitReq[e.track]==='auto'; delete kitReq[e.track];
+    tr.nkit='Mix'; tr.kitManual=true; delete tr.noKit; save(); if(edGet()&&edGet().tr===tr) renderEditor(); drawArrange(); natSmpSync(); previewDrum(tr,0,1); toast('Náhodné zvuky na padoch. Ctrl+Z vráti späť.'); return; } const auto=kitReq[e.track]==='auto'; delete kitReq[e.track];
   if(auto&&(tr.nkit||(tr.smp&&Object.keys(tr.smp).length))) return;
-  if(!auto) pushUndo(); tr.smp={}; tr.smpN={}; (e.ids||[]).forEach((id,l)=>{ if(id){ tr.smp[l]=id; tr.smpN[l]=String(e.names[l]||'').slice(0,24); } });
+  if(!auto){ pushUndo(); delete tr.noKit; } tr.smp={}; tr.smpN={}; (e.ids||[]).forEach((id,l)=>{ if(id){ tr.smp[l]=id; tr.smpN[l]=String(e.names[l]||'').slice(0,24); } });
   tr.nkit=e.name; save(); if(edGet()&&edGet().tr===tr) renderEditor(); drawArrange(); natSmpSync(); if(auto) return; previewDrum(tr,0,1);
   toast('Súprava <b>'+esc(e.name)+'</b> je na stope <b>'+esc(tr.name)+'</b>.');
 }
