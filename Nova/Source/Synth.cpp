@@ -715,7 +715,9 @@ namespace nova
                             if (e.scanShape == 0) { const double ph = std::fmod (lv.scanPh, 1.0); f = ph < 0.5 ? ph * 2.0 : 2.0 - ph * 2.0; }
                             else if (e.scanShape == 1) f = std::fmod (lv.scanPh, 1.0);
                             else { const int st = (int) lv.scanPh; if (st != lv.scanStep) { lv.scanStep = st; lv.scanRnd = (float) (0.5 + 0.5 * v.rng.next()); } f = lv.scanRnd; }
-                            const double nOff = room * f;
+                            // posun na jeden prechod max. stvrtina slucky - susedne periody su si podobne, vyska ostane podla tonu
+                            const double maxStep = (leO - lsO) * 0.05;
+                            const double nOff = lv.scanOff + juce::jlimit (-maxStep, maxStep, room * f - lv.scanOff);
                             lv.pos += nOff - lv.scanOff; lsO += nOff - lv.scanOff; leO += nOff - lv.scanOff; lv.scanOff = nOff;
                         }
                     }

@@ -136,8 +136,8 @@ int main (int argc, char** argv)
         AudioBuffer<float> out (2, (int) (sr * 4)); out.clear();
         for (int pos = 0; pos < out.getNumSamples(); pos += bs)
         {
-            MidiBuffer mb; if (pos == 0) mb.addEvent (MidiMessage::noteOn (1, 60, (uint8) 100), 0);
-            if (pos >= (int) (sr * 3.5) && pos < (int) (sr * 3.5) + bs) mb.addEvent (MidiMessage::noteOff (1, 60), 0);
+            MidiBuffer mb; if (pos == 0) mb.addEvent (MidiMessage::noteOn (1, getenv("NOTE")?atoi(getenv("NOTE")):60, (uint8) 100), 0);
+            if (pos >= (int) (sr * 3.5) && pos < (int) (sr * 3.5) + bs) mb.addEvent (MidiMessage::noteOff (1, getenv("NOTE")?atoi(getenv("NOTE")):60), 0);
             AudioBuffer<float> blk (2, bs); blk.clear(); q.processBlock (blk, mb);
             for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, blk, c, 0, jmin (bs, out.getNumSamples() - pos));
         }
@@ -1097,7 +1097,7 @@ int main (int argc, char** argv)
         p.loadPreset ("f:" + nova::factoryPatches()[7].name);
         set ("arp_on", 1); set ("arp_pat", 0); set ("arp_speed", 3); set ("arp_oct", 1);
         auto a = render ([&] (int pos, MidiBuffer& mb) { if (pos == 0) { mb.addEvent (MidiMessage::noteOn (1, 60, 0.8f), 0); mb.addEvent (MidiMessage::noteOn (1, 64, 0.8f), 0); mb.addEvent (MidiMessage::noteOn (1, 67, 0.8f), 0); }
-                                                         if (pos == (int) (2.0 * sr) / bs * bs) { mb.addEvent (MidiMessage::noteOff (1, 60), 0); mb.addEvent (MidiMessage::noteOff (1, 64), 0); mb.addEvent (MidiMessage::noteOff (1, 67), 0); } }, 2.5);
+                                                         if (pos == (int) (2.0 * sr) / bs * bs) { mb.addEvent (MidiMessage::noteOff (1, getenv("NOTE")?atoi(getenv("NOTE")):60), 0); mb.addEvent (MidiMessage::noteOff (1, 64), 0); mb.addEvent (MidiMessage::noteOff (1, 67), 0); } }, 2.5);
         int onsets = 0; float prevE = 0;
         for (int i = 0; i + 240 < (int) (2.0 * sr); i += 240) { float e = 0; for (int k = 0; k < 240; ++k) e = std::max (e, std::abs (a.getSample (0, i + k))); if (e > 0.05f && e > prevE * 2.5f) ++onsets; prevE = e; }
         printf ("arp: %d nastupov za 2 s (cakame ~16)\n", onsets);
