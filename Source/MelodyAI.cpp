@@ -146,10 +146,10 @@ void MelodyAI::forward (const int* toks, int T)
         const int tok = juce::jlimit (0, nVocab - 1, toks[t]);
         for (int i = 0; i < E; ++i) x[(size_t) t * E + i] = wte[(size_t) tok * E + i] + wpe[(size_t) (cacheLen + t) * E + i];
     }
-    const float scale = 1.0f / std::sqrt ((float) D);
     for (int l = 0; l < nLayer; ++l)
     {
         auto& L = layers[(size_t) l];
+        const float scale = 1.0f / std::sqrt ((float) D) / (float) (l + 1);   // model je trenovany so scale_attn_by_inverse_layer_idx
         layerNorm (x.data(), T, E, L.ln1g.data(), L.ln1b.data(), h.data());
         matmul (h.data(), T, E, L.wqkv.data(), L.bqkv.data(), 3 * E, qkv.data());
         float* K = kc.data() + (size_t) l * nCtx * E; float* V = vc.data() + (size_t) l * nCtx * E;
@@ -281,6 +281,14 @@ std::vector<AiNote> MelodyAI::continueMelody (const std::vector<AiNote>& promptI
         }
         if (progress) progress ((float) (nt - startT) / (float) std::max (1, endT - startT));
     }
-    return res;
+    // rovnaka nota v rovnakom kroku len raz
+    std::vector<AiNote> uniq;
+    for (auto& a : res)
+    {
+        bool dup = false;
+        for (auto& b : uniq) if (b.pitch == a.pitch && std::abs (b.step - a.step) < 0.25) { dup = true; break; }
+        if (! dup) uniq.push_back (a);
+    }
+    return uniq;
 }
 } // namespace korgus

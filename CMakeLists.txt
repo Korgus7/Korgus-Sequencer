@@ -96,6 +96,7 @@ target_sources(KorgusSequencer PRIVATE
     Source/MainView.cpp
     Source/CrashGuard.cpp
     Source/SoundMatch.cpp
+    Source/MelodyAI.cpp
     Source/KbdKeys.cpp)
 
 target_compile_definitions(KorgusSequencer PRIVATE

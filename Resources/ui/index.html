@@ -357,6 +357,7 @@ body:not(.native) .ph{display:none}
 .dc.scur:not(.on):not(.acc){background:#c3d6c8}
 .dnum.scur{background:#4f7a5a;color:#fff}
 .dnum{cursor:pointer}
+.dnum.lr{background:#c3cfdc}.dnum.lrL{box-shadow:inset 2px 0 0 #2d4362}.dnum.lrR{box-shadow:inset -2px 0 0 #2d4362}.dnum.lrL.lrR{box-shadow:inset 2px 0 0 #2d4362,inset -2px 0 0 #2d4362}
 #bRec{color:#8e3a2c;font-size:14px}
 #trWin .bar .tpi{display:inline-flex;align-items:center;justify-content:center}
 #trWin .bar .tpi svg{width:15px;height:15px;fill:currentColor}
@@ -872,6 +873,10 @@ function setupNative(){
   $('bWav').onclick=()=>{ const r=exportRange(); stopIfPlaying(); toast('Export WAV: '+r.txt); nat('exportWav',{start:r.start,end:r.end}); };
   onNat('busy',e=>{ dialog('Import audio','<p>'+esc(e.text)+'</p>'); });
   onNat('audioPeaks',natPeaks);
+  onNat('aiProgress',e=>{ const b=$('aiBar'), m=$('aiMsg'); if(!b||!m) return; b.style.width=(e.pct||0)+'%';
+    m.textContent=e.stage==='download'?'Sťahujem model AI (len prvýkrát)… '+(e.pct||0)+' %':e.stage==='load'?'Načítavam model…':'AI píše pokračovanie… '+(e.pct||0)+' %'; });
+  onNat('aiResult',e=>aiFinish(e));
+  onNat('aiError',e=>{ aiJob=null; const m=$('aiMsg'); if(m){ m.textContent=e.msg||'Chyba AI'; $('aiStop').hidden=true; $('aiGo').hidden=false; } else toast(e.msg||'Chyba AI'); });
   onNat('masterAction',e=>{ if(e.what==='refPick'){ nat('raiseMain',{}); refDialog(); } else if(e.what==='refToggle'){ if(!song.ref){ nat('raiseMain',{}); refDialog(); } else refToggle(); } });
   onNat('aiState',e=>{ aiHasKey=!!e.hasKey; });
   onNat('boot',e=>{ $('bootTxt').textContent=e.text; if(e.p>=0) $('bootBar').style.width=Math.round(e.p*100)+'%'; });
@@ -3001,6 +3006,20 @@ function doprovodDialog(a,b,label){
 function arrHeadY(){ const sc=$('arrScroll'); if(!sc) return 0; const H=RULH+song.tracks.length*ROWH+ROWH; return Math.max(0,Math.min(sc.scrollTop,H-RULH)); }
 function rulerUnit(){return zoomA>=48?4:16;}
 function rulerSnap(x){const u=rulerUnit(); return clamp(Math.round(x/zoomA*SPB/u)*u,0,song.bars*SPB);}
+/* lokatory L-R aj v editoroch (bicie: hlavicka krokov, noty: pravitko) – zobrazenie a tahanie */
+function edLocPaint(){
+  const r=edGet(); if(!r) return;
+  if(r.tr.type==='drum'){ const base=r.p.start*SPB, on=song.locR>song.locL;
+    document.querySelectorAll('#dgrid .dnum').forEach(d=>{ const g=base+(+d.dataset.s); const inside=on&&g>=song.locL&&g<song.locR;
+      d.classList.toggle('lr',inside); d.classList.toggle('lrL',on&&g===song.locL); d.classList.toggle('lrR',on&&g===song.locR-1); }); }
+  else if(r.tr.type==='synth'&&$('keyRuler')) drawKey();
+}
+function edLocDrag(e,toStep,onClick){
+  const a=toStep(e); if(a==null) return; let b=a, moved=false;
+  const mv=ev=>{ const s=toStep(ev); if(s==null) return; if(s!==b){ b=s; moved=true; song.locL=Math.min(a,b); song.locR=Math.max(a,b)+1; updTransport(); drawArrange(); } };
+  const up=()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); if(moved) save(); else onClick(a); };
+  document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+}
 function setLoc(w,st){
   st=clamp(st,0,song.bars*SPB);
   if(w==='L'){song.locL=Math.min(st,song.bars*SPB-1); if(song.locR<=song.locL) song.locR=Math.min(song.bars*SPB,song.locL+SPB);}
@@ -3698,7 +3717,7 @@ function renderDrum({tr,p}){
   PAD_ORDER.forEach(l=>{ h+=`<div class="drow${l===drumSel?' sel':''}" data-row="${l}"${laneOff(tr,l)?' style="opacity:.5"':''} title="${esc(padName(tr,l))}"><div class="dml m${tr.lmute&&tr.lmute[l]?' on':''}" data-l="${l}" title="Stlmiť riadok (M)">M</div><div class="dml s${tr.lsolo&&tr.lsolo[l]?' on':''}" data-l="${l}" title="Sólo riadku (S)">S</div><div class="dmv" data-l="${l}" title="Hlasitosť riadku – ťahaj · dvojklik = 0 dB"><i style="width:${volW(l)}%"></i></div><div class="dmp" data-l="${l}" title="Panoráma riadku – ťahaj · dvojklik = stred"><i style="${panI(l)}"></i></div><div class="dmx" data-l="${l}" title="Vymazať údery v riadku">×</div>`; for(let s=0;s<p.plen;s++) h+=`<div class="${cellCls(p.grid[l][s],s)}" data-l="${l}" data-s="${s}"></div>`; h+='</div>';});
   h+='</div></div>';
   $('edBody').innerHTML=h; $('velWrap').hidden=true;
-  const dg=$('dgrid'); cols=[]; curCol=-1; bindPads(tr); drawPadWaves(tr); ensureKit(tr); if(dseLane!=null) drumEdit(tr,dseLane);
+  const dg=$('dgrid'); cols=[]; curCol=-1; setTimeout(edLocPaint,0); bindPads(tr); drawPadWaves(tr); ensureKit(tr); if(dseLane!=null) drumEdit(tr,dseLane);
   for(let s=0;s<p.plen;s++) cols[s]=[...dg.querySelectorAll(`[data-s="${s}"]`)];
   const resize=n=>{pushUndo(); const o=p.plen; p.grid=p.grid.map(r=>Array.from({length:n},(_,i)=>i<o?r[i]:r[i%o])); p.plen=n; renderEditor(); drawArrange(); save();};
   $('plenSel').onchange=e=>{resize(+e.target.value); };
@@ -3760,6 +3779,9 @@ function renderDrum({tr,p}){
     if(c){e.preventDefault(); const l=+c.dataset.l,s=+c.dataset.s; if(l!==drumSel) padSelect(l); pushUndo(); const cur=p.grid[l][s];
       const val=e.button===2?0:(cur===0?1:cur===1?2:0); paint={val:val===2?2:val,p}; setCell(c,l,s,val); if(val&&!playing) previewDrum(tr,l,val); return;}
     const nb=e.target.closest('.dnum'); if(nb&&stepOn){stepCur=+nb.dataset.s; stepChord=false; showStepCur();}
+    else if(nb&&e.button===0){ e.preventDefault(); const base=p.start*SPB;
+      // tahanie po cislach krokov = lokatory L-R, klik = poloha prehravania
+      edLocDrag(e,ev=>{ const t=document.elementFromPoint(ev.clientX,ev.clientY); const d=t&&t.closest&&t.closest('#dgrid .dnum'); return d?base+(+d.dataset.s):null; },st=>setPos(st)); }
   });
   dg.addEventListener('mouseover',e=>{if(!paint||!e.buttons) return; const c=e.target.closest('.dc'); if(c) setCell(c,+c.dataset.l,+c.dataset.s,paint.val);});
   showStepCur(); edStep();
@@ -4402,6 +4424,44 @@ function humDialog(){
 }
 /* gitarove brnknutie: noty akordu (rovnaky zaciatok) sa rozlozia o par ms ako struny */
 let strOpt={ms:18,dir:'alt'};
+/* AI: pokracuj v mojej melodii (lokalny model Anticipatory Music Transformer, bez internetu po stiahnuti) */
+let aiOpt={bars:4,topP:0.93};
+function aiDialog(){
+  const r=edGet(); if(!r||r.tr.type!=='synth') return;
+  if(!NATIVE){ toast('AI funguje v programe.'); return; }
+  const p=r.p, src=(selNotes.size?p.notes.filter(n=>selNotes.has(n)):p.notes).slice();
+  if(src.length<4){ toast('Najprv nahraj alebo nakresli aspoň pár nôt melódie – AI v nej bude pokračovať.'); return; }
+  const sel=(id,arr,cur)=>`<select id="${id}" style="flex:1">${arr.map(([v,n])=>`<option value="${v}"${v==cur?' selected':''}>${n}</option>`).join('')}</select>`;
+  dialog('✦ Pokračuj v mojej melódii',`<p>AI si vypočuje tvoju melódiu (${selNotes.size?'označené noty':'celú časť'}) a napíše, ako by mohla pokračovať. Beží priamo u teba, bez internetu. Pri prvom použití sa stiahne model (asi 256 MB).</p>
+    <div class="frow"><label>Pokračovať o</label>${sel('aiBars',[[2,'2 takty'],[4,'4 takty'],[8,'8 taktov']],aiOpt.bars)}</div>
+    <div class="frow"><label>Tvorivosť</label>${sel('aiTop',[[0.85,'Pokojná – drží sa melódie'],[0.93,'Normálna'],[0.98,'Odvážna – viac prekvapení']],aiOpt.topP)}</div>
+    <div id="aiProg" hidden style="margin:8px 0"><div style="height:8px;background:#e6e9ed;border:1px solid #7d8a9b;border-radius:3px;overflow:hidden"><div id="aiBar" style="height:100%;width:0;background:#c9a35a;transition:width .2s"></div></div><p id="aiMsg" style="margin-top:6px;font-weight:bold"></p></div>
+    <div class="row"><span style="flex:1"></span><button id="aiStop" hidden>Zastaviť</button><button id="aiGo">Pokračovať</button></div>`);
+  $('aiStop').onclick=()=>nat('aiCancel',{});
+  $('aiGo').onclick=()=>{
+    aiOpt={bars:+$('aiBars').value,topP:+$('aiTop').value};
+    const maxEnd=Math.max(...src.map(n=>n.s+n.l)), endStep=Math.ceil((maxEnd-0.01)/SPB)*SPB, gen=aiOpt.bars*SPB;
+    const ps=src.map(n=>n.p), lo=Math.max(0,Math.min(...ps)-7), hi=Math.min(127,Math.max(...ps)+7);
+    aiJob={tr:r.tr,p,endStep,gen};
+    $('aiGo').hidden=true; $('aiStop').hidden=false; $('aiProg').hidden=false; $('aiMsg').textContent='Pripravujem…';
+    nat('aiContinue',{notes:src.map(n=>({s:n.s,l:n.l,p:n.p,v:n.v})),tempo:song.tempo||120,endStep,genSteps:gen,topP:aiOpt.topP,lo,hi});
+  };
+}
+let aiJob=null;
+function aiFinish(e){
+  const j=aiJob; aiJob=null; if(!j) return;
+  if(e.cancel){ $('dlgBack').hidden=true; return; }
+  const add=[]; const end=j.endStep+j.gen;
+  (e.notes||[]).forEach(n=>{ const s0=Math.round(n.s); if(s0<j.endStep||s0>=end) return; const l=Math.max(1,Math.min(Math.round(n.l),end-s0)); add.push({s:s0,p:n.p,l,v:Math.max(60,Math.min(110,n.v||96))}); });
+  $('dlgBack').hidden=true;
+  if(!add.length){ toast('AI tentoraz nič nenapísala – skús to znova alebo zvoľ odvážnejšiu tvorivosť.'); return; }
+  pushUndo();
+  const need=Math.ceil(end/SPB); if(j.p.len<need) j.p.len=need;
+  add.forEach(n=>j.p.notes.push(n));
+  selNotes=new Set(add);
+  save(); renderEditor(); drawArrange();
+  toast('AI pridala '+add.length+' nôt (sú označené). Nepáči sa? Ctrl+Z a skús znova – zakaždým to dopadne inak.');
+}
 function strumDialog(){
   const r=edGet(); if(!r||r.tr.type!=='synth') return;
   const sel=(id,arr,cur)=>`<select id="${id}" style="flex:1">${arr.map(([v,n])=>`<option value="${v}"${v==cur?' selected':''}>${n}</option>`).join('')}</select>`;
@@ -4442,7 +4502,7 @@ function renderKey({tr,p}){
   $('edBody').innerHTML='<div id="keyRulerRow"><div class="sp" id="keyRulerSp"></div><canvas id="keyRuler"></canvas></div><div id="keyWrap"><canvas id="pianoCv"></canvas><canvas id="keyCv"></canvas><div id="keyPH" class="ph"></div></div>';
   $('velWrap').hidden=false;
   $('nlSel').onchange=e=>{ const v=e.target.value; freeLen=v==='free'; if(!freeLen) curLen=+v; e.target.blur(); };
-  $('fnBtn').onclick=e=>{ e.stopPropagation(); e.currentTarget.blur(); menuAt($('fnBtn'),[['Arpeggiátor…',()=>arpDialog()],['Humanizovať…',()=>humDialog()],['Gitarové brnknutie…',()=>strumDialog()],null,
+  $('fnBtn').onclick=e=>{ e.stopPropagation(); e.currentTarget.blur(); menuAt($('fnBtn'),[['✦ Pokračuj v mojej melódii (AI)…',()=>aiDialog()],null,['Arpeggiátor…',()=>arpDialog()],['Humanizovať…',()=>humDialog()],['Gitarové brnknutie…',()=>strumDialog()],null,
     ['Transponovať +1 poltón',()=>tp(1)],['Transponovať −1 poltón',()=>tp(-1)],['O oktávu vyššie',()=>tp(12)],['O oktávu nižšie',()=>tp(-12)],null,
     ['Legato – predĺžiť po ďalšiu notu',()=>nFn('legato')],['Staccato – skrátiť na polovicu',()=>nFn('stacc')],
     ['Pevná dĺžka…',()=>menuAt($('fnBtn'),[[4,'1/4'],[2,'1/8'],[1,'1/16'],[.5,'1/32']].map(([v,t])=>[t,()=>nFn('len',v)]))],
@@ -4506,6 +4566,13 @@ function drawKey(){
   { const rc=$('keyRuler'); if(rc){ const RH=18, cr=sizeCv(rc,W,RH); cr.fillStyle='#cfcfcf'; cr.fillRect(0,0,W,RH); cr.font='11px sans-serif'; cr.textBaseline='top';
       for(let s=0;s<=steps;s++){ if(s%4) continue; const bar=s%SPB===0; cr.fillStyle=bar?'#3a3a3a':'#8a8a8a'; cr.fillRect(s*sw,bar?0:RH-6,1,bar?RH:6);
         if(bar&&s<steps){ cr.fillStyle='#1d2633'; cr.fillText(String(p.start+s/SPB+1),s*sw+3,3); } }
+      { const base=p.start*SPB, lx=(song.locL-base)*sw, rx=(song.locR-base)*sw;   // lokatory L-R
+        if(song.locR>song.locL&&rx>0&&lx<W){ cr.fillStyle=song.loopOn?'rgba(45,67,98,.45)':'rgba(90,100,115,.3)'; cr.fillRect(Math.max(0,lx),RH-6,Math.min(W,rx)-Math.max(0,lx),6);
+          cr.fillStyle='#2d4362'; if(lx>=0) cr.fillRect(lx,0,2,RH); if(rx<=W) cr.fillRect(rx-2,0,2,RH); } }
+      if(!rc._loc){ rc._loc=1; rc.style.cursor='pointer'; rc.title='Ťahaním nastavíš lokátory L–R, klik = poloha prehrávania';
+        rc.onmousedown=e=>{ if(e.button!==0) return; e.preventDefault(); const r2=edGet(); if(!r2) return;
+          const toStep=ev=>{ const b=rc.getBoundingClientRect(), stp=Math.max(1,r2.p.len*SPB), sw2=b.width/stp; const x=ev.clientX-b.left; return clamp(r2.p.start*SPB+Math.floor(x/sw2),0,song.bars*SPB-1); };
+          edLocDrag(e,toStep,st=>setPos(st)); }; }
       const sp=$('keyRulerSp'), pc=$('pianoCv'); if(sp&&pc) sp.style.width=pc.offsetWidth+'px'; } }
   drawVel(p);
 }
@@ -4689,6 +4756,7 @@ function fmtLcd(p){ if(p===undefined) p=curPos(); if(lcdMode===0) return fmtPos(
   return [h,mi,se,fr].map(v=>String(v).padStart(2,'0')).join(':'); }
 function updLcd(){$('lcd').textContent=fmtLcd();}
 function updTransport(){
+  edLocPaint();
   $('latSel').value=latMode; showLat();
   $('bPlay').classList.toggle('on',playing); $('bRec').classList.toggle('on',rec);
   $('bLoop').classList.toggle('on',song.loopOn); $('bClick').classList.toggle('on',song.click); sendMetro();

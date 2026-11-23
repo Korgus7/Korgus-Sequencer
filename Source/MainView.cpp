@@ -17,6 +17,8 @@
 #include <array>
 #include "SoundMatch.h"
 #include "KorgusEqView.h"
+#include "MelodyAI.h"
+#include <thread>
 #include <juce_dsp/juce_dsp.h>
 
 // Rozhranie moze prist aj ako samostatny subor korgus-ui.html vedla programu (aktualizacia bez noveho .exe,
@@ -670,6 +672,8 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("selTrack",    [this] (const juce::var& v) { onSelTrack (v); })
         .withEventListener ("trackFx",     [this] (const juce::var& v) { onTrackFx (v); })
         .withEventListener ("fxMove",      [this] (const juce::var& v) { onFxMove (v); })
+        .withEventListener ("aiContinue",  [this] (const juce::var& v) { onAiContinue (v); })
+        .withEventListener ("aiCancel",    [this] (const juce::var&) { aiCancel = true; })
         .withEventListener ("openFx",      [this] (const juce::var& v) { onOpenFx (v); })
         .withEventListener ("trackPlugin", [this] (const juce::var& v) { onTrackPlugin (v); })
         .withEventListener ("openPlugin",  [this] (const juce::var& v) { onOpenPlugin (v); })
@@ -1438,6 +1442,87 @@ void MainView::onTrackFx (const juce::var& v)
                 onOpenFx (v);
             return;
         }
+}
+
+// AI „Pokracuj v mojej melodii“: model (256 MB) sa stiahne pri prvom pouziti z Korgus-Download, vypocet bezi na pozadi
+void MainView::onAiContinue (const juce::var& v)
+{
+    if (aiBusy.exchange (true)) return;
+    aiCancel = false;
+    std::vector<korgus::AiNote> prompt;
+    if (auto* arr = v["notes"].getArray())
+        for (auto& n : *arr) { korgus::AiNote a; a.step = (double) n["s"]; a.len = (double) n.getProperty ("l", 1); a.pitch = (int) n["p"]; a.vel = (int) n.getProperty ("v", 100); prompt.push_back (a); }
+    korgus::MelodyAI::Params p;
+    const double tempo = juce::jlimit (30.0, 300.0, (double) v.getProperty ("tempo", 120.0));
+    p.stepSec = 60.0 / tempo / 4.0;
+    p.promptEndStep = (double) v.getProperty ("endStep", 0.0);
+    p.genSteps = juce::jlimit (4.0, 256.0, (double) v.getProperty ("genSteps", 64.0));
+    p.topP = juce::jlimit (0.5f, 1.0f, (float) (double) v.getProperty ("topP", 0.93));
+    p.pitchLo = (int) v.getProperty ("lo", 0); p.pitchHi = (int) v.getProperty ("hi", 127);
+    p.seed = (unsigned) juce::Random::getSystemRandom().nextInt();
+    const juce::File dir = dataDir.getChildFile ("ai");
+    juce::Component::SafePointer<MainView> sp (this);
+    auto send = [sp] (const juce::String& ev, juce::var o)
+    {
+        juce::MessageManager::callAsync ([sp, ev, o] { if (sp != nullptr) sp->emit (ev, o); });
+    };
+    auto prog = [send] (const juce::String& stage, float pct, const juce::String& msg)
+    {
+        auto* d = new juce::DynamicObject(); d->setProperty ("stage", stage); d->setProperty ("pct", juce::roundToInt (pct * 100.0f)); d->setProperty ("msg", msg);
+        send ("aiProgress", juce::var (d));
+    };
+    auto fail = [send] (const juce::String& msg) { auto* d = new juce::DynamicObject(); d->setProperty ("msg", msg); send ("aiError", juce::var (d)); };
+    std::thread ([this, sp, prompt, p, dir, prog, fail, send]
+    {
+        struct Done { std::atomic<bool>& b; ~Done() { b = false; } } done { aiBusy };
+        dir.createDirectory();
+        const juce::File model = dir.getChildFile ("melody.kamt");
+        const juce::String base = "https://raw.githubusercontent.com/Korgus7/Korgus-Download/main/ai/";
+        // velkost modelu (overenie stiahnutia)
+        juce::int64 want = 0;
+        if (auto in = juce::URL (base + "melody.size").createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs (15000)))
+            want = in->readEntireStreamAsString().trim().getLargeIntValue();
+        if (! model.existsAsFile() || (want > 0 && model.getSize() != want))
+        {
+            if (want <= 0) { fail ("Model AI sa nepodarilo stiahnuť – skontroluj pripojenie na internet."); return; }
+            const juce::File tmp = dir.getChildFile ("melody.kamt.download");
+            tmp.deleteFile();
+            juce::FileOutputStream out (tmp);
+            if (! out.openedOk()) { fail ("Model AI sa nedá uložiť na disk."); return; }
+            juce::int64 got = 0;
+            for (int part = 0; part < 10 && got < want; ++part)
+            {
+                auto in = juce::URL (base + "melody.kamt.part" + juce::String (part)).createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs (20000));
+                if (in == nullptr) break;
+                juce::HeapBlock<char> buf (1 << 16);
+                for (;;)
+                {
+                    if (aiCancel.load()) { out.flush(); return; }
+                    const int r = in->read (buf.getData(), 1 << 16);
+                    if (r <= 0) break;
+                    out.write (buf.getData(), (size_t) r); got += r;
+                    prog ("download", (float) got / (float) want, {});
+                }
+            }
+            out.flush();
+            if (got != want) { fail ("Sťahovanie modelu AI sa prerušilo – skús to znova."); return; }
+            model.deleteFile(); tmp.moveFileTo (model);
+        }
+        prog ("load", 0.0f, {});
+        korgus::MelodyAI ai;
+        const auto err = ai.load (model);
+        if (err.isNotEmpty()) { model.deleteFile(); fail (err); return; }
+        prog ("gen", 0.0f, {});
+        auto notes = ai.continueMelody (prompt, p, [prog] (float x) { prog ("gen", juce::jlimit (0.0f, 1.0f, x), {}); }, aiCancel);
+        if (aiCancel.load()) { auto* d = new juce::DynamicObject(); d->setProperty ("cancel", true); send ("aiResult", juce::var (d)); return; }
+        juce::Array<juce::var> arr;
+        for (auto& n : notes)
+        {
+            auto* o = new juce::DynamicObject(); o->setProperty ("s", n.step); o->setProperty ("l", n.len); o->setProperty ("p", n.pitch); o->setProperty ("v", n.vel);
+            arr.add (juce::var (o));
+        }
+        auto* d = new juce::DynamicObject(); d->setProperty ("notes", arr); send ("aiResult", juce::var (d));
+    }).detach();
 }
 
 void MainView::onFxMove (const juce::var& v)
