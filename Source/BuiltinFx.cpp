@@ -4048,12 +4048,107 @@ private:
 };
 AudioProcessorEditor* VoiceFx::createEditor() { return new VoiceEditor (*this); }
 
+//==============================================================================
+// Korgus Dynamika: kompresor a limiter v jednom efekte (rezim Kompresor / Limiter / Kompresor + limiter)
+class DynFx final : public FxBase
+{
+public:
+    DynFx() : FxBase ("Korgus Dynamika", "dyn")
+    {
+        vmode = add ("vmode", "Efekt", 0, 2, 0, "", 1.0f, 0);
+        vmode->range.interval = 1.0f; vmode->inEditor = false;
+        vmode->choices = StringArray { sk ("Kompresor"), sk ("Limiter"), sk ("Kompresor + limiter") };
+        tail = 0.0;
+    }
+    int modeIdx() const { return jlimit (0, 2, roundToInt (vmode->get())); }
+    CompFx comp; LimiterFx lim;
+    FxParam* vmode;
+    AudioProcessorEditor* createEditor() override;
+    void getStateInformation (MemoryBlock& mb) override
+    {
+        XmlElement x ("KORGUSFX"); x.setAttribute ("type", "dyn"); x.setAttribute ("vmode", modeIdx());
+        MemoryBlock a, b; comp.getStateInformation (a); lim.getStateInformation (b);
+        x.setAttribute ("comp", a.toBase64Encoding()); x.setAttribute ("lim", b.toBase64Encoding());
+        copyXmlToBinary (x, mb);
+    }
+    void setStateInformation (const void* data, int size) override
+    {
+        if (auto x = getXmlFromBinary (data, size))
+        {
+            vmode->setValueNotifyingHost (vmode->range.convertTo0to1 ((float) x->getIntAttribute ("vmode", 0)));
+            MemoryBlock a, b;
+            if (a.fromBase64Encoding (x->getStringAttribute ("comp")) && a.getSize() > 0) comp.setStateInformation (a.getData(), (int) a.getSize());
+            if (b.fromBase64Encoding (x->getStringAttribute ("lim")) && b.getSize() > 0) lim.setStateInformation (b.getData(), (int) b.getSize());
+        }
+    }
+private:
+    void prepare() override
+    {
+        for (FxBase* f : { (FxBase*) &comp, (FxBase*) &lim }) { f->setPlayConfigDetails (2, 2, rate, (int) spec.maximumBlockSize); f->prepareToPlay (rate, (int) spec.maximumBlockSize); }
+        setLatencySamples (jmax (comp.getLatencySamples(), lim.getLatencySamples()));
+    }
+    void process (AudioBuffer<float>& b) override
+    {
+        MidiBuffer none; const int m = modeIdx();
+        for (FxBase* f : { (FxBase*) &comp, (FxBase*) &lim }) { f->setPlayHead (getPlayHead()); f->setSong (songKey, songScale, songChords); f->setKey (scL, scR, scN); }
+        if (m != 1) comp.processBlock (b, none);
+        if (m >= 1) lim.processBlock (b, none);
+    }
+};
+
+// okno Korgus Hlas: prepinac efektu hore, pod nim okno zvoleneho efektu
+class DynEditor final : public AudioProcessorEditor, private Timer
+{
+public:
+    explicit DynEditor (DynFx& f) : AudioProcessorEditor (f), fx (f)
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            auto& b = btn[i]; b.setButtonText (fx.vmode->choices[i]); b.setClickingTogglesState (false);
+            b.setColour (TextButton::buttonColourId, Colour (0xff2a3442)); b.setColour (TextButton::buttonOnColourId, Colour (0xff2d4362));
+            b.setColour (TextButton::textColourOffId, Colour (0xffc9d2dc)); b.setColour (TextButton::textColourOnId, Colours::white);
+            b.onClick = [this, i] { fx.vmode->beginChangeGesture(); fx.vmode->setFromUi ((float) i); fx.vmode->endChangeGesture(); rebuild(); };
+            addAndMakeVisible (b);
+        }
+        rebuild(); startTimerHz (5);
+    }
+    ~DynEditor() override { stopTimer(); }
+    void paint (Graphics& g) override { g.fillAll (Colour (0xff151c27)); }
+    void resized() override
+    {
+        auto r = getLocalBounds().removeFromTop (kTop).reduced (8, 6).withTrimmedRight (28);   // vpravo ikona velkosti
+        const int w = r.getWidth() / 3;
+        for (int i = 0; i < 3; ++i) btn[i].setBounds (r.removeFromLeft (w).reduced (2, 0));
+        int y = kTop;
+        for (auto& e : eds) if (e != nullptr) { e->setTopLeftPosition (0, y); y += e->getHeight(); }
+    }
+private:
+    static constexpr int kTop = 40;
+    void timerCallback() override { if (cur != fx.modeIdx()) rebuild(); }
+    void rebuild()
+    {
+        cur = fx.modeIdx();
+        for (int i = 0; i < 3; ++i) btn[i].setToggleState (i == cur, dontSendNotification);
+        for (auto& e : eds) if (e != nullptr) removeChildComponent (e.get());
+        eds[0].reset(); eds[1].reset();
+        if (cur != 1) eds[0].reset (fx.comp.createEditor());
+        if (cur >= 1) eds[1].reset (fx.lim.createEditor());
+        int w = 460, h = kTop;
+        for (auto& e : eds) if (e != nullptr) { addAndMakeVisible (*e); w = jmax (w, e->getWidth()); h += e->getHeight(); }
+        setSize (w, h); resized();
+    }
+    DynFx& fx; TextButton btn[3]; int cur = -1;
+    std::unique_ptr<AudioProcessorEditor> eds[2];
+};
+AudioProcessorEditor* DynFx::createEditor() { return new DynEditor (*this); }
+
 struct Entry { const char* key; const char* name; std::function<std::unique_ptr<AudioPluginInstance>()> make; bool inst = false; };
 
 const std::vector<Entry>& entries()
 {
     static const std::vector<Entry> e {
         { "eq",      "Korgus EQ",        [] { return std::unique_ptr<AudioPluginInstance> (new EqFx()); } },
+        { "dyn",     "Korgus Dynamika",  [] { return std::unique_ptr<AudioPluginInstance> (new DynFx()); } },
         { "comp",    "Korgus Kompresor", [] { return std::unique_ptr<AudioPluginInstance> (new CompFx()); } },
         { "reverb",  "Korgus Dozvuk",    [] { return std::unique_ptr<AudioPluginInstance> (new ReverbFx()); } },
         { "delay",   "Korgus Ozvena",    [] { return std::unique_ptr<AudioPluginInstance> (new DelayFx()); } },
@@ -4081,7 +4176,8 @@ juce::Array<juce::PluginDescription> descriptions()
     juce::Array<juce::PluginDescription> a;
     // arp a vocoder maju vlastne miesto; gater nahradil PulseDip (Kroky) - ostava len kvoli starym piesnam
     for (const auto& e : entries()) if (juce::String (e.key) != "arp" && juce::String (e.key) != "vocoder" && juce::String (e.key) != "gater"
-                                          && juce::String (e.key) != "harmony" && juce::String (e.key) != "robotvox" && juce::String (e.key) != "meter")
+                                          && juce::String (e.key) != "harmony" && juce::String (e.key) != "robotvox" && juce::String (e.key) != "meter"
+                                          && juce::String (e.key) != "comp" && juce::String (e.key) != "limiter")
             a.add (FxBase::describe (e.name, e.key, e.inst));   // dvojhlas, robot hlas a merac su zlucene do Korgus Hlas / Korgus Master
     return a;
 }
@@ -4096,6 +4192,13 @@ void setSidechain (juce::AudioPluginInstance* p, const float* l, const float* r,
 void setSong (juce::AudioPluginInstance* p, int keyTonic, int keyScale, const std::vector<ChordSpan>* chords)
 {
     if (auto* f = dynamic_cast<FxBase*> (p)) f->setSong (keyTonic, keyScale, chords);
+}
+
+juce::Array<juce::AudioProcessorParameter*> extraParameters (juce::AudioPluginInstance* p)
+{
+    if (auto* d = dynamic_cast<DynFx*> (p)) return d->comp.getParameters();
+    if (auto* v = dynamic_cast<VoiceFx*> (p)) return v->harm.getParameters();
+    return {};
 }
 
 void newSong (juce::AudioPluginInstance* p)

@@ -1537,7 +1537,7 @@ bool MainView::loadFxForTrack (const juce::String& trackId, int idx, const juce:
     if (inst == nullptr) return false;
     // predvolba: hodnoty parametrov podla ID (v jednotkach parametra, pri vybere index)
     if (auto* po = params.getDynamicObject())
-        for (auto* pr : inst->getParameters())
+        for (auto* pr : [&] { auto all = inst->getParameters(); all.addArray (BuiltinFx::extraParameters (inst.get())); return all; }())
             if (auto* hp = dynamic_cast<juce::AudioPluginInstance::HostedParameter*> (pr))
                 if (po->hasProperty (hp->getParameterID()))
                     hp->setValue (hp->getValueForText (po->getProperty (hp->getParameterID()).toString()));

@@ -24,6 +24,8 @@ namespace BuiltinFx
     void setSong (juce::AudioPluginInstance*, int keyTonic, int keyScale, const std::vector<ChordSpan>* chords);
     // nacitana / nova pieseň (Korgus Master zabudne naucenu hlasitost) - volat z hlavneho vlakna
     void newSong (juce::AudioPluginInstance*);
+    // parametre vnoreneho efektu (Korgus Dynamika -> kompresor, Korgus Hlas -> dvojhlas), aby fungovali hlasove predvolby
+    juce::Array<juce::AudioProcessorParameter*> extraParameters (juce::AudioPluginInstance*);
     // export (offline): efekt, ktory potrebuje predbezny prechod (Korgus Master), a faza 0 = normal, 1 = ucenie, 2 = zaverecny prechod
     bool wantsExportPrepass (juce::AudioPluginInstance*);
     void setExportPhase (juce::AudioPluginInstance*, int phase);

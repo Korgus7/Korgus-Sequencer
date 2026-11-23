@@ -4805,7 +4805,7 @@ const TEMPLATES=[
   {k:'suno',n:'Pesnička Remix',d:'Vyberieš pesničku. Program zistí tempo, rozloží ju na spev, bicie, basu a ostatné, rozpozná akordy a pridá stopu s Korgus Inspiria.',tempo:120,master:['limiter'],suno:true,tracks:[{t:'audio',n:'Pesnička'}]},
   {k:'voice',n:'Nahrávanie hlasu',d:'Jedna audio stopa s EQ a kompresorom – hovorené slovo, podcast.',tempo:100,master:['limiter'],
    tracks:[{t:'audio',n:'Hlas',fx:['eq','comp']}]}];
-const FXRE={gater:/korgus gater/i,deesser:/korgus de-esser/i,harmony:/^korgus hlas$/i,eq:/^korgus eq$/i,comp:/korgus kompresor/i,reverb:/korgus dozvuk/i,delay:/korgus ozvena/i,limiter:/korgus limiter/i,pulse:/korgus pulsedip/i,master:/^korgus master$/i,vocoder:/korgus vocoder/i};
+const FXRE={gater:/korgus gater/i,deesser:/korgus de-esser/i,harmony:/^korgus hlas$/i,eq:/^korgus eq$/i,comp:/^korgus dynamika$/i,reverb:/korgus dozvuk/i,delay:/korgus ozvena/i,limiter:/^korgus dynamika$/i,pulse:/korgus pulsedip/i,master:/^korgus master$/i,vocoder:/korgus vocoder/i};
 const VOXP=[
   {n:'Rádio',d:'Čistý, blízky pop spev: EQ, de-esser, kompresor a krátky dozvuk.',fx:[
     ['eq',{lowcut:100,midgain:-2,midfreq:350,midq:1,highgain:4,highfreq:10000}],['deesser',{freq:6500,threshold:-30,range:8}],
