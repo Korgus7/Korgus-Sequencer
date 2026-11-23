@@ -172,8 +172,8 @@ public:
             const bool isSel = i == sel || i == drag, hov = i == hover;
             const float r = isSel ? 8.5f : 7.5f;
             g.setColour (b.active ? bandColour (i) : bandColour (i).withAlpha (0.45f));
-            if (b.type >= 3) g.fillRoundedRectangle (c.x - r + 1, c.y - r + 1, 2 * r - 2, 2 * r - 2, 2.0f); else g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
-            if (isSel || hov) { g.setColour (juce::Colours::white.withAlpha (isSel ? 0.9f : 0.5f)); g.drawEllipse (c.x - r - 2, c.y - r - 2, 2 * r + 4, 2 * r + 4, 1.3f); }
+            if (b.type >= 3) g.fillRoundedRectangle (c.x - r + 1, c.y - r + 1, 2 * r - 2, 2 * r - 2, 2.0f); else g.fillRoundedRectangle (c.x - r, c.y - r, 2 * r, 2 * r, 2.0f);
+            if (isSel || hov) { g.setColour (juce::Colours::white.withAlpha (isSel ? 0.9f : 0.5f)); g.drawRoundedRectangle (c.x - r - 2, c.y - r - 2, 2 * r + 4, 2 * r + 4, 2.0f, 1.3f); }
             g.setColour (juce::Colour (0xff161c25)); g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
             g.drawText (juce::String (i + 1), juce::Rectangle<float> (c.x - r, c.y - r, 2 * r, 2 * r), juce::Justification::centred);
         }

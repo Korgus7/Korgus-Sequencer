@@ -832,8 +832,30 @@ namespace
             }
         }
         juce::Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (12.0f).withTrimmedTop (24.0f).withTrimmedBottom (80.0f); }
-        float xOf (float f) const { const auto r = waveArea(); return r.getX() + f * r.getWidth(); }
-        float fOf (float x) const { const auto r = waveArea(); return juce::jlimit (0.0f, 1.0f, (x - r.getX()) / r.getWidth()); }
+        // zoom: zobrazeny usek v0..v1 (koliesko mysi = zoom okolo kurzora, Shift + koliesko = posun)
+        float v0 = 0.0f, v1 = 1.0f;
+        float pxPerF() const { return waveArea().getWidth() / (v1 - v0); }
+        float xOf (float f) const { const auto r = waveArea(); return r.getX() + (f - v0) * pxPerF(); }
+        float fOf (float x) const { const auto r = waveArea(); return juce::jlimit (0.0f, 1.0f, v0 + (x - r.getX()) / pxPerF()); }
+        void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+        {
+            if (peaks.empty()) return;
+            const float span = v1 - v0;
+            if (e.mods.isShiftDown() || std::abs (w.deltaX) > std::abs (w.deltaY))
+            {
+                const float d = (std::abs (w.deltaX) > std::abs (w.deltaY) ? -w.deltaX : -w.deltaY) * span * 0.5f;
+                v0 = juce::jlimit (0.0f, 1.0f - span, v0 + d); v1 = v0 + span;
+            }
+            else
+            {
+                const float at = fOf (e.position.x), minSpan = smp != nullptr ? juce::jmin (1.0f, 64.0f / (float) smp->buf.getNumSamples()) : 0.001f;
+                const float ns = juce::jlimit (minSpan, 1.0f, span * std::pow (0.8f, w.deltaY * 4.0f));
+                const float rel = (at - v0) / span;
+                v0 = juce::jlimit (0.0f, 1.0f - ns, at - rel * ns); v1 = v0 + ns;
+            }
+            repaint();
+        }
+        void mouseDoubleClick (const juce::MouseEvent&) override { v0 = 0.0f; v1 = 1.0f; repaint(); }
         double durSec() const { return smp != nullptr ? smp->buf.getNumSamples() / smp->rate : 1.0; }
         bool loopOn() const { return p.params.getRawParameterValue (pre + "loop")->load() > 0.5f; }
 
@@ -846,6 +868,8 @@ namespace
             g.setColour (panel); g.fillRoundedRectangle (r, 3.0f);
             if (peaks.empty()) { g.setColour (dim); g.drawText (T ("Žiadny sampel"), r, juce::Justification::centred); return; }
             const float cy = r.getCentreY(), hh = r.getHeight() * 0.46f;
+            juce::Graphics::ScopedSaveState clipSt (g);
+            g.reduceClipRegion (r.toNearestInt().expanded (0, 0));
             // slucka
             if (loopOn()) { g.setColour (steelHi.withAlpha (0.25f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (ed.ls), r.getY(), xOf (ed.le), r.getBottom())); }
             if (loopOn() && ed.scan)
@@ -854,14 +878,19 @@ namespace
                 g.setColour (amber.withAlpha (0.12f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (x0, r.getY(), juce::jmax (x0, x1), r.getBottom()));
                 g.setColour (amber.withAlpha (0.6f)); g.drawLine (x0, r.getY() + 8, juce::jmax (x0, x1), r.getY() + 8, 1.0f);
             }
-            // vlna (vybrana cast jasnejsie)
-            for (int x = 0; x < (int) peaks.size(); ++x)
+            // vlna (vybrana cast jasnejsie) - pocita sa pre zobrazeny usek
             {
-                const float f = ((float) x + 0.5f) / (float) peaks.size(), px = r.getX() + f * r.getWidth();
-                const bool in = f >= ed.start && f <= ed.end;
-                g.setColour (in ? arc : dim.withAlpha (0.35f));
-                const float lo = peaks[(size_t) x].first, hi = peaks[(size_t) x].second;
-                g.drawVerticalLine ((int) px, cy - hi * hh, cy - lo * hh + 1.0f);
+                const int n = smp->buf.getNumSamples(), W = juce::jmax (1, (int) r.getWidth());
+                for (int x = 0; x < W; ++x)
+                {
+                    const float fa = v0 + (float) x / pxPerF(), fb = v0 + (float) (x + 1) / pxPerF(), f = (fa + fb) * 0.5f;
+                    const int a = juce::jlimit (0, n - 1, (int) (fa * n)), b = juce::jlimit (a + 1, n, (int) (fb * n) + 1);
+                    float lo = 0, hi = 0;
+                    for (int c = 0; c < smp->buf.getNumChannels(); ++c)
+                    { const auto mm = smp->buf.findMinMax (c, a, b - a); lo = juce::jmin (lo, mm.getStart()); hi = juce::jmax (hi, mm.getEnd()); }
+                    g.setColour (f >= ed.start && f <= ed.end ? arc : dim.withAlpha (0.35f));
+                    g.drawVerticalLine ((int) r.getX() + x, cy - hi * hh, cy - lo * hh + 1.0f);
+                }
             }
             // stmavenie mimo vyberu
             g.setColour (bg.withAlpha (0.55f));
@@ -869,7 +898,7 @@ namespace
             g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (ed.end), r.getY(), r.getRight(), r.getBottom()));
             // nabeh a doznenie (ciara hlasitosti)
             const float d = (float) durSec(), xs = xOf (ed.start), xe = xOf (ed.end);
-            const float xi = juce::jmin (xe, xs + (ed.fin / d) * r.getWidth()), xo = juce::jmax (xi, xe - (loopOn() ? 0.0f : (ed.fout / d) * r.getWidth()));
+            const float xi = juce::jmin (xe, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xe - (loopOn() ? 0.0f : (ed.fout / d) * pxPerF()));
             juce::Path env; env.startNewSubPath (xs, r.getBottom()); env.lineTo (xi, r.getY() + 3); env.lineTo (xo, r.getY() + 3); env.lineTo (xe, loopOn() ? r.getY() + 3 : r.getBottom());
             g.setColour (amber); g.strokePath (env, juce::PathStrokeType (1.6f));
             auto knob = [&] (float x, float y) { g.setColour (amber); g.fillRect (x - 4, y - 4, 8.0f, 8.0f); };
@@ -883,6 +912,7 @@ namespace
             };
             mark (xs, text, "Z"); mark (xe, text, "K");
             if (loopOn()) { mark (xOf (ed.ls), steelHi.brighter (0.4f), "L"); mark (xOf (ed.le), steelHi.brighter (0.4f), "L"); }
+            g.restoreState(); g.saveState();   // udaje uz mimo orezania
             // udaje
             g.setColour (dim); g.setFont (juce::FontOptions (11.5f));
             auto ms = [] (double sec) { return sec < 1.0 ? juce::String (juce::roundToInt (sec * 1000.0)) + " ms" : juce::String (sec, 2) + " s"; };
@@ -904,7 +934,7 @@ namespace
         int hit (juce::Point<float> m) const
         {
             const auto r = waveArea(); const float d = (float) durSec();
-            const float xs = xOf (ed.start), xe = xOf (ed.end), xi = juce::jmin (xe, xs + (ed.fin / d) * r.getWidth()), xo = juce::jmax (xi, xe - (ed.fout / d) * r.getWidth());
+            const float xs = xOf (ed.start), xe = xOf (ed.end), xi = juce::jmin (xe, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xe - (ed.fout / d) * pxPerF());
             if (m.y < r.getY() + 14)
             {
                 if (std::abs (m.x - xi) < 9) return 4;
@@ -918,11 +948,18 @@ namespace
             return best;
         }
         void mouseMove (const juce::MouseEvent& e) override { setMouseCursor (hit (e.position) >= 0 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor); }
-        void mouseDown (const juce::MouseEvent& e) override { drag = hit (e.position); }
+        float panFrom = 0.0f;
+        void mouseDown (const juce::MouseEvent& e) override { drag = hit (e.position); panFrom = v0; }
         void mouseDrag (const juce::MouseEvent& e) override
         {
-            if (drag < 0) return;
-            const float f = fOf (e.position.x), d = (float) durSec(), minGap = 0.002f;
+            if (drag < 0)
+            {   // pri zoome tahanie prazdneho miesta posuva pohlad
+                const float span = v1 - v0;
+                if (span < 0.999f && waveArea().contains (e.mouseDownPosition))
+                { v0 = juce::jlimit (0.0f, 1.0f - span, panFrom - (float) e.getDistanceFromDragStartX() / pxPerF()); v1 = v0 + span; repaint(); }
+                return;
+            }
+            const float f = fOf (e.position.x), d = (float) durSec(), minGap = 0.002f * (v1 - v0);
             switch (drag)
             {
                 case 0: ed.start = juce::jlimit (0.0f, ed.end - minGap, f); break;
@@ -1756,7 +1793,7 @@ namespace
             g.setColour (dim); g.setFont (juce::FontOptions (12.0f));
             g.drawText (juce::String (p.synth.activeVoices()) + T (" hlasov"), getLocalBounds().reduced (12, 8).removeFromTop (16), juce::Justification::centredRight);
             const auto r = pad();
-            for (int i = 4; i >= 1; --i) { g.setColour (steel.withAlpha (0.25f + 0.12f * (float) (4 - i))); const float k = (float) i / 4.0f; g.fillEllipse (r.withSizeKeepingCentre (r.getWidth() * k, r.getHeight() * k)); }
+            for (int i = 4; i >= 1; --i) { g.setColour (steel.withAlpha (0.25f + 0.12f * (float) (4 - i))); const float k = (float) i / 4.0f; g.fillRoundedRectangle (r.withSizeKeepingCentre (r.getWidth() * k, r.getHeight() * k), 3.0f); }
             g.setColour (line.brighter (0.2f)); g.drawLine (r.getX(), r.getCentreY(), r.getRight(), r.getCentreY()); g.drawLine (r.getCentreX(), r.getY(), r.getCentreX(), r.getBottom());
             g.setColour (dim); g.setFont (juce::FontOptions (11.5f));
             g.drawText ("A", juce::Rectangle<float> (r.getX() - 16, r.getCentreY() - 8, 14, 16), juce::Justification::centred);
@@ -1764,8 +1801,8 @@ namespace
             g.drawText (T ("jasný"), juce::Rectangle<float> (r.getCentreX() - 30, r.getY() - 15, 60, 14), juce::Justification::centred);
             g.drawText (T ("tmavý"), juce::Rectangle<float> (r.getCentreX() - 30, r.getBottom() + 1, 60, 14), juce::Justification::centred);
             const float px = r.getCentreX() + x * r.getWidth() * 0.5f, py = r.getCentreY() - y * r.getHeight() * 0.5f;
-            g.setColour (text); g.fillEllipse (px - 8, py - 8, 16, 16);
-            g.setColour (arc); g.drawEllipse (px - 11, py - 11, 22, 22, 1.5f);
+            g.setColour (text); g.fillRoundedRectangle (px - 8, py - 8, 16, 16, 2.0f);
+            g.setColour (arc); g.drawRoundedRectangle (px - 11, py - 11, 22, 22, 2.0f, 1.5f);
         }
         void setFrom (juce::Point<float> pt)
         {

@@ -27,6 +27,11 @@ public:
     void drawTabButton (juce::TabBarButton&, juce::Graphics&, bool over, bool down) override;
     void drawTabbedButtonBarBackground (juce::TabbedButtonBar&, juce::Graphics&) override;
     void drawTabAreaBehindFrontButton (juce::TabbedButtonBar&, juce::Graphics&, int, int) override {}
+    // bez gulatych prvkov: gombik s ryskou, hranate bezce a zaskrtavacie policka (max 3 px)
+    void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h, float pos, float a0, float a1, juce::Slider&) override;
+    void drawLinearSlider (juce::Graphics&, int x, int y, int w, int h, float pos, float minPos, float maxPos, juce::Slider::SliderStyle, juce::Slider&) override;
+    void drawTickBox (juce::Graphics&, juce::Component&, float x, float y, float w, float h, bool ticked, bool enabled, bool over, bool down) override;
+    void drawScrollbar (juce::Graphics&, juce::ScrollBar&, int x, int y, int w, int h, bool vertical, int thumbStart, int thumbSize, bool over, bool down) override;
 };
 
 // Okno s GUI pluginu - vzdy cele na obrazovke, ak je plugin vacsi, da sa posuvat

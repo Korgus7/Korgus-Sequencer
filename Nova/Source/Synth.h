@@ -97,7 +97,7 @@ namespace nova
             // wavetable: vyhladena pozicia, aktualna uroven harmonickych a tabulka (pri zmene sa v bloku prelinaju)
             float wtPos = -1; int wtMip = -1, wtTab = -1;
             // sampel
-            const PianoBank::Sample* smp = nullptr; UserSamplePtr user; SmpEdit ued; float human = 0; double pos = 0, scanPh = 0, scanOff = 0; float scanRnd = 0; int scanStep = -1; float gain = 1, level = 1, dampCoef = 1, atk = 1, atkInc = 1; bool damping = false, noDamper = false;
+            const PianoBank::Sample* smp = nullptr; UserSamplePtr user; SmpEdit ued; float human = 0; double pos = 0, scanPh = 0, lph = 0, o0 = 0, o1 = 0; float scanRnd = 0, xw = 1.0f; int scanStep = -1; bool inLoop = false; float gain = 1, level = 1, dampCoef = 1, atk = 1, atkInc = 1; bool damping = false, noDamper = false;
             float velGain = 1, peak = 0;
         };
         struct Voice

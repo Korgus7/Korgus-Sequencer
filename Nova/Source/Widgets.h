@@ -52,15 +52,19 @@ namespace nova::ui
             const auto c = s.findColour (juce::Slider::rotarySliderFillColourId);
             g.setColour (c.isTransparent() ? arcColour : c);
             g.strokePath (val, juce::PathStrokeType (th, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
-            const float tr = rad - th * 0.5f, tx = cx + tr * std::sin (ang), ty = cy - tr * std::cos (ang), dot = th * 1.6f;
-            g.setColour (s.isEnabled() ? text : dim); g.fillEllipse (tx - dot * 0.5f, ty - dot * 0.5f, dot, dot);
+            // ryska namiesto gulatej bodky
+            const float tr = rad - th * 0.5f;
+            juce::Path tick; tick.startNewSubPath (cx + tr * 0.35f * std::sin (ang), cy - tr * 0.35f * std::cos (ang));
+            tick.lineTo (cx + (tr + th * 0.5f) * std::sin (ang), cy - (tr + th * 0.5f) * std::cos (ang));
+            g.setColour (s.isEnabled() ? text : dim);
+            g.strokePath (tick, juce::PathStrokeType (juce::jmax (2.0f, th * 0.7f), juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
         }
         void drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float, float, juce::Slider::SliderStyle, juce::Slider& s) override
         {
             const auto r = juce::Rectangle<float> ((float) x, (float) y + (float) h * 0.5f - 3.0f, (float) w, 6.0f);
             g.setColour (steel); g.fillRoundedRectangle (r, 3.0f);
             g.setColour (arc); g.fillRoundedRectangle (r.withRight (pos), 3.0f);
-            g.setColour (text); g.fillEllipse (pos - 7.0f, r.getCentreY() - 7.0f, 14.0f, 14.0f);
+            g.setColour (s.isEnabled() ? text : dim); g.fillRoundedRectangle (juce::Rectangle<float> (8.0f, 16.0f).withCentre ({ pos, r.getCentreY() }), 2.0f);
             (void) s;
         }
         void drawToggleButton (juce::Graphics& g, juce::ToggleButton& b, bool hover, bool) override
@@ -68,8 +72,8 @@ namespace nova::ui
             auto r = b.getLocalBounds().toFloat();
             const float d = juce::jmin (14.0f, r.getHeight() - 4.0f);
             auto box = juce::Rectangle<float> (r.getX() + 2.0f, r.getCentreY() - d * 0.5f, d, d);
-            g.setColour (hover ? text : dim); g.drawEllipse (box, 1.5f);
-            if (b.getToggleState()) { g.setColour (b.findColour (juce::ToggleButton::tickColourId).isTransparent() ? arc : b.findColour (juce::ToggleButton::tickColourId)); g.fillEllipse (box.reduced (3.0f)); }
+            g.setColour (hover ? text : dim); g.drawRoundedRectangle (box, 2.0f, 1.5f);
+            if (b.getToggleState()) { g.setColour (b.findColour (juce::ToggleButton::tickColourId).isTransparent() ? arc : b.findColour (juce::ToggleButton::tickColourId)); g.fillRoundedRectangle (box.reduced (3.0f), 1.5f); }
             g.setColour (text); g.setFont (juce::FontOptions (13.5f));
             g.drawText (b.getButtonText(), r.withTrimmedLeft (d + 8.0f), juce::Justification::centredLeft);
         }
@@ -88,6 +92,11 @@ namespace nova::ui
             juce::Path p; const float ax = (float) w - 12.0f, ay = (float) h * 0.5f;
             p.addTriangle (ax - 4, ay - 2, ax + 4, ay - 2, ax, ay + 3);
             g.setColour (text); g.fillPath (p);
+        }
+        void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int w, int h, bool vertical, int ts, int tz, bool over, bool down) override
+        {
+            const auto t = vertical ? juce::Rectangle<int> (x, ts, w, tz) : juce::Rectangle<int> (ts, y, tz, h);
+            g.setColour ((over || down) ? steelHi : steel); g.fillRoundedRectangle (t.reduced (2).toFloat(), 2.0f);
         }
         juce::Font getComboBoxFont (juce::ComboBox&) override { return juce::FontOptions (13.0f); }
         juce::Font getPopupMenuFont() override { return juce::FontOptions (14.0f); }

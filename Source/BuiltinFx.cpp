@@ -837,9 +837,9 @@ public:
         for (float d = -60.0f; d <= 0.01f; d += 0.5f) { const float x = xOf (d), y = yOf (outFor (d)); if (d == -60.0f) p.startNewSubPath (x, y); else p.lineTo (x, y); }
         g.setColour (GCol::gold); g.strokePath (p, PathStrokeType (2.0f));
         const float t = fx.thr->get();
-        g.setColour (drag == 1 ? Colours::white : GCol::gold); g.fillEllipse (xOf (t) - 6, yOf (outFor (t)) - 6, 12, 12);
+        g.setColour (drag == 1 ? Colours::white : GCol::gold); g.fillRoundedRectangle (xOf (t) - 6, yOf (outFor (t)) - 6, 12, 12, 2.0f);
         const float in = jlimit (-60.0f, 0.0f, fx.inNow.load());
-        g.setColour (GCol::line); g.fillEllipse (xOf (in) - 4, yOf (outFor (in)) - 4, 8, 8);
+        g.setColour (GCol::line); g.fillRoundedRectangle (xOf (in) - 4, yOf (outFor (in)) - 4, 8, 8, 2.0f);
         g.setColour (GCol::dim); g.drawText (sk ("vstup"), a.withTop (a.getBottom() - 12).toNearestInt(), Justification::centredRight);
         g.drawText (sk ("prah") + " " + String (t, 1) + " dB  " + String (fx.rat->get(), 1) + ":1", a.withHeight (14).reduced (4, 0).toNearestInt(), Justification::centredLeft);
         // ukazovatele vpravo
@@ -1005,7 +1005,7 @@ public:
             const float x = i == 0 ? xp : xe;
             g.setColour (drag == i + 1 || hover == i + 1 ? GCol::gold : GCol::gold.withAlpha (0.7f));
             g.drawVerticalLine ((int) x, topY - 8, base);
-            g.fillEllipse (x - 5, topY - 12, 10, 10);
+            g.fillRoundedRectangle (x - 5, topY - 12, 10, 10, 2.0f);
         }
         g.setColour (GCol::text); g.setFont (FontOptions (11.0f));
         g.drawText (sk ("predozvuk") + " " + String (roundToInt (fx.pre->get())) + " ms", Rectangle<float> (xp + 8, a.getY(), 130, 12), Justification::centredLeft);
@@ -2006,7 +2006,7 @@ void PulseDisplay::paint (Graphics& g)
         {
             const auto p = ptPos (i);
             g.setColour (i == hoverPt || i == dragPt ? Colours::white : GCol::gold);
-            g.fillEllipse (p.x - 5.5f, p.y - 5.5f, 11.0f, 11.0f);
+            g.fillRoundedRectangle (p.x - 5.5f, p.y - 5.5f, 11.0f, 11.0f, 2.0f);
         }
     // poloha prehravania
     if (! fx.keyMode.load())
@@ -2014,7 +2014,7 @@ void PulseDisplay::paint (Graphics& g)
         float ph = fx.phaseNow.load() - off; ph -= std::floor (ph);
         const float gx = area.getX() + ph * area.getWidth();
         g.setColour (GCol::gold.withAlpha (0.8f)); g.drawLine (gx, area.getY(), gx, area.getBottom(), 1.5f);
-        g.setColour (Colours::white); g.fillEllipse (gx - 4.0f, area.getBottom() - gvAt (fx.phaseNow.load()) * area.getHeight() - 4.0f, 8.0f, 8.0f);
+        g.setColour (Colours::white); g.fillRoundedRectangle (gx - 4.0f, area.getBottom() - gvAt (fx.phaseNow.load()) * area.getHeight() - 4.0f, 8.0f, 8.0f, 2.0f);
     }
     g.setFont (FontOptions (12.0f));
     g.setColour (Colour (0xff8a96a3));
@@ -2042,16 +2042,31 @@ public:
     explicit SamplerDisplay (SamplerInst& s);
     ~SamplerDisplay() override { stopTimer(); }
     void paint (Graphics&) override;
-    void resized() override { load.setBounds (getWidth() - 132, 6, 124, 24); }
+    void resized() override;
     bool isInterestedInFileDrag (const StringArray& f) override;
     void filesDropped (const StringArray& f, int, int) override;
     void mouseDown (const MouseEvent&) override;
+    void mouseDrag (const MouseEvent&) override;
+    void mouseUp (const MouseEvent&) override;
+    void mouseMove (const MouseEvent&) override;
+    void mouseWheelMove (const MouseEvent&, const MouseWheelDetails&) override;
+    void mouseDoubleClick (const MouseEvent&) override { v0 = 0.0f; v1 = 1.0f; repaint(); }
 private:
-    void timerCallback() override { repaint(); }
+    float v0 = 0.0f, v1 = 1.0f, panFrom = 0.0f;   // zoom: zobrazeny usek zvuku
+    float pxPerF() const { return waveArea().getWidth() / (v1 - v0); }
+    float xOf (float f) const { return waveArea().getX() + (f - v0) * pxPerF(); }
+    float fOf (float x) const { return jlimit (0.0f, 1.0f, v0 + (x - waveArea().getX()) / pxPerF()); }
+    void timerCallback() override;
     void choose();
+    Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (10, 0).withTrimmedTop (38).withTrimmedBottom (44); }
+    int hitEdge (float x) const;
     SamplerInst& sm;
-    TextButton load;
+    TextButton load, loopB, scanB, help { "?" };
+    Slider rateS { Slider::LinearBar, Slider::TextBoxLeft }, rangeS { Slider::LinearBar, Slider::TextBoxLeft };
+    ComboBox shapeC;
     std::unique_ptr<FileChooser> chooser;
+    int dragMode = 0;            // 1 = zaciatok, 2 = koniec, 3 = cela slucka
+    float dLs = 0, dLe = 0;
 };
 
 class SamplerInst final : public FxBase
@@ -2070,7 +2085,20 @@ public:
         mode = add ("mode", "Hrať", 0, 1, 0, "", 1.0f, 0);
         mode->range.interval = 1.0f;
         mode->choices = StringArray { sk ("Kým držím klávesu"), sk ("Celý zvuk") };
+        // slucka a skenovanie - ovladaju sa v grafe
+        loopP  = add ("loop", "Slučka", 0, 1, 0, "", 1.0f, 0);          loopP->toggle = true;
+        lsP    = add ("loopStart", "Začiatok slučky", 0, 1, 0.30f, "", 1.0f, 3);
+        leP    = add ("loopEnd", "Koniec slučky", 0, 1, 0.70f, "", 1.0f, 3);
+        scanP  = add ("scan", "Skenovať", 0, 1, 0, "", 1.0f, 0);        scanP->toggle = true;
+        sRate  = add ("scanRate", "Rýchlosť skenovania", 0.02f, 4.0f, 0.25f, "Hz", 0.35f, 2);
+        sRange = add ("scanRange", "Rozsah skenovania", 0, 100, 50, "%", 1.0f, 0);
+        sShape = add ("scanShape", "Tvar skenovania", 0, 2, 0, "", 1.0f, 0);
+        sShape->range.interval = 1.0f;
+        sShape->choices = StringArray { sk ("Tam a späť"), sk ("Dopredu"), sk ("Náhodne") };
+        for (auto* q : { loopP, lsP, leP, scanP, sRate, sRange, sShape }) q->inEditor = false;
     }
+    int displayHeight() const override { return 206; }
+    FxParam *loopP, *lsP, *leP, *scanP, *sRate, *sRange, *sShape;
 
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<SamplerDisplay> (*this); }
     bool isBusesLayoutSupported (const BusesLayout& l) const override
@@ -2148,8 +2176,24 @@ public:
         const float aS = (float) jmax (1.0, att->get() * 0.001 * rate);
         const float rCoef = (float) std::exp (-1.0 / jmax (1.0, rel->get() * 0.001 * rate / 4.6));
         const float g = Decibels::decibelsToGain (vol->get()), vs = velS->get() * 0.01f;
-        const bool whole = mode->get() > 0.5f;
+        const bool loopOn = loopP->get() > 0.5f && sl > 64, scanOn = loopOn && scanP->get() > 0.5f;
+        const bool whole = mode->get() > 0.5f && ! loopOn;   // so sluckou zvuk konci pustenim klavesy
+        const double lsS = jlimit (0.0, sl - 8.0, (double) lsP->get() * sl);
+        const double leS = jlimit (lsS + 4.0, sl - 3.0, (double) leP->get() * sl);
+        const double xfS = 0.008 * sampleRate;                 // prelinanie konca slucky (8 ms)
+        const double scanInc = sRate->get() / rate, range = sRange->get() * 0.01;
+        const int shape = roundToInt (sShape->get());
         int pos = 0;
+        auto rd = [&] (int c, double p)
+        {
+            p = jlimit (0.0, sl - 2.0, p);
+            const int k = (int) p;
+            const float fr = (float) (p - k);
+            const float* d = smp.getReadPointer (jmin (c, sc - 1));
+            const float x0 = d[jmax (0, k - 1)], x1 = d[k], x2 = d[k + 1], x3 = d[jmin (sl - 1, k + 2)];
+            const float c1 = 0.5f * (x2 - x0), c2 = x0 - 2.5f * x1 + 2.0f * x2 - 0.5f * x3, c3 = 0.5f * (x3 - x0) + 1.5f * (x1 - x2);
+            return ((c3 * fr + c2) * fr + c1) * fr + x1;
+        };
         auto render = [&] (int from, int to)
         {
             for (auto& v : voices)
@@ -2157,19 +2201,51 @@ public:
                 if (! v.on) continue;
                 for (int i = from; i < to; ++i)
                 {
-                    if (v.pos >= sl - 2) { v.on = false; break; }
                     float e;
+                    if (loopOn && ! v.inLoop && v.pos >= leS)
+                    {   // vstup do slucky: dalej sa hra faza vnutri slucky
+                        v.inLoop = true; v.ph = std::fmod (v.pos - lsS, leS - lsS); v.o0 = v.o1 = 0; v.xw = 1.0f;
+                    }
+                    if (! (loopOn && v.inLoop) && v.pos >= sl - 2) { v.on = false; break; }
                     if (v.releasing) { v.env *= rCoef; e = v.env; if (e < 1.0e-4f) { v.on = false; break; } }
                     else { v.env = jmin (1.0f, v.env + 1.0f / aS); e = v.env; }
-                    const int k = (int) v.pos;
-                    const float fr = (float) (v.pos - k);
-                    for (int c = 0; c < ch; ++c)
+                    if (loopOn && v.inLoop)
                     {
-                        const float* d = smp.getReadPointer (jmin (c, sc - 1));
-                        const float x0 = d[jmax (0, k - 1)], x1 = d[k], x2 = d[k + 1], x3 = d[jmin (sl - 1, k + 2)];
-                        const float c1 = 0.5f * (x2 - x0), c2 = x0 - 2.5f * x1 + 2.0f * x2 - 0.5f * x3, c3 = 0.5f * (x3 - x0) + 1.5f * (x1 - x2);
-                        buf.getWritePointer (c)[i] += (((c3 * fr + c2) * fr + c1) * fr + x1) * e * v.gain;
+                        const double Lp = leS - lsS;
+                        while (v.ph >= Lp) v.ph -= Lp;
+                        if (scanOn)
+                        {   // skenovanie ako wavetable: prelinanie medzi dvoma oknami slucky v rovnakej faze - vyska ostava presne podla tonu
+                            v.scanPh += scanInc;
+                            if (v.xw >= 1.0f)
+                            {
+                                const double room = jmax (0.0, (sl - 3.0) - leS) * range;
+                                double f;
+                                if (shape == 0) { const double q = std::fmod (v.scanPh, 1.0); f = q < 0.5 ? q * 2.0 : 2.0 - q * 2.0; }
+                                else if (shape == 1) f = std::fmod (v.scanPh, 1.0);
+                                else { const int st = (int) v.scanPh; if (st != v.scanStep) { v.scanStep = st; v.scanRnd = rng.nextFloat(); } f = v.scanRnd; }
+                                const double d = jlimit (-Lp, Lp, room * f - v.o0);
+                                if (std::abs (d) > 0.5) { v.o1 = v.o0 + d; v.xw = -4.0f; }   // 16 period drzat, potom 4 periody prelinat
+                            }
+                        }
+                        const double X = jmin (xfS, Lp * 0.5);
+                        const float sw = (X > 1.0 && v.ph > Lp - X) ? (float) ((v.ph - (Lp - X)) / X) : 0.0f;
+                        auto head = [&] (int c, double base)
+                        {
+                            float y = rd (c, base + v.ph);
+                            if (sw > 0.0f) y += sw * (rd (c, base + v.ph - Lp) - y);   // bez svu na konci slucky
+                            return y;
+                        };
+                        for (int c = 0; c < ch; ++c)
+                        {
+                            float y = head (c, lsS + v.o0);
+                            if (v.xw > 0.0f && v.xw < 1.0f) y += v.xw * (head (c, lsS + v.o1) - y);
+                            buf.getWritePointer (c)[i] += y * e * v.gain;
+                        }
+                        v.ph += v.step;
+                        if (v.xw < 1.0f) { v.xw += (float) (v.step / (Lp * 4.0)); if (v.xw >= 1.0f) { v.o0 = v.o1; v.xw = 1.0f; } }
+                        continue;
                     }
+                    for (int c = 0; c < ch; ++c) buf.getWritePointer (c)[i] += rd (c, v.pos) * e * v.gain;
                     v.pos += v.step;
                 }
             }
@@ -2187,6 +2263,7 @@ public:
                 if (v == nullptr) { v = &voices[0]; for (auto& x : voices) if (x.age < v->age) v = &x; }
                 const double semis = m.getNoteNumber() - root->get() + tune->get() / 100.0;
                 v->on = true; v->releasing = false; v->note = m.getNoteNumber(); v->pos = 0; v->env = 0;
+                v->scanPh = 0; v->scanStep = -1; v->inLoop = false; v->ph = 0; v->o0 = v->o1 = 0; v->xw = 1.0f;
                 v->step = std::pow (2.0, semis / 12.0) * sampleRate / rate;
                 v->gain = g * (1.0f - vs + vs * m.getFloatVelocity());
                 v->age = ++counter;
@@ -2209,7 +2286,8 @@ private:
     void prepare() override { for (auto& v : voices) v.on = false; }
     void process (AudioBuffer<float>&) override {}
 
-    struct Voice { bool on = false, releasing = false; int note = 60; double pos = 0, step = 1; float env = 0, gain = 1; uint32 age = 0; };
+    struct Voice { bool on = false, releasing = false; int note = 60; double pos = 0, step = 1, scanPh = 0, ph = 0, o0 = 0, o1 = 0; float env = 0, gain = 1, scanRnd = 0, xw = 1.0f; int scanStep = -1; bool inLoop = false; uint32 age = 0; };
+    Random rng;
     std::array<Voice, 24> voices;
     uint32 counter = 0;
     FxParam *root, *tune, *att, *rel, *velS, *vol, *mode;
@@ -2221,12 +2299,183 @@ private:
 
 SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
 {
+    const Colour text (0xffe4e9ef), steel (0xff2d4362), off (0xff1f2833);
     load.setButtonText (sk ("Načítať zvuk…"));
-    load.setColour (TextButton::buttonColourId, Colour (0xff2d4362));
-    load.setColour (TextButton::textColourOffId, Colour (0xffe4e9ef));
+    load.setColour (TextButton::buttonColourId, steel);
+    load.setColour (TextButton::textColourOffId, text);
     load.onClick = [this] { choose(); };
     addAndMakeVisible (load);
+    auto tog = [&] (TextButton& b, const char* t, FxParam* prm)
+    {
+        b.setButtonText (sk (t));
+        b.setClickingTogglesState (true);
+        b.setColour (TextButton::buttonColourId, off);
+        b.setColour (TextButton::buttonOnColourId, steel);
+        b.setColour (TextButton::textColourOffId, Colour (0xff9aa6b4));
+        b.setColour (TextButton::textColourOnId, text);
+        b.onClick = [&b, prm] { prm->setFromUi (b.getToggleState() ? 1.0f : 0.0f); };
+        addAndMakeVisible (b);
+    };
+    tog (loopB, "Slučka", sm.loopP);
+    tog (scanB, "≋ Skenovať", sm.scanP);
+    scanB.onClick = [this]
+    {
+        sm.scanP->setFromUi (scanB.getToggleState() ? 1.0f : 0.0f);
+        if (scanB.getToggleState() && sm.loopP->get() < 0.5f) sm.loopP->setFromUi (1.0f);   // skenovanie potrebuje slucku
+    };
+    auto bar = [&] (Slider& k, FxParam* prm)
+    {
+        k.setRange (prm->range.start, prm->range.end, 0.0);
+        k.setSkewFactor (prm->range.skew);
+        k.setValue (prm->get(), dontSendNotification);
+        k.setDoubleClickReturnValue (true, prm->range.convertFrom0to1 (prm->defNorm));
+        k.textFromValueFunction = [prm] (double v) { return prm->getText (prm->range.convertTo0to1 ((float) v), 0); };
+        k.setColour (Slider::trackColourId, steel);
+        k.setColour (Slider::backgroundColourId, off);
+        k.setColour (Slider::textBoxTextColourId, text);
+        k.setColour (Slider::textBoxOutlineColourId, Colours::transparentBlack);
+        k.onDragStart = [prm] { prm->beginChangeGesture(); };
+        k.onDragEnd   = [prm] { prm->endChangeGesture(); };
+        k.onValueChange = [prm, &k] { prm->setValueNotifyingHost (prm->range.convertTo0to1 ((float) k.getValue())); };
+        addAndMakeVisible (k);
+        k.updateText();
+    };
+    bar (rateS, sm.sRate);
+    bar (rangeS, sm.sRange);
+    for (int i = 0; i < sm.sShape->choices.size(); ++i) shapeC.addItem (sm.sShape->choices[i], i + 1);
+    shapeC.setSelectedId (roundToInt (sm.sShape->get()) + 1, dontSendNotification);
+    shapeC.setColour (ComboBox::backgroundColourId, off);
+    shapeC.setColour (ComboBox::textColourId, text);
+    shapeC.setColour (ComboBox::outlineColourId, Colours::transparentBlack);
+    shapeC.onChange = [this] { sm.sShape->setFromUi ((float) (shapeC.getSelectedId() - 1)); };
+    addAndMakeVisible (shapeC);
+    help.setColour (TextButton::buttonColourId, off);
+    help.setColour (TextButton::textColourOffId, text);
+    help.onClick = [] {
+        AlertWindow::showMessageBoxAsync (MessageBoxIconType::NoIcon, sk ("Slučka a skenovanie"),
+            sk ("Slučka: zapni ju a na obrázku vyber časť zvuku, ktorá sa bude opakovať, kým držíš klávesu. "
+                "Ťahaním okrajov meníš začiatok a koniec, ťahaním stredu posúvaš celú slučku, kliknutím mimo nej vyberieš novú. "
+                "So Shiftom sa ťahá jemne (na veľmi krátku slučku). Veľmi krátka slučka dáva bzučivý tón.\n\n"
+                "Zoom: koliesko myši priblíži zvuk okolo kurzora, Shift + koliesko ho posúva, dvojklik ukáže celý zvuk.\n\n"
+                "Skenovať: slučka sa sama pomaly posúva po zvuku, takže sa mení farba zvuku, ale výška ostáva podľa tónu. "
+                "Rýchlosť = ako rýchlo sa posúva, Rozsah = kam až za slučku zájde (zlaté pole), "
+                "Tvar = tam a späť, stále dopredu alebo náhodne."));
+    };
+    addAndMakeVisible (help);
+    timerCallback();
     startTimerHz (10);
+}
+
+void SamplerDisplay::resized()
+{
+    load.setBounds (getWidth() - 132, 6, 124, 24);
+    auto row = getLocalBounds().reduced (10, 0).removeFromBottom (36).withTrimmedBottom (8);
+    loopB.setBounds (row.removeFromLeft (74)); row.removeFromLeft (6);
+    scanB.setBounds (row.removeFromLeft (100));
+    help.setBounds (row.removeFromRight (28)); row.removeFromRight (6);
+    shapeC.setBounds (row.removeFromRight (112)); row.removeFromRight (48);   // miesto na "Tvar"
+    row.removeFromLeft (62);                                                 // miesto na "Rychlost"
+    const int w = (row.getWidth() - 54) / 2;
+    rateS.setBounds (row.removeFromLeft (w));
+    row.removeFromLeft (54);                                                 // miesto na "Rozsah"
+    rangeS.setBounds (row.removeFromLeft (w));
+}
+
+void SamplerDisplay::timerCallback()
+{
+    loopB.setToggleState (sm.loopP->get() > 0.5f, dontSendNotification);
+    scanB.setToggleState (sm.scanP->get() > 0.5f, dontSendNotification);
+    if (! rateS.isMouseButtonDown()) rateS.setValue (sm.sRate->get(), dontSendNotification);
+    if (! rangeS.isMouseButtonDown()) rangeS.setValue (sm.sRange->get(), dontSendNotification);
+    shapeC.setSelectedId (roundToInt (sm.sShape->get()) + 1, dontSendNotification);
+    const bool sc = sm.scanP->get() > 0.5f;
+    rateS.setEnabled (sc); rangeS.setEnabled (sc); shapeC.setEnabled (sc);
+    repaint();
+}
+
+int SamplerDisplay::hitEdge (float x) const
+{
+    if (sm.loopP->get() < 0.5f || sm.getSample() == nullptr) return 0;
+    const float xs = xOf (sm.lsP->get()), xe = xOf (sm.leP->get());
+    if (std::abs (x - xe) <= 6.0f) return 2;
+    if (std::abs (x - xs) <= 6.0f) return 1;
+    if (x > xs && x < xe) return 3;
+    return 0;
+}
+
+void SamplerDisplay::mouseMove (const MouseEvent& e)
+{
+    const int h = waveArea().contains (e.position) ? hitEdge (e.position.x) : 0;
+    setMouseCursor (h == 1 || h == 2 ? MouseCursor::LeftRightResizeCursor : h == 3 ? MouseCursor::DraggingHandCursor : MouseCursor::NormalCursor);
+}
+
+void SamplerDisplay::mouseDown (const MouseEvent& e)
+{
+    if (sm.getSample() == nullptr) { choose(); return; }
+    const auto a = waveArea();
+    dragMode = 0; panFrom = v0;
+    if (! a.contains (e.position)) return;
+    if (sm.loopP->get() < 0.5f) { dragMode = 5; return; }   // bez slucky tahanie posuva pohlad
+    dLs = sm.lsP->get(); dLe = sm.leP->get();
+    dragMode = hitEdge (e.position.x);
+    if (dragMode == 0)
+    {   // nova slucka od miesta kliknutia
+        dLs = dLe = fOf (e.position.x);
+        dragMode = 4;
+    }
+    sm.lsP->beginChangeGesture(); sm.leP->beginChangeGesture();
+}
+
+void SamplerDisplay::mouseDrag (const MouseEvent& e)
+{
+    if (dragMode == 0) return;
+    if (dragMode == 5)
+    {
+        const float span = v1 - v0;
+        v0 = jlimit (0.0f, 1.0f - span, panFrom - (float) e.getDistanceFromDragStartX() / pxPerF()); v1 = v0 + span;
+        repaint(); return;
+    }
+    const float minGap = 0.00005f;
+    float d = (float) e.getDistanceFromDragStartX() / pxPerF();
+    if (e.mods.isShiftDown()) d *= 0.03f;          // jemne tahanie
+    float ls = dLs, le = dLe;
+    if (dragMode == 1) ls = jlimit (0.0f, le - minGap, dLs + d);
+    else if (dragMode == 2) le = jlimit (ls + minGap, 1.0f, dLe + d);
+    else if (dragMode == 3) { const float len = dLe - dLs; ls = jlimit (0.0f, 1.0f - len, dLs + d); le = ls + len; }
+    else
+    {
+        const float x = jlimit (0.0f, 1.0f, dLs + d);
+        ls = jmin (dLs, x); le = jmax (dLs, x);
+        if (le - ls < minGap) le = jmin (1.0f, ls + minGap);
+    }
+    sm.lsP->setFromUi (ls); sm.leP->setFromUi (le);
+    repaint();
+}
+
+void SamplerDisplay::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& w)
+{
+    auto smp = sm.getSample();
+    if (smp == nullptr) return;
+    const float span = v1 - v0;
+    if (e.mods.isShiftDown() || std::abs (w.deltaX) > std::abs (w.deltaY))
+    {   // posun pohladu
+        const float d = (std::abs (w.deltaX) > std::abs (w.deltaY) ? -w.deltaX : -w.deltaY) * span * 0.5f;
+        v0 = jlimit (0.0f, 1.0f - span, v0 + d); v1 = v0 + span;
+    }
+    else
+    {   // zoom okolo kurzora
+        const float at = fOf (e.position.x), minSpan = jmin (1.0f, 64.0f / (float) smp->getNumSamples());
+        const float ns = jlimit (minSpan, 1.0f, span * std::pow (0.8f, w.deltaY * 4.0f));
+        const float rel = (at - v0) / span;
+        v0 = jlimit (0.0f, 1.0f - ns, at - rel * ns); v1 = v0 + ns;
+    }
+    repaint();
+}
+
+void SamplerDisplay::mouseUp (const MouseEvent&)
+{
+    if (dragMode != 0 && dragMode != 5) { sm.lsP->endChangeGesture(); sm.leP->endChangeGesture(); }
+    dragMode = 0;
 }
 
 void SamplerDisplay::choose()
@@ -2268,7 +2517,6 @@ void SamplerDisplay::filesDropped (const StringArray& f, int, int)
     repaint();
 }
 
-void SamplerDisplay::mouseDown (const MouseEvent&) { if (sm.getSample() == nullptr) choose(); }
 
 void SamplerDisplay::paint (Graphics& g)
 {
@@ -2279,25 +2527,54 @@ void SamplerDisplay::paint (Graphics& g)
     g.setColour (Colour (0xff8a96a6));
     g.drawText ("SAMPLER", r.reduced (10, 6).removeFromTop (18), Justification::centredLeft);
     auto smp = sm.getSample();
-    auto area = r.reduced (10, 0).withTrimmedTop (38).withTrimmedBottom (10);
+    auto area = waveArea();
+    // popisy posuvnikov v spodnom riadku
+    g.setColour (Colour (0xffc9d2dc));
+    g.setFont (FontOptions (13.0f));
+    g.drawText (sk ("Rýchlosť"), rateS.getBounds().translated (-62, 0).withWidth (58), Justification::centredRight);
+    g.drawText (sk ("Rozsah"), rangeS.getBounds().translated (-54, 0).withWidth (50), Justification::centredRight);
+    g.drawText (sk ("Tvar"), shapeC.getBounds().translated (-48, 0).withWidth (44), Justification::centredRight);
     if (smp == nullptr)
     {
-        g.setColour (Colour (0xffc9d2dc));
         g.drawText (sk ("Pretiahni sem zvuk (wav, mp3…) alebo klikni na „Načítať zvuk…“"), area, Justification::centred);
         return;
     }
-    g.setColour (Colour (0xffc9d2dc));
+    g.setFont (FontOptions (12.0f));
     g.drawText (sm.fileName, r.reduced (10, 6).removeFromTop (18).withTrimmedLeft (70).withTrimmedRight (140), Justification::centredLeft);
+    const bool loopOn = sm.loopP->get() > 0.5f;
+    const float xs = xOf (sm.lsP->get()), xe = xOf (sm.leP->get());
+    Graphics::ScopedSaveState clipSt (g);
+    g.reduceClipRegion (area.toNearestInt());
+    if (loopOn)
+    {
+        if (sm.scanP->get() > 0.5f)
+        {   // kam az skenovanie zajde
+            const float room = (xOf (1.0f) - xe) * sm.sRange->get() * 0.01f;
+            g.setColour (Colour (0x28c8a04a));
+            g.fillRect (Rectangle<float> (xe, area.getY(), room, area.getHeight()));
+        }
+        g.setColour (Colour (0x402d4362).brighter (0.6f));
+        g.fillRect (Rectangle<float> (xs, area.getY(), jmax (1.0f, xe - xs), area.getHeight()));
+    }
     const int W = jmax (2, (int) area.getWidth()), n = smp->getNumSamples();
     const float* d = smp->getReadPointer (0);
     g.setColour (Colour (0xff6f8fb3));
     const float mid = area.getCentreY(), hh = area.getHeight() * 0.5f;
     for (int x = 0; x < W; ++x)
     {
-        const int a = (int) ((int64) x * n / W), b = jmax (a + 1, (int) ((int64) (x + 1) * n / W));
+        const int a = jlimit (0, n - 1, (int) ((v0 + (float) x / pxPerF()) * n));
+        const int b = jlimit (a + 1, n, (int) ((v0 + (float) (x + 1) / pxPerF()) * n) + 1);
         float mn = 0, mx = 0;
-        for (int i = a; i < b && i < n; i += jmax (1, (b - a) / 64)) { mn = jmin (mn, d[i]); mx = jmax (mx, d[i]); }
+        for (int i = a; i < b; i += jmax (1, (b - a) / 64)) { mn = jmin (mn, d[i]); mx = jmax (mx, d[i]); }
         g.drawVerticalLine ((int) area.getX() + x, mid - mx * hh, mid - mn * hh + 1.0f);
+    }
+    if (loopOn)
+    {
+        g.setColour (Colour (0xffd8c27a));
+        g.fillRect (Rectangle<float> (xs - 1.0f, area.getY(), 2.0f, area.getHeight()));
+        g.fillRect (Rectangle<float> (xe - 1.0f, area.getY(), 2.0f, area.getHeight()));
+        g.fillRect (Rectangle<float> (xs - 4.0f, area.getY(), 8.0f, 6.0f));
+        g.fillRect (Rectangle<float> (xe - 4.0f, area.getY(), 8.0f, 6.0f));
     }
 }
 

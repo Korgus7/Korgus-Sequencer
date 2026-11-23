@@ -57,7 +57,7 @@ input[type=range]{accent-color:#2d4362}
 .dseHead button:hover{background:#3a5476}
 .dsec{position:absolute;left:8px;width:544px;background:#232d3b;border:1px solid #2a3647;border-radius:3px;cursor:default}
 .dsecH{position:absolute;left:12px;top:2px;height:32px;padding:0 18px;display:flex;align-items:center;gap:9px;font-size:20px;color:#d8dee8;background:#2a3647;border:1px solid #33435a;border-top:0;border-radius:0 0 3px 3px}
-.dled{width:13px;height:13px;border-radius:50%;background:radial-gradient(#5a6068,#3a3f45);border:1px solid #23272b;cursor:pointer;box-shadow:inset 0 1px 1px #0008}.dled.on{background:radial-gradient(#ffd98a,#c9a35a);box-shadow:0 0 6px #c9a35a}
+.dled{width:13px;height:13px;border-radius:2px;background:radial-gradient(#5a6068,#3a3f45);border:1px solid #23272b;cursor:pointer;box-shadow:inset 0 1px 1px #0008}.dled.on{background:radial-gradient(#ffd98a,#c9a35a);box-shadow:0 0 6px #c9a35a}
 .dk{position:absolute;cursor:ns-resize}.dk svg{display:block}
 .dkl{position:absolute;width:110px;margin-left:-55px;text-align:center;font-size:15px;color:#c3ccd8;white-space:nowrap;pointer-events:none}
 .dsl{position:absolute;width:24px;margin-left:-12px;cursor:ns-resize}
@@ -321,8 +321,8 @@ body:not(.native) .ph{display:none}
 .dse2-ft button.sl{flex:0 0 58px;font-size:12.5px;margin-left:5px}
 .dse2-ft button.sl:disabled{opacity:.4;cursor:default;background:#141b25;border-color:#33435a;color:#aab5c3}
 .dse2-sw{display:flex;align-items:center;gap:8px;font-size:13.5px;color:#aab5c3;cursor:pointer;white-space:nowrap}
-.dse2-sw i{position:relative;width:34px;height:18px;border-radius:9px;background:#0e131b;border:1px solid #33435a;box-sizing:border-box;transition:background .15s}
-.dse2-sw i:after{content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#6b7889;transition:left .15s,background .15s}
+.dse2-sw i{position:relative;width:34px;height:18px;border-radius:3px;background:#0e131b;border:1px solid #33435a;box-sizing:border-box;transition:background .15s}
+.dse2-sw i:after{content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:2px;background:#6b7889;transition:left .15s,background .15s}
 .dse2-sw.on{color:#e6ecf2}.dse2-sw.on i{background:#2d4362}.dse2-sw.on i:after{left:18px;background:var(--c)}
 .denv{position:absolute;border:1px solid #2d4362;border-radius:3px;background:#0e131b;cursor:default}
 .dpad{position:relative;background:#1b2330;border:1px solid #0f1620;border-radius:3px;display:flex;flex-direction:column;cursor:pointer;overflow:hidden;user-select:none;color:#d7dade}
@@ -2339,7 +2339,7 @@ function toggleMixer(){ const w=$('mixWin'); w.hidden=!w.hidden; if(!w.hidden){ 
 function dragV(e,el,fn,up){ e.preventDefault(); e.stopPropagation(); const rc=el.getBoundingClientRect(); fn(e,rc);
   const mv=ev=>fn(ev,rc), u=()=>{removeEventListener('mousemove',mv); removeEventListener('mouseup',u); if(up) up();}; addEventListener('mousemove',mv); addEventListener('mouseup',u); }
 const dbTxt=v=>v>0?(40*Math.log10(v)).toFixed(1):'−∞';
-const ICO_PWR='<svg viewBox="0 0 16 16" width="11" height="11"><path d="M8 1.5v6" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M4.6 4a5 5 0 1 0 6.8 0" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
+const ICO_PWR='<svg viewBox="0 0 16 16" width="11" height="11"><path d="M8 1.5v6" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="butt"/><path d="M4.6 4a5 5 0 1 0 6.8 0" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="butt"/></svg>';
 function fxIsOff(id,k){ return !!(song.byp&&song.byp[id]&&song.byp[id][k]); }
 function fxSetOff(id,k,v){ pushUndo(); const b=song.byp||(song.byp={}); const a=b[id]||(b[id]=[false,false,false,false]); a[k]=v; if(!a.some(x=>x)) delete b[id]; save(); }
 function auxName(k){ const f=((natTrackPlugins['__aux'+(k+1)]||{}).fx||[]).find(x=>x); return 'FX '+(k+1)+(f?' '+String(f.name).replace(/^Korgus /,''):''); }
@@ -3558,8 +3558,8 @@ function drumEdit(tr,l){
     const ang=x=>(-135+270*x)*Math.PI/180, pt=x=>[c+R*Math.sin(ang(x)),c-R*Math.cos(ang(x))];
     const arc=(a,b)=>{ if(Math.abs(b-a)<.002) return ''; const [x1,y1]=pt(Math.min(a,b)), [x2,y2]=pt(Math.max(a,b)); return `M${x1} ${y1}A${R} ${R} 0 ${Math.abs(b-a)*270>180?1:0} 1 ${x2} ${y2}`; };
     const from=C[k][4]?norm(k,0):0, [hx,hy]=pt(t), off=dseTab==='f'&&!ds.fOn&&!['drive','punch'].includes(k);
-    d.querySelector('svg').outerHTML=`<svg width="${S}" height="${S}"><path d="${arc(0,1)}" stroke="#0e131b" stroke-width="${big?7:6}" fill="none" stroke-linecap="round"/>
-      <path d="${arc(from,t)}" stroke="${col}" stroke-opacity="${off?.35:1}" stroke-width="${big?7:6}" fill="none" stroke-linecap="round"/>
+    d.querySelector('svg').outerHTML=`<svg width="${S}" height="${S}"><path d="${arc(0,1)}" stroke="#0e131b" stroke-width="${big?7:6}" fill="none" stroke-linecap="butt"/>
+      <path d="${arc(from,t)}" stroke="${col}" stroke-opacity="${off?.35:1}" stroke-width="${big?7:6}" fill="none" stroke-linecap="butt"/>
       <circle cx="${c}" cy="${c}" r="${R-9}" fill="${actK===k?'#2d4362':'#1f2836'}" stroke="#33435a"/><circle cx="${hx}" cy="${hy}" r="${big?4.5:3.5}" fill="#e6ecf2"/></svg>`;
     d.querySelector('b').textContent=C[k][2](ds[k]); d.classList.toggle('off',off); };
   const knobs=()=>pane.querySelectorAll('.dse2-k').forEach(knob);
@@ -3627,7 +3627,7 @@ function drumEdit(tr,l){
     if(zero||off){ const G=pos(p,W,H,zero?.6:null); c.save(); c.setLineDash([5,5]); c.strokeStyle=col; c.globalAlpha=.6; c.lineWidth=1.5; path(G,false); c.stroke(); c.restore(); }
     if(!zero){ c.globalAlpha=off?.35:1; path(P,true); c.fillStyle=col+'33'; c.fill(); c.strokeStyle=col; c.lineWidth=2.5; path(P,false); c.stroke(); }
     c.globalAlpha=1;
-    (zero?pos(p,W,H,.6):P).pts.forEach((q,i)=>{ if(!q) return; c.fillStyle=i===hov?'#ffffff':col; c.strokeStyle='#0e131b'; c.lineWidth=2; c.beginPath(); c.arc(q[0],q[1],i===hov?7:6,0,7); c.fill(); c.stroke(); });
+    (zero?pos(p,W,H,.6):P).pts.forEach((q,i)=>{ if(!q) return; c.fillStyle=i===hov?'#ffffff':col; c.strokeStyle='#0e131b'; c.lineWidth=2; { const rr=i===hov?7:6; c.beginPath(); c.roundRect(q[0]-rr,q[1]-rr,rr*2,rr*2,2); c.fill(); c.stroke(); } });
     c.fillStyle='#8a96a6'; c.font='12px Segoe UI'; c.textAlign='center';
     if(off) c.fillText('Filter je vypnutý – zapneš ho pohybom gombíka alebo vypínačom dole',W/2,g.top+8);
     else if(zero) c.fillText(p==='p'?'Ťahaj vrchol hore = tón na začiatku skočí a vráti sa':'Ťahaj vrchol hore = filter sa pri údere otvorí',W/2,g.top+8);

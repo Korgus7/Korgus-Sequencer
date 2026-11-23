@@ -433,6 +433,63 @@ KorgusLookAndFeel::KorgusLookAndFeel()
     setColour (juce::ProgressBar::backgroundColourId, juce::Colour (0xffdde1e6));
 }
 
+void KorgusLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float a0, float a1, juce::Slider& s)
+{
+    const auto r = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h).reduced (6.0f);
+    const float rad = juce::jmin (r.getWidth(), r.getHeight()) * 0.5f, cx = r.getCentreX(), cy = r.getCentreY();
+    const float th = juce::jmax (3.0f, rad * 0.16f), ang = a0 + pos * (a1 - a0), rr = rad - th * 0.5f;
+    juce::Path track, val;
+    track.addCentredArc (cx, cy, rr, rr, 0, a0, a1, true);
+    val.addCentredArc (cx, cy, rr, rr, 0, a0, ang, true);
+    const juce::PathStrokeType st (th, juce::PathStrokeType::curved, juce::PathStrokeType::butt);
+    g.setColour (s.findColour (juce::Slider::rotarySliderOutlineColourId)); g.strokePath (track, st);
+    g.setColour (s.findColour (juce::Slider::rotarySliderFillColourId).withMultipliedAlpha (s.isEnabled() ? 1.0f : 0.5f)); g.strokePath (val, st);
+    // ryska od stredu k oblucku
+    juce::Path tick; tick.startNewSubPath (cx + rr * 0.35f * std::sin (ang), cy - rr * 0.35f * std::cos (ang));
+    tick.lineTo (cx + (rr + th * 0.5f) * std::sin (ang), cy - (rr + th * 0.5f) * std::cos (ang));
+    g.setColour (s.findColour (juce::Slider::thumbColourId));
+    g.strokePath (tick, juce::PathStrokeType (2.5f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
+}
+
+void KorgusLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float minPos, float maxPos, juce::Slider::SliderStyle style, juce::Slider& s)
+{
+    if (style == juce::Slider::LinearBar || style == juce::Slider::LinearBarVertical || s.isTwoValue() || s.isThreeValue())
+    { LookAndFeel_V4::drawLinearSlider (g, x, y, w, h, pos, minPos, maxPos, style, s); return; }
+    const bool vert = s.isVertical();
+    const auto b = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h);
+    const auto tr = vert ? juce::Rectangle<float> (b.getCentreX() - 2.0f, b.getY(), 4.0f, b.getHeight())
+                         : juce::Rectangle<float> (b.getX(), b.getCentreY() - 2.0f, b.getWidth(), 4.0f);
+    g.setColour (s.findColour (juce::Slider::backgroundColourId)); g.fillRoundedRectangle (tr, 2.0f);
+    g.setColour (s.findColour (juce::Slider::trackColourId));
+    g.fillRoundedRectangle (vert ? tr.withTop (pos) : tr.withRight (pos), 2.0f);
+    const auto th = vert ? juce::Rectangle<float> (16.0f, 8.0f).withCentre ({ b.getCentreX(), pos })
+                         : juce::Rectangle<float> (8.0f, 16.0f).withCentre ({ pos, b.getCentreY() });
+    g.setColour (s.findColour (juce::Slider::thumbColourId).withMultipliedAlpha (s.isEnabled() ? 1.0f : 0.5f));
+    g.fillRoundedRectangle (th, 2.0f);
+}
+
+void KorgusLookAndFeel::drawTickBox (juce::Graphics& g, juce::Component& c, float x, float y, float w, float h, bool ticked, bool enabled, bool, bool)
+{
+    const auto r = juce::Rectangle<float> (x, y, w, h).reduced (1.0f);
+    g.setColour (c.findColour (juce::ToggleButton::tickDisabledColourId));
+    g.drawRoundedRectangle (r, 2.0f, 1.2f);
+    if (ticked)
+    {
+        g.setColour (c.findColour (enabled ? juce::ToggleButton::tickColourId : juce::ToggleButton::tickDisabledColourId));
+        g.fillRoundedRectangle (r.reduced (3.0f), 1.5f);
+    }
+}
+
+void KorgusLookAndFeel::drawScrollbar (juce::Graphics& g, juce::ScrollBar& sb, int x, int y, int w, int h, bool vertical, int thumbStart, int thumbSize, bool over, bool down)
+{
+    juce::Rectangle<int> t;
+    if (vertical) t = { x, thumbStart, w, thumbSize }; else t = { thumbStart, y, thumbSize, h };
+    auto c = sb.findColour (juce::ScrollBar::thumbColourId);
+    if (over || down) c = c.darker (0.15f);
+    g.setColour (c);
+    g.fillRoundedRectangle (t.reduced (2).toFloat(), 2.0f);
+}
+
 void KorgusLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour& bg, bool over, bool down)
 {
     auto r = b.getLocalBounds().toFloat().reduced (0.5f);
