@@ -2423,8 +2423,6 @@ function renderMixer(){
       sl.onchange=()=>{ if(sl.value==='__scan'){ sl.value=f?f.uid:''; nat('showPlugins'); sl.blur(); return; } nat('trackFx',{track:o.id,idx:k,uid:sl.value,name:o.name}); sl.blur(); };
       d.ondblclick=()=>{ if(f) nat('openFx',{track:o.id,idx:k,name:o.name}); };
       d.appendChild(sl); st.appendChild(d); }
-    if(o.id==='__master'&&NATIVE){ const mb=el('button','mastbtn'+(refIsOn?' on':''),'REF  A/B'); mb.id='bRef'; mb.title='Referenčná pesnička: prepínanie medzi ňou a tvojím mixom (kláves B). Pravý klik = výber pesničky a hlasitosť'; mb.onmousedown=e=>e.stopPropagation(); mb.onclick=e=>{ e.stopPropagation(); if(!song.ref){ refDialog(); return; } refToggle(); }; mb.oncontextmenu=e=>{ e.preventDefault(); e.stopPropagation(); refDialog(); }; st.appendChild(mb);
-      const mt=el('button','mastbtn','MERAČ'); mt.title='Merač hlasitosti (LUFS, radar, True Peak) – je v okne Korgus Master'; mt.onmousedown=e=>e.stopPropagation(); mt.onclick=e=>{ e.stopPropagation(); meterOpen(); }; st.appendChild(mt); }
     if(!o.master){
       const pn=el('div','pan'), pi=el('i'), pv=el('div','pv'); pn.appendChild(pi);
       const showP=()=>{ const p=o.pan(); const a=50, b=50+p*50; pi.style.left=Math.min(a,b)+'%'; pi.style.width=Math.max(1,Math.abs(b-a))+'%';
