@@ -537,7 +537,7 @@ namespace nova
                  .s ("a_aa", aa).s ("a_ar", ar).s ("veltrack", 0).s ("rv_on", 1);
                 return q;
             };
-            v.push_back (I ("Koncertný klavír", "Klavír", 0, 0.0015f, 0.4f).s ("eq_high", 0.8f).s ("exc", 0.3f).s ("eq_p2g", -2.5f).s ("eq_p2f", 420).s ("eq_p2q", 1.0f).s ("eq_p3g", 1.5f).s ("eq_p3f", 3500).s ("eq_p3q", 0.8f).s ("rv_mix", 0.16f).s ("rv_size", 0.45f).s ("rv_damp", 0.45f).s ("p_gain", -2.1f).f);
+            v.push_back (I ("Koncertný klavír", "Klavír", 0, 0.0015f, 0.4f).s ("eq_high", 0.8f).s ("exc", 0.2f).s ("eq_p2g", -2.5f).s ("eq_p2f", 420).s ("eq_p2q", 1.0f).s ("eq_p3g", 1.5f).s ("eq_p3f", 3500).s ("eq_p3q", 0.8f).s ("rv_mix", 0.16f).s ("rv_size", 0.45f).s ("rv_damp", 0.45f).s ("p_gain", -2.1f).f);
             v.push_back (I ("Pôvodný klavír", "Klavír", 36, 0.0015f, 0.4f).s ("eq_high", 0.8f).s ("rv_mix", 0.16f).s ("rv_size", 0.45f).s ("rv_damp", 0.45f).s ("p_gain", -2.1f).f);   // Salamander na porovnanie
             v.push_back (I ("Pianíno", "Klavír", 1, 0.0015f, 0.4f).s ("eq_low", -1).s ("rv_mix", 0.13f).s ("rv_size", 0.32f).s ("rv_damp", 0.5f).s ("p_gain", -10.6f).f);
             v.push_back (I ("Rhodes", "Klávesy", 2, 0.0015f, 0.35f).s ("eq_low", 1).s ("a_ltgt", 3).s ("a_lrate", 3.6f).s ("a_ldepth", 0.3f)
