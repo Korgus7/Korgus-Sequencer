@@ -4074,7 +4074,8 @@ juce::Array<juce::PluginDescription> descriptions()
     juce::Array<juce::PluginDescription> a;
     // arp a vocoder maju vlastne miesto; gater nahradil PulseDip (Kroky) - ostava len kvoli starym piesnam
     for (const auto& e : entries()) if (juce::String (e.key) != "arp" && juce::String (e.key) != "vocoder" && juce::String (e.key) != "gater"
-                                          && juce::String (e.key) != "harmony" && juce::String (e.key) != "robotvox" && juce::String (e.key) != "meter")   // zlucene do Korgus Hlas / Korgus Master a.add (FxBase::describe (e.name, e.key, e.inst));
+                                          && juce::String (e.key) != "harmony" && juce::String (e.key) != "robotvox" && juce::String (e.key) != "meter")
+            a.add (FxBase::describe (e.name, e.key, e.inst));   // dvojhlas, robot hlas a merac su zlucene do Korgus Hlas / Korgus Master
     return a;
 }
 
