@@ -131,7 +131,7 @@ int main (int argc, char** argv)
         String err; if (! q.loadSampleFile (0, File (argv[2]), err)) { printf ("chyba %s\n", err.toRawUTF8()); return 1; }
         auto setP = [&] (const char* id, float v) { if (auto* pr = q.params.getParameter (id)) pr->setValueNotifyingHost (pr->convertTo0to1 (v)); };
         setP ("a_loop", 1); setP ("b_on", 0); setP ("a_ar", 0.3f);
-        nova::SmpEdit e; e.ls = 0.20f; e.le = 0.2008f; e.xf = 0.0002f; e.scan = argc > 4 && String (argv[4]) == "1"; e.scanRate = 0.5f; e.scanRange = 0.8f;
+        nova::SmpEdit e; e.ls = 0.20f; e.le = 0.2008f; e.xf = 0.0002f; e.scan = argc > 4 && String (argv[4]) == "1"; e.scanRate = getenv("RATE")?(float)atof(getenv("RATE")):0.25f; e.scanRange = 0.8f;
         q.synth.setSmpEdit (0, e);
         AudioBuffer<float> out (2, (int) (sr * 4)); out.clear();
         for (int pos = 0; pos < out.getNumSamples(); pos += bs)

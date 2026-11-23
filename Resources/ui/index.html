@@ -480,6 +480,9 @@ svg.mi{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.4;str
 .ntr .tg{height:24px;background:transparent;border:1px solid rgba(255,255,255,.12);box-sizing:border-box;color:#c3ccd8}
 .ntr .tg:hover{background:rgba(255,255,255,.08)}
 .ntr .tg.on{background:#4f6f91;border-color:#4f6f91;color:#fff}
+.ntr .tg.pwr{width:24px} .ntr .tg.pwr.off{color:#6b7889;border-color:rgba(255,255,255,.06)} .ntr .tg.fxn{width:30px;font-size:11px}
+.fxpop{position:fixed;z-index:60;background:#1f2833;border:1px solid #3a4757;border-radius:3px;padding:4px;display:flex;flex-direction:column;gap:3px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+.fxpop .r{display:flex;gap:3px;align-items:center}
 .ntr .r0 .tyi{color:#aab5c3}
 /* horne menu o kusok vyssie */
 #topTb{min-height:32px}
@@ -1733,6 +1736,7 @@ function ctxMenu(x,y,items){
   const close=e=>{ if(e.type==='keydown'&&e.key!=='Escape') return; m.remove(); removeEventListener('mousedown',close); removeEventListener('keydown',close); };
   setTimeout(()=>{ addEventListener('mousedown',close); addEventListener('keydown',close); },0);
 }
+let fxPop=null;   // stopa s rozbalenymi efektmi
 function renderTracksNative(L){
   syncAutoRec();
   const h=document.createElement('div'); h.className='thead'; h.style.height=RULH+'px'; L.appendChild(h);
@@ -1748,11 +1752,25 @@ function renderTracksNative(L){
   const dd=(ico,opts,val,title,fn)=>{const d=el('div','dd'+(ico?'':' noic'),ico||''); const sl=el('select'); sl.innerHTML=opts; sl.value=val; sl.title=title;
     sl.onmousedown=e=>e.stopPropagation(); sl.onchange=()=>{fn(sl.value,sl); sl.blur();}; d.appendChild(sl); return d;};
   const fxOpts='<option value="">Efekt: žiadny</option>'+natPlugins.filter(p=>!p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('');
-  const fxRow=tr=>{ const fx=((natTrackPlugins[tr.id]||{}).fx||[])[0], r=el('div','r');
-    const d=dd(ICO_FXB,fxOpts,fx?fx.uid:'',fx?fx.name+' (dvojklik = okno efektu)':'Efekt na stope',(v,sl)=>{ if(v==='__scan'){ sl.value=fx?fx.uid:''; nat('showPlugins'); return; } nat('trackFx',{track:tr.id,idx:0,uid:v,name:tr.name}); });
-    d.ondblclick=()=>{ if(fx) nat('openFx',{track:tr.id,idx:0,name:tr.name}); }; r.appendChild(d);
-    if(fx){ const op=el('button','tg',ICO_WIN_L); op.title='Otvoriť okno efektu '+fx.name; op.onmousedown=e=>e.stopPropagation(); op.onclick=()=>nat('openFx',{track:tr.id,idx:0,name:tr.name}); r.appendChild(op); }
+  // efekty stopy: vypinac pri kazdom efekte; pri viacerych sa ukazu vsetky v rozbalenom okienku
+  const fxRow=(tr,k,inPop)=>{ const all=((natTrackPlugins[tr.id]||{}).fx||[]), fx=all[k], r=el('div','r');
+    const d=dd(ICO_FXB,fxOpts,fx?fx.uid:'',fx?fx.name+' (dvojklik = okno efektu)':'Efekt na stope',(v,sl)=>{ if(v==='__scan'){ sl.value=fx?fx.uid:''; nat('showPlugins'); return; } nat('trackFx',{track:tr.id,idx:k,uid:v,name:tr.name}); });
+    d.ondblclick=()=>{ if(fx) nat('openFx',{track:tr.id,idx:k,name:tr.name}); }; r.appendChild(d);
+    if(fx){ const off=fxIsOff(tr.id,k), pw=el('button','tg pwr'+(off?' off':''),ICO_PWR); pw.title=off?'Efekt '+fx.name+' je vypnutý – klik = zapnúť':'Vypnúť efekt '+fx.name;
+      pw.onmousedown=e=>e.stopPropagation(); pw.onclick=()=>{ fxSetOff(tr.id,k,!off); renderTracks(); if(mixOpen()) renderMixer(); }; r.appendChild(pw);
+      const op=el('button','tg',ICO_WIN_L); op.title='Otvoriť okno efektu '+fx.name; op.onmousedown=e=>e.stopPropagation(); op.onclick=()=>nat('openFx',{track:tr.id,idx:k,name:tr.name}); r.appendChild(op); }
+    if(!inPop){ const n=all.filter(x=>x).length;
+      if(n>1||(n===1&&!fx)){ const open=fxPop===tr.id, ex=el('button','tg fxn'+(open?' on':''),(open?'▴':'▾')+n); ex.dataset.fxpop=tr.id;
+        ex.title=open?'Zbaliť efekty stopy':'Na stope je '+n+' efektov – klik = ukázať všetky';
+        ex.onmousedown=e=>e.stopPropagation(); ex.onclick=()=>{ fxPop=open?null:tr.id; renderTracks(); }; r.appendChild(ex); } }
     return r; };
+  const showFxPop=()=>{ document.querySelectorAll('.fxpop').forEach(x=>x.remove()); if(fxPop==null) return;
+    const tr=song.tracks.find(t=>t.id===fxPop), btn=document.querySelector('[data-fxpop="'+fxPop+'"]'); if(!tr||!btn){ fxPop=null; return; }
+    const all=((natTrackPlugins[tr.id]||{}).fx||[]), pop=el('div','fxpop ntr'); pop.onmousedown=e=>e.stopPropagation();
+    for(let k=0;k<4;k++) if(all[k]||k===0||all[k-1]) pop.appendChild(fxRow(tr,k,true));   // vyplnene sloty + jeden prazdny na pridanie
+    const rc=btn.closest('.r').getBoundingClientRect(); pop.style.left=rc.left+'px'; pop.style.top=(rc.bottom+2)+'px'; pop.style.width=rc.width+'px';
+    document.body.appendChild(pop);
+    setTimeout(()=>{ const close=e=>{ if(!pop.contains(e.target)&&!e.target.closest('[data-fxpop]')){ fxPop=null; pop.remove(); renderTracks(); removeEventListener('mousedown',close,true); } }; addEventListener('mousedown',close,true); },0); };
   song.tracks.forEach((tr,i)=>{
     const audio=tr.type==='audio', r=el('div','ntr'+(i===selT?' sel':'')); r.dataset.i=i; r.style.height=ROWH+'px'; r.style.boxShadow='inset 8px 0 0 '+trColor(tr);
     const cs=el('div','cstrip'); cs.title='Farba stopy – klik = zmeniť'; cs.onmousedown=e=>e.stopPropagation(); cs.onclick=e=>{ e.stopPropagation(); colorMenu(tr,e.clientX,e.clientY); }; r.appendChild(cs);
@@ -1815,7 +1833,7 @@ function renderTracksNative(L){
       const ia=el('button','tg','<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.5 4.5h4.5l1.5 1.5h7v7.5h-13z"/><path d="M8 7.5v4M6.2 9.8L8 11.6l1.8-1.8"/></svg>');
       ia.title='Import audio (WAV, MP3…) do tejto stopy na pozíciu prehrávania'; ia.onmousedown=e=>e.stopPropagation();
       ia.onclick=()=>{ selectTrack(i); audTarget={trId:tr.id,bar:Math.floor(curPos()/SPB)}; pickAudio(); };
-      r3.append(di,ia,tg); rows.push(r3,fxRow(tr));
+      r3.append(di,ia,tg); rows.push(r3,fxRow(tr,0));
     } else {
       const cur=natTrackPlugins[tr.id]||{}, r3=el('div','r');
       const inst='<option value="">Žiadny nástroj</option>'+natPlugins.filter(p=>p.inst).map(p=>`<option value="${esc(p.uid)}">${esc(p.name)}</option>`).join('');
@@ -1838,7 +1856,7 @@ function renderTracksNative(L){
         if(v.startsWith('__ch')){ tr.midiCh=+v.slice(4); sl.value=tr.midiIn||''; save(); renderTracks(); return; }
         tr.midiIn=v; save(); natSel();}); din.classList.add('inp');
       r3.append(din,di,ko);
-      rows.push(r3,fxRow(tr));
+      rows.push(r3,fxRow(tr,0));
     }
     // len riadky, ktore sa zmestia
     let hgt=5; rows.forEach(x=>{ const hh=x===vb?14:26; if(hgt+hh<=ROWH){ col.appendChild(x); hgt+=hh; } });
@@ -1866,7 +1884,7 @@ function renderTracksNative(L){
       null,
       selTracks.size>1&&selTracks.has(tr.id)?['Zmazať označené stopy ('+selTracks.size+')',()=>deleteSelTracks()]:['Zmazať stopu',()=>deleteTrack(i)]].filter((x,k,a)=>x||(k>0&&a[k-1]&&k<a.length-1))); });
     L.appendChild(r);
-  });
+  });  showFxPop();
 }
 /* ---------------- AI asistent (OpenRouter) ---------------- */
 let aiHasKey=false, aiPending=null;
@@ -3114,7 +3132,9 @@ function arrRightClick(d){
   // pravy klik casti nemaze (na mazanie je guma) - len ju oznaci
   if(!selParts.has(p.id)){ selParts.clear(); selParts.add(p.id); } selT=ti; drawArrange(); renderTracks();
   if(NATIVE&&tr.type==='audio'&&d.cx!=null) clipMenu(tr,p,d.cx,d.cy);
-  else if(NATIVE&&d.cx!=null) ctxMenu(d.cx,d.cy,[['✦ Doprovod k tomuto úseku (bicie, bas, akordy, sólo)…',()=>doprovodFor(tr,p)]]);
+  else if(NATIVE&&d.cx!=null) ctxMenu(d.cx,d.cy,[
+    ...(tr.type==='synth'?[['✦ Pokračuj v mojej melódii (AI)…',()=>{ selectTrack(ti); openEditor(tr,p); selNotes.clear(); aiDialog(); }]]:[]),
+    ['✦ Doprovod k tomuto úseku (bicie, bas, akordy, sólo)…',()=>doprovodFor(tr,p)]]);
 }
 /* ponuka audio klipu (pravy klik) */
 let clipReq={};

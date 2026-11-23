@@ -2181,7 +2181,7 @@ public:
         const double lsS = jlimit (0.0, sl - 8.0, (double) lsP->get() * sl);
         const double leS = jlimit (lsS + 4.0, sl - 3.0, (double) leP->get() * sl);
         const double xfS = 0.008 * sampleRate;                 // prelinanie konca slucky (8 ms)
-        const double scanInc = sRate->get() / rate, range = sRange->get() * 0.01;
+        const double scanRateHz = sRate->get(), scanInc = scanRateHz / rate, range = sRange->get() * 0.01;
         const int shape = roundToInt (sShape->get());
         int pos = 0;
         auto rd = [&] (int c, double p)
@@ -2201,51 +2201,38 @@ public:
                 if (! v.on) continue;
                 for (int i = from; i < to; ++i)
                 {
-                    float e;
-                    if (loopOn && ! v.inLoop && v.pos >= leS)
-                    {   // vstup do slucky: dalej sa hra faza vnutri slucky
-                        v.inLoop = true; v.ph = std::fmod (v.pos - lsS, leS - lsS); v.o0 = v.o1 = 0; v.xw = 1.0f;
-                    }
-                    if (! (loopOn && v.inLoop) && v.pos >= sl - 2) { v.on = false; break; }
-                    if (v.releasing) { v.env *= rCoef; e = v.env; if (e < 1.0e-4f) { v.on = false; break; } }
-                    else { v.env = jmin (1.0f, v.env + 1.0f / aS); e = v.env; }
-                    if (loopOn && v.inLoop)
+                    double a = lsS, b = leS;
+                    if (loopOn)
                     {
-                        const double Lp = leS - lsS;
-                        while (v.ph >= Lp) v.ph -= Lp;
-                        if (scanOn)
-                        {   // skenovanie ako wavetable: prelinanie medzi dvoma oknami slucky v rovnakej faze - vyska ostava presne podla tonu
-                            v.scanPh += scanInc;
-                            if (v.xw >= 1.0f)
-                            {
+                        if (scanOn) { v.scanPh += scanInc; a += v.o0; b += v.o0; }
+                        if (v.pos >= b)
+                        {
+                            v.pos -= (b - a);
+                            if (scanOn)
+                            {   // okno slucky sa posunie pri kazdom prechode; skok podla rychlosti (pomaly = vyska drzi ton)
                                 const double room = jmax (0.0, (sl - 3.0) - leS) * range;
                                 double f;
                                 if (shape == 0) { const double q = std::fmod (v.scanPh, 1.0); f = q < 0.5 ? q * 2.0 : 2.0 - q * 2.0; }
                                 else if (shape == 1) f = std::fmod (v.scanPh, 1.0);
                                 else { const int st = (int) v.scanPh; if (st != v.scanStep) { v.scanStep = st; v.scanRnd = rng.nextFloat(); } f = v.scanRnd; }
-                                const double d = jlimit (-Lp, Lp, room * f - v.o0);
-                                if (std::abs (d) > 0.5) { v.o1 = v.o0 + d; v.xw = -4.0f; }   // 16 period drzat, potom 4 periody prelinat
+                                const double maxStep = (leS - lsS) * (0.005 + 0.08 * scanRateHz);
+                                const double nOff = v.o0 + jlimit (-maxStep, maxStep, room * f - v.o0);
+                                v.pos += nOff - v.o0; a += nOff - v.o0; b += nOff - v.o0; v.o0 = nOff;
                             }
                         }
-                        const double X = jmin (xfS, Lp * 0.5);
-                        const float sw = (X > 1.0 && v.ph > Lp - X) ? (float) ((v.ph - (Lp - X)) / X) : 0.0f;
-                        auto head = [&] (int c, double base)
-                        {
-                            float y = rd (c, base + v.ph);
-                            if (sw > 0.0f) y += sw * (rd (c, base + v.ph - Lp) - y);   // bez svu na konci slucky
-                            return y;
-                        };
-                        for (int c = 0; c < ch; ++c)
-                        {
-                            float y = head (c, lsS + v.o0);
-                            if (v.xw > 0.0f && v.xw < 1.0f) y += v.xw * (head (c, lsS + v.o1) - y);
-                            buf.getWritePointer (c)[i] += y * e * v.gain;
-                        }
-                        v.ph += v.step;
-                        if (v.xw < 1.0f) { v.xw += (float) (v.step / (Lp * 4.0)); if (v.xw >= 1.0f) { v.o0 = v.o1; v.xw = 1.0f; } }
-                        continue;
                     }
-                    for (int c = 0; c < ch; ++c) buf.getWritePointer (c)[i] += rd (c, v.pos) * e * v.gain;
+                    else if (v.pos >= sl - 2) { v.on = false; break; }
+                    float e;
+                    if (v.releasing) { v.env *= rCoef; e = v.env; if (e < 1.0e-4f) { v.on = false; break; } }
+                    else { v.env = jmin (1.0f, v.env + 1.0f / aS); e = v.env; }
+                    const double X = loopOn ? jmin (xfS, (b - a) * 0.5) : 0.0;
+                    const float w = (X > 1.0 && v.pos > b - X) ? (float) ((v.pos - (b - X)) / X) : 0.0f;
+                    for (int c = 0; c < ch; ++c)
+                    {
+                        float y = rd (c, v.pos);
+                        if (w > 0.0f) y += w * (rd (c, v.pos - (b - a)) - y);   // bez svu na konci slucky
+                        buf.getWritePointer (c)[i] += y * e * v.gain;
+                    }
                     v.pos += v.step;
                 }
             }
@@ -2358,7 +2345,7 @@ SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
                 "So Shiftom sa ťahá jemne (na veľmi krátku slučku). Veľmi krátka slučka dáva bzučivý tón.\n\n"
                 "Zoom: koliesko myši priblíži zvuk okolo kurzora, Shift + koliesko ho posúva, dvojklik ukáže celý zvuk.\n\n"
                 "Skenovať: slučka sa sama pomaly posúva po zvuku, takže sa mení farba zvuku, ale výška ostáva podľa tónu. "
-                "Rýchlosť = ako rýchlo sa posúva, Rozsah = kam až za slučku zájde (zlaté pole), "
+                "Rýchlosť = ako rýchlo sa posúva (pomaly výška presne drží tón, rýchlo je pohyb divokejší), Rozsah = kam až za slučku zájde (zlaté pole), "
                 "Tvar = tam a späť, stále dopredu alebo náhodne."));
     };
     addAndMakeVisible (help);

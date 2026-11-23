@@ -700,55 +700,45 @@ namespace nova
                 {
                     lsO = juce::jlimit (0.0, L - 2.0, (double) (e.ls * (float) len) - s0);
                     leO = juce::jlimit (lsO + 2.0, L, (double) (e.le * (float) len) - s0);
-                    if (! lv.inLoop && lv.pos >= leO) { lv.inLoop = true; lv.lph = std::fmod (lv.pos - lsO, leO - lsO); lv.o0 = lv.o1 = 0; lv.xw = 1.0f; }
-                }
-                if (s.loop && lv.inLoop)
-                {
-                    const double Lp = leO - lsO;
-                    while (lv.lph >= Lp) lv.lph -= Lp;
                     if (e.scan)
-                    {   // skenovanie ako wavetable: prelinanie medzi dvoma oknami slucky v rovnakej faze - vyska ide presne podla tonu
+                    {   // skenovanie: okno slucky sa posuva po sampli; posun sa meni len pri prechode slucky
                         lv.scanPh += (double) e.scanRate / sr;
-                        if (lv.xw >= 1.0f)
+                        lsO += lv.o0; leO += lv.o0;
+                    }
+                    if (lv.pos >= leO)
+                    {
+                        lv.pos -= (leO - lsO);
+                        if (e.scan)
                         {
-                            const double room = juce::jmax (0.0, L - leO) * (double) e.scanRange;
+                            const double room = juce::jmax (0.0, L - (leO - lv.o0)) * (double) e.scanRange;
                             double f;
                             if (e.scanShape == 0) { const double q = std::fmod (lv.scanPh, 1.0); f = q < 0.5 ? q * 2.0 : 2.0 - q * 2.0; }
                             else if (e.scanShape == 1) f = std::fmod (lv.scanPh, 1.0);
                             else { const int st = (int) lv.scanPh; if (st != lv.scanStep) { lv.scanStep = st; lv.scanRnd = (float) (0.5 + 0.5 * v.rng.next()); } f = lv.scanRnd; }
-                            const double d = juce::jlimit (-Lp, Lp, room * f - lv.o0);
-                            if (std::abs (d) > 0.5) { lv.o1 = lv.o0 + d; lv.xw = -4.0f; }   // 16 period drzat, potom 4 periody prelinat
+                            // skok na jeden prechod podla rychlosti: pomaly = vyska drzi ton, rychlo = divokejsi pohyb
+                            const double maxStep = (leO - lsO) * (0.005 + 0.08 * (double) e.scanRate);
+                            const double nOff = lv.o0 + juce::jlimit (-maxStep, maxStep, room * f - lv.o0);
+                            lv.pos += nOff - lv.o0; lsO += nOff - lv.o0; leO += nOff - lv.o0; lv.o0 = nOff;
                         }
                     }
-                    const double X = std::min ((double) e.xf * lv.user->rate, Lp * 0.5);
-                    const float sw = (X > 1.0 && lv.lph > Lp - X) ? (float) ((lv.lph - (Lp - X)) / X) : 0.0f;
-                    auto head = [&] (double base, float& ol, float& orr)
-                    {   // jedno okno slucky, s prelinanim konca do zaciatku (bez svu)
-                        rd (base + lv.lph, ol, orr);
-                        if (sw > 0.0f) { float l2, r2; rd (base + lv.lph - Lp, l2, r2); ol += sw * (l2 - ol); orr += sw * (r2 - orr); }
-                    };
-                    head (lsO + lv.o0, l, r);
-                    if (lv.xw > 0.0f && lv.xw < 1.0f) { float l2, r2; head (lsO + lv.o1, l2, r2); l += lv.xw * (l2 - l); r += lv.xw * (r2 - r); }
-                    lv.pos = lsO + lv.o0 + lv.lph;   // pre nabeh (fin)
                 }
-                else
-                {
-                    if (lv.pos >= L - 1.0) { lv.active = false; break; }
-                    rd (lv.pos, l, r);
+                else if (lv.pos >= L - 1.0) { lv.active = false; break; }
+                rd (lv.pos, l, r);
+                if (s.loop)
+                {   // prelinanie pred koncom slucky s tonom od jej zaciatku (bez pocutelneho svu)
+                    const double X = std::min ((double) e.xf * lv.user->rate, (leO - lsO) * 0.5);
+                    if (X > 1.0 && lv.pos > leO - X)
+                    {
+                        const float w = (float) ((lv.pos - (leO - X)) / X);
+                        float l2, r2; rd (lv.pos - (leO - lsO), l2, r2);
+                        l += w * (l2 - l); r += w * (r2 - r);
+                    }
                 }
                 float g = 1.0f;
                 if (e.fin > 0.0005f) g *= (float) std::min (1.0, lv.pos / ((double) e.fin * lv.user->rate));
                 if (! s.loop && e.fout > 0.0005f) g *= (float) std::min (1.0, (L - lv.pos) / ((double) e.fout * lv.user->rate));
                 l *= g; r *= g;
-                {
-                    const double stp = std::pow (2.0, (v.curNote + shift - (float) s.root) / 12.0) * lv.user->rate / sr * pitchMul;
-                    if (s.loop && lv.inLoop)
-                    {
-                        lv.lph += stp;
-                        if (lv.xw < 1.0f) { lv.xw += (float) (stp / ((leO - lsO) * 4.0)); if (lv.xw >= 1.0f) { lv.o0 = lv.o1; lv.xw = 1.0f; } }
-                    }
-                    else lv.pos += stp;
-                }
+                lv.pos += std::pow (2.0, (v.curNote + shift - (float) s.root) / 12.0) * lv.user->rate / sr * pitchMul;
             }
             if (lv.wave == 7 && tilt != 0.0f) { l += tilt * (l - lv.tiltL.lp (l)); r += tilt * (r - lv.tiltR.lp (r)); }
             if (s.noise > 0.001f && lv.wave != 4) { const float nz = v.rng.next() * 0.45f * s.noise * s.noise; l += nz; r += nz; }   // primiesany sum (dych, trsatko)
