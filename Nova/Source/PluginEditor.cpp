@@ -1,5 +1,6 @@
 #include "../../Source/GatePatterns.h"
 #include "PluginEditor.h"
+#include "../../Source/KorgusEqView.h"
 #include <complex>
 #include <juce_dsp/juce_dsp.h>
 
@@ -1200,9 +1201,9 @@ namespace
     };
 
     // ===================================================================== graf EQ (tahanie bodov)
-    struct EqGraph : juce::Component, private juce::Timer
+    struct EqGraph : juce::Component, public korgus::EqModel, private juce::Timer
     {
-        EqGraph (NovaProcessor& pr) : p (pr), fft (12) { spec.assign (2048, -120.0f); }
+        EqGraph (NovaProcessor& pr) : p (pr), fft (12), view (*this) { spec.assign (2048, -120.0f); view.tr = [] (const juce::String& t) { return T (t); }; addAndMakeVisible (view); }
         ~EqGraph() override { p.synth.analyzer.tap.store (-1); }
         // spektrum: zvoleny bod v zvuku sa zbiera len ked je graf viditelny
         void visibilityChanged() override { updateTap(); }
@@ -1240,7 +1241,7 @@ namespace
         struct Band { int type, f, g, q; float fFix, qFix, fMin, fMax, fDef; };
         void setTarget (const juce::String& prefix, juce::Colour c, int tap)
         {
-            col = c; tapIdx = tap; lastW = 0;
+            col = c; view.accent = c; tapIdx = tap; lastW = 0;
             std::fill (spec.begin(), spec.end(), -120.0f);
             updateTap();
             const bool snd = prefix == "eq_";
@@ -1282,151 +1283,45 @@ namespace
             if (b.type == 4) return bf (b) < 19900.0f;
             return bg (b) != 0.0f;
         }
-        static constexpr float fLo = 20.0f, fHi = 20000.0f, dbR = 18.0f;
-        float xOf (float hz) const { return (float) getWidth() * std::log (hz / fLo) / std::log (fHi / fLo); }
-        float hzOf (float x) const { return fLo * std::pow (fHi / fLo, juce::jlimit (0.0f, 1.0f, x / (float) getWidth())); }
-        float yOf (float db) const { return graphH() * 0.5f - db / dbR * (graphH() * 0.5f - 6.0f); }
-        float dbOf (float y) const { return -(y - graphH() * 0.5f) / (graphH() * 0.5f - 6.0f) * dbR; }
-        float graphH() const { return (float) getHeight() - 18.0f; }
-        juce::Point<float> pt (int k) const { const auto& b = bands[(size_t) k]; return { xOf (bf (b)), yOf (bg (b)) }; }
-        void paint (juce::Graphics& g) override
+        // spolocny graf EQ (rovnaky ako v Korgus EQ v Sequenceri)
+        int numBands() const override { return (int) bands.size(); }
+        korgus::EqBand band (int i) const override
         {
-            const auto gr = getLocalBounds().toFloat().withHeight (graphH());
-            g.setColour (juce::Colour (0xff1a2029)); g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
-            g.setColour (line);
-            for (float db : { -12.0f, 12.0f }) g.drawHorizontalLine (juce::roundToInt (yOf (db)), 0, (float) getWidth());
-            g.setColour (line.brighter (0.15f)); g.drawHorizontalLine (juce::roundToInt (yOf (0)), 0, (float) getWidth());
-            g.setFont (juce::FontOptions (11.0f));
-            for (auto f : { 100.0f, 1000.0f, 10000.0f })
-            {
-                const int x = juce::roundToInt (xOf (f));
-                g.setColour (line); g.drawVerticalLine (x, 0, (float) getHeight());
-                g.setColour (dim); g.drawText (f >= 1000 ? juce::String ((int) (f / 1000)) + "k" : juce::String ((int) f), x + 4, (int) gr.getBottom() + 2, 40, 14, juce::Justification::centredLeft);
-            }
-            g.setColour (dim); g.drawText ("+12 dB", 4, juce::roundToInt (yOf (12)) - 14, 50, 13, juce::Justification::centredLeft);
-            g.drawText ("-12 dB", 4, juce::roundToInt (yOf (-12)) + 1, 50, 13, juce::Justification::centredLeft);
-            // spektrum v pozadi (0 dB hore, -84 dB dole)
-            {
-                juce::Path sp; const float H = graphH();
-                sp.startNewSubPath (0, H);
-                const int bins = (int) spec.size();
-                for (int x = 0; x <= getWidth(); x += 2)
-                {
-                    const float f0 = hzOf ((float) x), f1 = hzOf ((float) x + 2.0f);
-                    int b0 = juce::jlimit (1, bins - 1, (int) (f0 / sr * 4096.0f)), b1 = juce::jlimit (b0, bins - 1, (int) (f1 / sr * 4096.0f));
-                    float m = -120.0f; for (int b = b0; b <= b1; ++b) m = std::max (m, spec[(size_t) b]);
-                    m += 4.5f * std::log2 (juce::jmax (20.0f, f0) / 1000.0f);   // sklon -4.5 dB/okt (ako pocuje ucho)
-                    const float y = juce::jlimit (0.0f, H, H * (-m) / 84.0f);
-                    sp.lineTo ((float) x, y);
-                }
-                sp.lineTo ((float) getWidth(), H); sp.closeSubPath();
-                const juce::Colour sc (0xff4f7d8c);
-                g.setGradientFill (juce::ColourGradient (sc.withAlpha (0.55f), 0, 0, sc.withAlpha (0.12f), 0, H, false));
-                g.fillPath (sp);
-                g.setColour (sc.brighter (0.2f).withAlpha (0.6f)); g.strokePath (sp, juce::PathStrokeType (1.0f));
-            }
-            // krivka (sucin vsetkych pasiem)
-            std::vector<Biquad> bq2;
-            for (auto& b : bands) { Biquad q; q.set (b.type, bf (b), bq (b), bg (b), 48000); bq2.push_back (q); }
-            juce::Path path;
-            for (int x = 0; x <= getWidth(); x += 2)
-            {
-                const double w = juce::MathConstants<double>::twoPi * hzOf ((float) x) / 48000.0;
-                const std::complex<double> z1 = std::polar (1.0, -w), z2 = z1 * z1;
-                double mag = 1;
-                for (size_t k = 0; k < bq2.size(); ++k)
-                {
-                    if (! bandActive (bands[k])) continue;
-                    const auto& q = bq2[k];
-                    mag *= std::abs (((double) q.b0 + (double) q.b1 * z1 + (double) q.b2 * z2) / (1.0 + (double) q.a1 * z1 + (double) q.a2 * z2));
-                }
-                const float y = juce::jlimit (0.0f, graphH(), yOf ((float) (20.0 * std::log10 (juce::jmax (1.0e-6, mag)))));
-                if (x == 0) path.startNewSubPath ((float) x, y); else path.lineTo ((float) x, y);
-            }
-            g.setColour (enabled ? col : col.withAlpha (0.35f)); g.strokePath (path, juce::PathStrokeType (2.5f));
-            // tahane pasmo: jeho vlastna krivka zvyraznena (vidno sirku)
-            if (drag >= 0 && drag < (int) bands.size())
-            {
-                const auto& q = bq2[(size_t) drag]; juce::Path one; const float y0 = yOf (0);
-                one.startNewSubPath (0, y0);
-                for (int x = 0; x <= getWidth(); x += 2)
-                {
-                    const double w = juce::MathConstants<double>::twoPi * hzOf ((float) x) / 48000.0;
-                    const std::complex<double> z1 = std::polar (1.0, -w), z2 = z1 * z1;
-                    const double mag = std::abs (((double) q.b0 + (double) q.b1 * z1 + (double) q.b2 * z2) / (1.0 + (double) q.a1 * z1 + (double) q.a2 * z2));
-                    one.lineTo ((float) x, juce::jlimit (0.0f, graphH(), yOf ((float) (20.0 * std::log10 (juce::jmax (1.0e-6, mag))))));
-                }
-                one.lineTo ((float) getWidth(), y0); one.closeSubPath();
-                g.setColour (col.withAlpha (0.18f)); g.fillPath (one);
-            }
-            // body pasiem (orezania ako stvorceky na nulovej ciare), cisla pasiem pri 8-pasmovom EQ
-            const bool many = bands.size() > 3;
-            for (int k = 0; k < (int) bands.size(); ++k)
-            {
-                const auto c = pt (k); const auto& b = bands[(size_t) k];
-                const bool act = bandActive (b);
-                g.setColour (k == drag ? text : (act ? col : col.withAlpha (0.45f)));
-                const float r = many ? 7.0f : 8.0f;
-                if (b.type >= 3) g.fillRect (c.x - r + 1, c.y - r + 1, 2 * r - 2, 2 * r - 2); else g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
-                if (many) { g.setColour (juce::Colour (0xff1a2029)); g.setFont (juce::FontOptions (10.0f, juce::Font::bold)); g.drawText (juce::String (k + 1), (int) (c.x - r), (int) (c.y - r), (int) (2 * r), (int) (2 * r), juce::Justification::centred); }
-            }
-            if (drag >= 0 && drag < (int) bands.size())
-            {   // hodnoty prave tahaneho bodu
-                const auto& b = bands[(size_t) drag];
-                const float f = bf (b);
-                juce::String t = (f >= 1000 ? juce::String (f / 1000.0f, 1) + " kHz" : juce::String (juce::roundToInt (f)) + " Hz");
-                if (b.g >= 0) t += "   " + juce::String (bg (b), 1) + " dB";
-                if (b.q >= 0) t += "   Q " + juce::String (bq (b), 1);
-                g.setColour (text); g.setFont (juce::FontOptions (11.5f)); g.drawText (t, getWidth() - 200, 4, 194, 14, juce::Justification::centredRight);
-            }
+            const auto& b = bands[(size_t) i]; korgus::EqBand e;
+            e.type = b.type; e.f = bf (b); e.g = bg (b); e.q = bq (b);
+            e.hasF = b.f >= 0 && b.fMin < b.fMax; e.hasG = b.g >= 0; e.hasQ = b.q >= 0;
+            e.fMin = b.fMin; e.fMax = b.fMax; e.fDef = b.fDef; e.qMin = 0.3f; e.qMax = 8.0f; e.qDef = (i == 2 && bands.size() > 3) ? 0.8f : 1.0f;
+            e.active = bandActive (b); return e;
         }
-        int hit (juce::Point<float> m) const
+        void setF (int i, float v) override { const auto& b = bands[(size_t) i]; if (b.f >= 0) atts[(size_t) b.f]->setValueAsPartOfGesture (v); }
+        void setG (int i, float v) override { const auto& b = bands[(size_t) i]; if (b.g >= 0) atts[(size_t) b.g]->setValueAsPartOfGesture (v); }
+        void setQ (int i, float v) override { const auto& b = bands[(size_t) i]; if (b.q >= 0) atts[(size_t) b.q]->setValueAsPartOfGesture (v); }
+        void begin (int i) override { const auto& b = bands[(size_t) i]; for (int id : { b.f, b.g, b.q }) if (id >= 0) atts[(size_t) id]->beginGesture(); }
+        void end (int i) override { const auto& b = bands[(size_t) i]; for (int id : { b.f, b.g, b.q }) if (id >= 0) atts[(size_t) id]->endGesture(); }
+        static double mag (const Biquad& q, float hz)
         {
-            int best = -1; float bd = 16.0f;
-            for (int k = 0; k < (int) bands.size(); ++k) { const float d = pt (k).getDistanceFrom (m); if (d < bd) { bd = d; best = k; } }
-            return best;
+            const double w = juce::MathConstants<double>::twoPi * hz / 48000.0;
+            const std::complex<double> z1 = std::polar (1.0, -w), z2 = z1 * z1;
+            return std::abs (((double) q.b0 + (double) q.b1 * z1 + (double) q.b2 * z2) / (1.0 + (double) q.a1 * z1 + (double) q.a2 * z2));
         }
-        void gesture (int k, bool begin)
+        double bandMagnitudeAt (int i, float hz, float gainDb) const override
         {
-            const auto& b = bands[(size_t) k];
-            for (int id : { b.f, b.g }) if (id >= 0 && ! (b.f >= 0 && b.fMin == b.fMax && id == b.f)) { if (begin) atts[(size_t) id]->beginGesture(); else atts[(size_t) id]->endGesture(); }
+            const auto& b = bands[(size_t) i]; Biquad q; q.set (b.type, bf (b), bq (b), gainDb, 48000); return mag (q, hz);
         }
-        void mouseDown (const juce::MouseEvent& e) override
+        double bandMagnitude (int i, float hz) const override { return bandMagnitudeAt (i, hz, bg (bands[(size_t) i])); }
+        double magnitude (float hz) const override
         {
-            drag = hit (e.position); qDrag = false;
-            if (drag < 0) { repaint(); return; }
-            // ako FabFilter: pravym tlacidlom / Shift / Alt + tahanie hore-dole = sirka pasma (uzsie / sirsie)
-            const auto& b = bands[(size_t) drag];
-            if (b.q >= 0 && (e.mods.isRightButtonDown() || e.mods.isShiftDown() || e.mods.isAltDown()))
-            { qDrag = true; qStart = val[(size_t) b.q]; yStart = e.position.y; atts[(size_t) b.q]->beginGesture(); }
-            else gesture (drag, true);
-            repaint();
+            double m = 1; for (int i = 0; i < (int) bands.size(); ++i) if (bandActive (bands[(size_t) i])) m *= bandMagnitude (i, hz); return m;
         }
-        void mouseDrag (const juce::MouseEvent& e) override
+        float spectrumDb (float hz) const override
         {
-            if (drag < 0) return;
-            const auto& b = bands[(size_t) drag];
-            if (qDrag) { atts[(size_t) b.q]->setValueAsPartOfGesture (juce::jlimit (0.3f, 8.0f, qStart * std::pow (2.0f, (yStart - e.position.y) / 40.0f))); return; }
-            if (b.g >= 0) atts[(size_t) b.g]->setValueAsPartOfGesture (juce::jlimit (-15.0f, 15.0f, dbOf (e.position.y)));
-            if (b.f >= 0 && b.fMin < b.fMax) atts[(size_t) b.f]->setValueAsPartOfGesture (juce::jlimit (b.fMin, b.fMax, hzOf (e.position.x)));
+            const int bins = (int) spec.size(); const int b0 = juce::jlimit (1, bins - 1, (int) (hz / sr * 4096.0f));
+            float m = juce::jmax (spec[(size_t) b0], spec[(size_t) juce::jmin (bins - 1, b0 + 1)]);
+            return m + 4.5f * std::log2 (juce::jmax (20.0f, hz) / 1000.0f) - 6.0f;   // sklon -4.5 dB/okt (ako pocuje ucho)
         }
-        void mouseUp (const juce::MouseEvent&) override { if (drag < 0) return; if (qDrag) atts[(size_t) bands[(size_t) drag].q]->endGesture(); else gesture (drag, false); drag = -1; qDrag = false; repaint(); }
-        void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
-        {   // koliesko nad bodom = sirka pasma (Q)
-            const int k = hit (e.position);
-            if (k < 0 || bands[(size_t) k].q < 0) return;
-            const int id = bands[(size_t) k].q;
-            atts[(size_t) id]->setValueAsCompleteGesture (juce::jlimit (0.3f, 8.0f, val[(size_t) id] * (w.deltaY > 0 ? 1.15f : 1.0f / 1.15f)));
-        }
-        void mouseDoubleClick (const juce::MouseEvent& e) override
-        {
-            const int k = hit (e.position);
-            if (k < 0) return;
-            const auto& b = bands[(size_t) k];
-            if (b.g >= 0) atts[(size_t) b.g]->setValueAsCompleteGesture (0);
-            if (b.f >= 0 && b.fMin < b.fMax) atts[(size_t) b.f]->setValueAsCompleteGesture (b.fDef);
-            if (b.q >= 0) atts[(size_t) b.q]->setValueAsCompleteGesture (k == 2 && bands.size() > 3 ? 0.8f : 1.0f);
-        }
+        bool enabled() const override { return enabledFlag; }
+        void resized() override { view.setBounds (getLocalBounds()); }
+        void repaintAll() { view.repaint(); }
         void flat()
         {
             p.undo.beginNewTransaction (T ("Plochý EQ"));
@@ -1439,9 +1334,10 @@ namespace
         }
         NovaProcessor& p; juce::StringArray ids; juce::Colour col = arc;
         std::vector<std::unique_ptr<juce::ParameterAttachment>> atts;
-        std::vector<Band> bands; std::vector<float> val; int drag = -1; bool qDrag = false; float qStart = 1, yStart = 0;
-        bool enabled = true; int tapIdx = 0; unsigned lastW = 0; float sr = 48000;
+        std::vector<Band> bands; std::vector<float> val;
+        bool enabledFlag = true; int tapIdx = 0; unsigned lastW = 0; float sr = 48000;
         juce::dsp::FFT fft; std::vector<float> spec;
+        korgus::EqView view;
     };
 
     // ===================================================================== efekty + EQ
@@ -1619,7 +1515,7 @@ namespace
         void syncEnabled()
         {
             const bool e = eqOn[target]->getToggleState();
-            if (e != graph.enabled) { graph.enabled = e; graph.repaint(); }
+            if (e != graph.enabledFlag) { graph.enabledFlag = e; graph.repaintAll(); }
         }
         void showTab (int t)
         {

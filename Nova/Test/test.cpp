@@ -1,4 +1,5 @@
 #include <thread>
+#include "../../Source/KorgusEqView.h"
 // lokalny test Korgus Nova: vyrenderuje kazdy zvuk do WAV a zmeria ho
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
@@ -91,6 +92,36 @@ int main (int argc, char** argv)
             names.appendText (q.currentName + "|" + q.currentCategory + "\n", false, false, "\n");
             printf ("scena %d: %s (%s) peak %.2f\n", si, q.currentName.toRawUTF8(), q.currentCategory.toRawUTF8(), out.getMagnitude (0, total));
         }
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "eqview")
+    {   // test spolocneho EQ: klik na bod, tahanie uchytky sirky, pravym tlacidlom sirka, Shift jemne
+        ScopedJuceInitialiser_GUI gui;
+        struct M : korgus::EqModel
+        {
+            korgus::EqBand b; M() { b.type = 1; b.f = 1000; b.g = 6; b.q = 1; b.fMin = 40; b.fMax = 16000; }
+            int numBands() const override { return 1; } korgus::EqBand band (int) const override { return b; }
+            void setF (int, float v) override { b.f = v; } void setG (int, float v) override { b.g = v; } void setQ (int, float v) override { b.q = v; }
+            void begin (int) override {} void end (int) override {}
+            double magnitude (float) const override { return 1; } double bandMagnitude (int, float) const override { return 1; }
+        } m;
+        korgus::EqView v (m); v.setBounds (0, 0, 600, 200);
+        auto src = Desktop::getInstance().getMainMouseSource();
+        auto ev = [&] (float x, float y, ModifierKeys mk) { return MouseEvent (src, { x, y }, mk, 0, 0, 0, 0, 0, &v, &v, Time::getCurrentTime(), { x, y }, Time::getCurrentTime(), 1, false); };
+        // poloha bodu: x pre 1 kHz, y pre +6 dB
+        const float ax = 26, aw = 600 - 26 - 6, ay = 6, ah = 200 - 6 - 16;
+        const float px = ax + aw * std::log (1000.0f / 20.0f) / std::log (1000.0f), py = ay + ah * (18.0f - 6.0f) / 36.0f;
+        v.mouseDown (ev (px, py, ModifierKeys::leftButtonModifier)); v.mouseUp (ev (px, py, {}));
+        printf ("vybrane %d\n", v.selected());
+        // uchytka vpravo: f * 2^(bw/2), bw pre Q 1 = 1.39 okt
+        const float bw = 2.0f * std::asinh (0.5f) / std::log (2.0f), hx = ax + aw * std::log (1000.0f * std::pow (2.0f, bw / 2) / 20.0f) / std::log (1000.0f), hy = ay + ah * (18.0f - 3.0f) / 36.0f;
+        v.mouseDown (ev (hx, hy, ModifierKeys::leftButtonModifier)); v.mouseDrag (ev (hx + 40, hy, ModifierKeys::leftButtonModifier)); v.mouseUp (ev (hx + 40, hy, {}));
+        printf ("po tahani uchytky von: Q %.2f (sirsie = mensie Q)\n", m.b.q);
+        const float q1 = m.b.q;
+        v.mouseDown (ev (px, py, ModifierKeys::rightButtonModifier)); v.mouseDrag (ev (px, py - 40, ModifierKeys::rightButtonModifier)); v.mouseUp (ev (px, py - 40, {}));
+        printf ("pravym tlacidlom hore: Q %.2f -> %.2f (uzsie)\n", q1, m.b.q);
+        v.mouseDown (ev (px, py, ModifierKeys::leftButtonModifier)); v.mouseDrag (ev (px + 100, py - 30, ModifierKeys (ModifierKeys::leftButtonModifier | ModifierKeys::shiftModifier))); v.mouseUp (ev (px + 100, py - 30, {}));
+        printf ("Shift jemne: f %.0f Hz, g %.1f dB\n", m.b.f, m.b.g);
         return 0;
     }
     if (argc > 1 && String (argv[1]) == "race")

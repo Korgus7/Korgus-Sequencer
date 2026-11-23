@@ -5,6 +5,7 @@
 #include <array>
 #include "BuiltinFx.h"
 #include "UiCommon.h"
+#include "KorgusEqView.h"
 #include <juce_dsp/juce_dsp.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -654,116 +655,59 @@ private:
     float lastOut = 1.0f;
 };
 
-// EQ: krivka so spektrom, 8 bodov pasiem sa tahaju mysou (ako v Inspirii)
-class EqDisplay final : public Component, public SettableTooltipClient, private Timer
+// EQ: spolocny graf (rovnaky ako v Inspirii) - body pasiem, uchytky sirky, spektrum
+class EqDisplay final : public Component, public korgus::EqModel, private Timer
 {
 public:
-    explicit EqDisplay (EqFx& f) : fx (f) { ++fx.scope.users; startTimerHz (25); setTooltip (sk ("Ťahaj body: hore / dole = hlasnejšie / tichšie, do strany = výška. Pravé tlačidlo (alebo Shift) + ťahanie hore / dole = užšie / širšie pásmo, rovnako koliesko. Dvojklik = vynulovať.")); }
+    explicit EqDisplay (EqFx& f) : fx (f), view (*this)
+    {
+        ++fx.scope.users; startTimerHz (25);
+        view.tr = [] (const String& t) { return sk (t.toRawUTF8()); };
+        view.setTooltip (sk ("Ťahaj body: hore / dole = hlasnejšie / tichšie, do strany = výška (Shift = jemne). Klik na bod ukáže uchytky – ťahaním do strán meníš šírku pásma. Šírku mení aj koliesko alebo pravé tlačidlo + ťahanie. Dvojklik = vynulovať."));
+        addAndMakeVisible (view);
+    }
     ~EqDisplay() override { stopTimer(); --fx.scope.users; }
+    void resized() override { view.setBounds (getLocalBounds()); }
 
-    void paint (Graphics& g) override
+    int numBands() const override { return 8; }
+    korgus::EqBand band (int i) const override
     {
-        const auto a = area();
-        g.setColour (GCol::bg); g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
-        g.setFont (FontOptions (10.0f));
-        for (float hz : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
-        {
-            const float x = xOf (hz);
-            g.setColour (GCol::grid); g.drawVerticalLine ((int) x, a.getY(), a.getBottom());
-            g.setColour (GCol::dim); g.drawText (hz >= 1000 ? String ((int) (hz / 1000)) + "k" : String ((int) hz), (int) x - 15, (int) a.getBottom() + 1, 30, 12, Justification::centred);
-        }
-        for (float db : { -12.0f, -6.0f, 0.0f, 6.0f, 12.0f })
-        {
-            g.setColour (db == 0 ? GCol::steel : GCol::grid); g.drawHorizontalLine ((int) yOf (db), a.getX(), a.getRight());
-            g.setColour (GCol::dim); g.drawText ((db > 0 ? "+" : "") + String ((int) db), 2, (int) yOf (db) - 6, 22, 12, Justification::centredRight);
-        }
-        const double sr = fx.sampleRate();
-        Path sp; bool first = true;
-        for (float x = a.getX(); x <= a.getRight(); x += 2.0f)
-        {
-            const float v = spec.at (hzOf (x), sr);
-            const float y = jmap (jlimit (-90.0f, 0.0f, v), -90.0f, 0.0f, a.getBottom(), a.getY());
-            if (first) { sp.startNewSubPath (x, a.getBottom()); first = false; }
-            sp.lineTo (x, y);
-        }
-        sp.lineTo (a.getRight(), a.getBottom()); sp.closeSubPath();
-        g.setColour (GCol::steel.withAlpha (0.55f)); g.fillPath (sp);
-        const auto v = fx.values();
-        Path cv;
-        for (float x = a.getX(); x <= a.getRight(); x += 1.5f)
-        {
-            const float y = yOf (Decibels::gainToDecibels (response (hzOf (x), v), -40.0f));
-            if (x == a.getX()) cv.startNewSubPath (x, y); else cv.lineTo (x, y);
-        }
-        g.setColour (GCol::gold); g.strokePath (cv, PathStrokeType (2.0f));
-        for (int i = 0; i < 8; ++i)
-        {
-            const auto pt = pointPos (i, v);
-            const bool on = i == hover || i == dragging;
-            g.setColour (on ? GCol::gold : (EqFx::active (i, v) ? GCol::text.withAlpha (0.85f) : GCol::line)); g.fillEllipse (pt.x - 7, pt.y - 7, 14, 14);
-            g.setColour (GCol::bg); g.setFont (FontOptions (9.5f, Font::bold));
-            g.drawText (String (i + 1), Rectangle<float> (pt.x - 7, pt.y - 7, 14, 14), Justification::centred);
-        }
-        if (hover >= 0 || dragging >= 0)
-        {
-            const int i = dragging >= 0 ? dragging : hover;
-            auto hzT = [] (float f) { return f >= 1000 ? String (f / 1000.0f, 1) + " kHz" : String (roundToInt (f)) + " Hz"; };
-            auto [f, gn, q] = trio (i);
-            String t = String (i + 1) + ": " + hzT (f->get());
-            if (gn != nullptr) t << "  " << String (gn->get(), 1) << " dB";
-            if (q != nullptr) t << "  Q " << String (q->get(), 2);
-            if (i == 0 && f->get() < 20.5f) t = "1: " + sk ("vyp.");
-            if (i == 7 && f->get() > 19900.0f) t = "8: " + sk ("vyp.");
-            g.setColour (GCol::text); g.setFont (FontOptions (12.0f));
-            g.drawText (t, a.toNearestInt().removeFromTop (16).reduced (6, 0), Justification::centredRight);
-        }
+        auto [f, gn, q] = trio (i); korgus::EqBand b;
+        b.type = i == 0 ? 3 : i == 1 ? 0 : i == 6 ? 2 : i == 7 ? 4 : 1;
+        b.f = f->get(); b.g = gn != nullptr ? gn->get() : 0.0f; b.q = q != nullptr ? q->get() : 0.707f;
+        b.hasF = true; b.hasG = gn != nullptr; b.hasQ = q != nullptr;
+        b.fMin = f->range.start; b.fMax = f->range.end; b.fDef = f->range.convertFrom0to1 (f->getDefaultValue());
+        if (q != nullptr) { b.qMin = q->range.start; b.qMax = q->range.end; b.qDef = q->range.convertFrom0to1 (q->getDefaultValue()); }
+        b.active = EqFx::active (i, fx.values());
+        return b;
     }
-    void mouseMove (const MouseEvent& e) override { const int h = hit (e.position); if (h != hover) { hover = h; repaint(); } }
-    void mouseExit (const MouseEvent&) override { hover = -1; repaint(); }
-    void mouseDown (const MouseEvent& e) override
+    void setF (int i, float v) override { std::get<0> (trio (i))->setFromUi (v); }
+    void setG (int i, float v) override { if (auto* p = std::get<1> (trio (i))) p->setFromUi (v); }
+    void setQ (int i, float v) override { if (auto* p = std::get<2> (trio (i))) p->setFromUi (v); }
+    void begin (int i) override { auto [a, b, c] = trio (i); for (auto* p : { a, b, c }) if (p != nullptr) p->beginChangeGesture(); }
+    void end (int i) override { auto [a, b, c] = trio (i); for (auto* p : { a, b, c }) if (p != nullptr) p->endChangeGesture(); }
+    double bandMagnitudeAt (int i, float hz, float gainDb) const override
     {
-        dragging = hit (e.position); if (dragging < 0) return;
-        auto [f, gn, q] = trio (dragging);
-        qMode = q != nullptr && (e.mods.isRightButtonDown() || e.mods.isShiftDown() || e.mods.isAltDown());
-        qStart = q != nullptr ? q->get() : 1.0f; yStart = e.position.y;
-        for (auto* p : { f, gn, q }) if (p != nullptr) p->beginChangeGesture();
+        auto v = fx.values();
+        if (i == 1) v[1] = gainDb; else if (i >= 2 && i <= 5) v[(size_t) (3 + (i - 2) * 3)] = gainDb; else if (i == 6) v[15] = gainDb;
+        const double sr = jmax (8000.0, fx.sampleRate());
+        return EqFx::coef (i, v, sr)->getMagnitudeForFrequency (hz, sr);
     }
-    void mouseDrag (const MouseEvent& e) override
+    double bandMagnitude (int i, float hz) const override
     {
-        if (dragging < 0) return;
-        auto [f, gn, q] = trio (dragging);
-        if (qMode) { q->setFromUi (qStart * std::pow (2.0f, (yStart - e.position.y) / 40.0f)); repaint(); return; }
-        f->setFromUi (hzOf (e.position.x));
-        if (gn != nullptr) gn->setFromUi (std::round (dbOf (e.position.y) * 2.0f) / 2.0f);
-        repaint();
+        const auto v = fx.values(); const double sr = jmax (8000.0, fx.sampleRate());
+        return EqFx::coef (i, v, sr)->getMagnitudeForFrequency (hz, sr);
     }
-    void mouseUp (const MouseEvent&) override
+    double magnitude (float hz) const override
     {
-        if (dragging >= 0) { auto [f, gn, q] = trio (dragging); for (auto* p : { f, gn, q }) if (p != nullptr) p->endChangeGesture(); }
-        dragging = -1; qMode = false; repaint();
+        const auto v = fx.values(); const double sr = jmax (8000.0, fx.sampleRate());
+        double m = 1.0;
+        for (int b = 0; b < 8; ++b) if (EqFx::active (b, v)) m *= EqFx::coef (b, v, sr)->getMagnitudeForFrequency (hz, sr);
+        return m * Decibels::decibelsToGain (fx.outG->get());
     }
-    void mouseDoubleClick (const MouseEvent& e) override
-    {
-        const int i = hit (e.position); if (i < 0) return;
-        auto [f, gn, q] = trio (i);
-        if (gn != nullptr) gn->setFromUi (0.0f); else f->setFromUi (i == 0 ? 20.0f : 20000.0f);
-        repaint();
-    }
-    void mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& w) override
-    {
-        const int i = hit (e.position); if (i < 0) return;
-        auto [f, gn, q] = trio (i); if (q == nullptr) return;
-        q->setFromUi (q->get() * (w.deltaY > 0 ? 1.15f : 1.0f / 1.15f));
-        repaint();
-    }
+    float spectrumDb (float hz) const override { return spec.at (hz, fx.sampleRate()); }
 
 private:
-    Rectangle<float> area() const { return getLocalBounds().toFloat().reduced (26, 8).withTrimmedBottom (8); }
-    float xOf (float hz) const { const auto a = area(); return a.getX() + a.getWidth() * std::log (hz / 20.0f) / std::log (1000.0f); }
-    float hzOf (float x) const { const auto a = area(); return 20.0f * std::pow (1000.0f, jlimit (0.0f, 1.0f, (x - a.getX()) / a.getWidth())); }
-    float yOf (float db) const { const auto a = area(); return jmap (jlimit (-18.0f, 18.0f, db), 18.0f, -18.0f, a.getY(), a.getBottom()); }
-    float dbOf (float y) const { const auto a = area(); return jlimit (-15.0f, 15.0f, jmap (y, a.getY(), a.getBottom(), 18.0f, -18.0f)); }
-    // frekvencia, zisk, sirka pasma i
     std::tuple<FxParam*, FxParam*, FxParam*> trio (int i) const
     {
         if (i == 0) return { fx.lowCut, nullptr, nullptr };
@@ -773,30 +717,10 @@ private:
         if (i == 6) return { fx.highF, fx.highG, nullptr };
         return { fx.highCut, nullptr, nullptr };
     }
-    Point<float> pointPos (int i, const std::array<float, 18>& v) const
-    {
-        auto [f, gn, q] = trio (i);
-        const float hz = f->get();
-        return { xOf (hz), gn != nullptr ? yOf (gn->get()) : yOf (Decibels::gainToDecibels (response (hz, v), -40.0f)) };
-    }
-    int hit (Point<float> p) const
-    {
-        const auto v = fx.values();
-        int best = -1; float bd = 14.0f;
-        for (int i = 0; i < 8; ++i) { const float d = pointPos (i, v).getDistanceFrom (p); if (d < bd) { bd = d; best = i; } }
-        return best;
-    }
-    float response (float hz, const std::array<float, 18>& v) const
-    {
-        const double sr = jmax (8000.0, fx.sampleRate());
-        double m = 1.0;
-        for (int b = 0; b < 8; ++b) if (EqFx::active (b, v)) m *= EqFx::coef (b, v, sr)->getMagnitudeForFrequency (hz, sr);
-        return (float) m * Decibels::decibelsToGain (fx.outG->get());
-    }
-    void timerCallback() override { spec.update (fx.scope); repaint(); }
+    void timerCallback() override { spec.update (fx.scope); view.repaint(); }
     EqFx& fx;
     Spectrum spec;
-    int hover = -1, dragging = -1; bool qMode = false; float qStart = 1, yStart = 0;
+    korgus::EqView view;
 };
 std::unique_ptr<Component> EqFx::makeDisplay() { return std::make_unique<EqDisplay> (*this); }
 
