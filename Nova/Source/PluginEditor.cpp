@@ -8,6 +8,16 @@ using namespace nova::ui;
 
 namespace
 {
+    // otaznik namiesto drobneho sedeho popisu: klik ukaze cely navod v okne
+    struct HelpBtn : juce::TextButton
+    {
+        juce::String body;
+        HelpBtn() : juce::TextButton ("?") { setTooltip ("?"); onClick = [this] { juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Inspiria", body); }; }
+        void setText (const juce::String& t, juce::NotificationType) { body = t; }
+        void setFont (const juce::FontOptions&) {}
+        void setJustificationType (juce::Justification) {}
+    };
+
     // nastroje v menu podla skupin (cisla = hodnota parametra "inst", poradie v subore sa nemeni)
     struct InstGroup { const char* sk; const char* en; std::vector<int> ids; };
     const std::vector<InstGroup>& instGroups()
@@ -1477,7 +1487,7 @@ namespace
                 eqOn[t]->onStateChange = [this] { syncEnabled(); };
                 addAndMakeVisible (*eqOn[t]);
             }
-            excK = std::make_unique<Knob> (p.params, "exc", T ("Lesk")); excK->s.setTooltip (T ("Doplní jemné výšky (vzduch) – hlavne nahrávkam s orezanými výškami, napr. klavíru")); addChildComponent (*excK);
+            // Lesk je pod MORPHom spolu so Sirkou a Uderom
             flatBtn.setButtonText (T ("Plochý")); flatBtn.setTooltip (T ("Vynulovať tento EQ"));
             flatBtn.onClick = [this] { graph.flat(); };
             addAndMakeVisible (flatBtn); addAndMakeVisible (graph);
@@ -1582,7 +1592,6 @@ namespace
                 addAndMakeVisible (l);
                 s.setDoubleClickReturnValue (true, findSpec (id)->def);
             };
-            mkSlider (width, widthL, "fx_width", "Šírka"); mkSlider (punch, punchL, "fx_punch", "Úder");
             setTarget (0);
             showTab (0);
         }
@@ -1638,11 +1647,9 @@ namespace
         void resized() override
         {
             tabFx.setBounds (10, 8, 62, 22); tabEq.setBounds (74, 8, 34, 22); tabGate.setBounds (110, 8, 52, 22); tabMod.setBounds (164, 8, 40, 22); tabVoc.setBounds (206, 8, 70, 22);
-            widthL.setBounds (284, 8, 38, 22); width.setBounds (322, 8, 70, 22);
-            punchL.setBounds (398, 8, 38, 22); punch.setBounds (436, 8, getWidth() - 446, 22);
             // vocoder
             vcOn->setBounds (12, 40, 110, 22); vcSrc.setBounds (130, 40, 200, 22); vcMeter.setBounds (340, 44, getWidth() - 352, 14);
-            vcHelp.setBounds (12, 70, getWidth() - 24, 46);
+            vcHelp.setBounds (getWidth() - 36, 70, 24, 22);
             {
                 const int kw = (getWidth() - 24) / 6;
                 for (int k = 0; k < 6; ++k) vcK[k]->setBounds (12 + k * kw, 122, kw, 80);
@@ -1650,7 +1657,7 @@ namespace
             // gater
             gtOn->setBounds (12, 40, 92, 22); gtRate->setBounds (108, 40, 150, 22); gtPreset.setBounds (262, 40, getWidth() - 192 - 268, 22);
             gtDepth->setBounds (getWidth() - 192, 36, 58, 72); gtSmooth->setBounds (getWidth() - 132, 36, 58, 72); gtSwing->setBounds (getWidth() - 72, 36, 58, 72);
-            gtHelp.setBounds (12, 70, getWidth() - 210, 40);
+            gtHelp.setBounds (12, 70, 24, 22);
             {
                 const int sw = (getWidth() - 24 - 15 * 4 - 3 * 6) / 16;
                 for (int k = 0; k < 16; ++k) steps[k].setBounds (12 + k * (sw + 4) + (k / 4) * 6, 128, sw, 70);
@@ -1676,20 +1683,20 @@ namespace
             // EQ
             for (int t = 0; t < NEQ; ++t) targets[t].setBounds (12 + t * 64, 38, 61, 24);
             flatBtn.setBounds (getWidth() - 12 - 70, 38, 70, 24);
-            // prepinac Zapnuty pod tlacidlom Plochy (v jednom riadku s tlacidlami vrstiev sa neprekryva)
+            // prepinac Zapnuty pod tlacidlom Plochy, gombik Lesk vedla neho (nic sa neprekryva)
             for (auto& tg : eqOn) tg->setBounds (getWidth() - 12 - 96, 66, 96, 22);
             for (int i = 0; i < (int) eq.size(); ++i) eq[(size_t) i]->setBounds (12 + (i % 4) * 62, 66, 58, 70);
-            if (excK) excK->setBounds (getWidth() - 12 - 62, 76, 62, 66);
-            help.setBounds (270, 92, getWidth() - 282 - 62, 52);
+            if (excK) excK->setBounds (getWidth() - 12 - 96 - 4 - 62, 66, 62, 70);
+            help.setBounds (getWidth() - 12 - 70 - 30, 39, 24, 22);
             graph.setBounds (12, 140, getWidth() - 24, getHeight() - 150);
         }
         NovaProcessor& p;
         Toggle drive, chorus, delay, reverb, pp; Seg sync, chType;
         std::vector<std::unique_ptr<Knob>> fx, eq;
         std::unique_ptr<Knob> excK;
-        juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL, help, gtHelp;
+        juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL; HelpBtn help, gtHelp;
         std::unique_ptr<Toggle> gtOn; std::unique_ptr<Seg> gtRate; std::unique_ptr<Combo> mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing, mAmt[4]; juce::ComboBox gtPreset;
-        juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[6]; juce::Label vcHelp;
+        juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[6]; HelpBtn vcHelp;
         juce::ComboBox vcSrc; bool vcSrcSync = false; juce::String vcSrcList;
         // zoznam spevovych stop zapisuje Korgus Sequencer do docasneho suboru
         void refreshVocTracks()
@@ -1771,14 +1778,19 @@ namespace
     // ===================================================================== morph XY
     struct MorphPad : juce::Component, juce::SettableTooltipClient
     {
-        MorphPad (NovaProcessor& pr) : p (pr)
+        MorphPad (NovaProcessor& pr) : p (pr), kW (pr.params, "fx_width", T ("Šírka")), kP (pr.params, "fx_punch", T ("Úder")), kE (pr.params, "exc", T ("Lesk"))
         {
+            for (auto* k : { &kW, &kP, &kE }) addAndMakeVisible (k);
+            kW.s.setTooltip (T ("Šírka sterea celého zvuku"));
+            kP.s.setTooltip (T ("Úder – zvýrazní nábeh tónov"));
+            kE.s.setTooltip (T ("Doplní jemné výšky (vzduch) – hlavne nahrávkam s orezanými výškami, napr. klavíru"));
             ax = std::make_unique<juce::ParameterAttachment> (*pr.params.getParameter ("morph_x"), [this] (float v) { x = v; repaint(); }, &pr.undo);
             ay = std::make_unique<juce::ParameterAttachment> (*pr.params.getParameter ("morph_y"), [this] (float v) { y = v; repaint(); }, &pr.undo);
             ax->sendInitialUpdate(); ay->sendInitialUpdate();
             setTooltip (T ("Vľavo vrstva A, vpravo vrstva B · hore jasnejší, dole tmavší · dvojklik = stred"));
         }
-        juce::Rectangle<float> pad() const { const float s = juce::jmin ((float) getWidth() - 44.0f, (float) getHeight() - 64.0f); return { ((float) getWidth() - s) * 0.5f, 42.0f, s, s }; }
+        void resized() override { const int kw = 62, y = getHeight() - 78, x0 = (getWidth() - 3 * kw - 8) / 2; kW.setBounds (x0, y, kw, 70); kP.setBounds (x0 + kw + 4, y, kw, 70); kE.setBounds (x0 + 2 * (kw + 4), y, kw, 70); }
+        juce::Rectangle<float> pad() const { const float s = juce::jmin ((float) getWidth() - 44.0f, (float) getHeight() - 64.0f - 80.0f); return { ((float) getWidth() - s) * 0.5f, 42.0f, s, s }; }
         void paint (juce::Graphics& g) override
         {
             drawPanel (g, getLocalBounds(), "MORPH");
@@ -1809,6 +1821,7 @@ namespace
         void mouseDoubleClick (const juce::MouseEvent&) override { ax->setValueAsCompleteGesture (0); ay->setValueAsCompleteGesture (0); }
         NovaProcessor& p; float x = 0, y = 0;
         std::unique_ptr<juce::ParameterAttachment> ax, ay;
+        Knob kW, kP, kE;
     };
 
     // ===================================================================== master
@@ -2129,17 +2142,17 @@ namespace
             }
             search.setBounds (r.removeFromTop (26)); r.removeFromTop (6);
             auto br = r.removeFromTop (24);
+            hint.setBounds (br.removeFromRight (24)); br.removeFromRight (4);
             importBtn.setBounds (br.removeFromLeft (br.getWidth() / 2 + 20).withTrimmedRight (3)); folderBtn.setBounds (br.withTrimmedLeft (3));
             r.removeFromTop (8);
             const int ch = chips.heightFor (r.getWidth());
             chips.setBounds (r.removeFromTop (ch)); r.removeFromTop (8);
-            hint.setBounds (r.removeFromBottom (40).withTrimmedBottom (6));
             vp.setBounds (r.withTrimmedBottom (4));
             refresh();
         }
         NovaProcessor& p;
         juce::TextEditor search; juce::TextButton importBtn, folderBtn, secB[2];
-        CategoryChips chips; PresetList list; juce::Viewport vp; juce::Label hint;
+        CategoryChips chips; PresetList list; juce::Viewport vp; HelpBtn hint;
         std::vector<PresetStore::Entry> shown;
         std::unique_ptr<juce::FileChooser> chooser;
     };

@@ -2520,7 +2520,7 @@ void MainView::timerCallback()
     {
         auto o = obj();
         put (o, "pos", p); put (o, "playing", pl); put (o, "counting", cn);
-        put (o, "beat", engine.getCountBeat()); put (o, "total", engine.getCountTotal());
+        put (o, "beat", engine.getCountBeat()); put (o, "total", engine.getCountTotal()); put (o, "sr", engine.getSampleRate());
         emit ("pos", o);
         lastSentPos = p; lastPlaying = pl; lastCounting = cn;
     }
