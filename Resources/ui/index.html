@@ -3016,7 +3016,13 @@ function edLocPaint(){
 }
 function edLocDrag(e,toStep,onClick){
   const a=toStep(e); if(a==null) return; let b=a, moved=false;
-  const mv=ev=>{ const s=toStep(ev); if(s==null) return; if(s!==b){ b=s; moved=true; song.locL=Math.min(a,b); song.locR=Math.max(a,b)+1; updTransport(); drawArrange(); } };
+  // chytenie okraja L alebo R (do 1 kroku) = tahanie len toho okraja; inak novy usek
+  const on=song.locR>song.locL, edge=!on?null:(Math.abs(a-song.locL)<=1?'L':(Math.abs(a-(song.locR-1))<=1?'R':null));
+  const mv=ev=>{ const s=toStep(ev); if(s==null) return; if(s===b) return; b=s; moved=true;
+    if(edge==='L') song.locL=Math.min(s,song.locR-1);
+    else if(edge==='R') song.locR=Math.max(s+1,song.locL+1);
+    else { song.locL=Math.min(a,b); song.locR=Math.max(a,b)+1; }
+    updTransport(); drawArrange(); };
   const up=()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); if(moved) save(); else onClick(a); };
   document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
 }

@@ -1484,12 +1484,20 @@ void MainView::onAiContinue (const juce::var& v)
             want = in->readEntireStreamAsString().trim().getLargeIntValue();
         if (! model.existsAsFile() || (want > 0 && model.getSize() != want))
         {
-            if (want <= 0) { fail ("Model AI sa nepodarilo stiahnuť – skontroluj pripojenie na internet."); return; }
+            if (want <= 0) { fail (juce::String::fromUTF8 ("Model AI sa nepodarilo stiahnuť – skontroluj pripojenie na internet.")); return; }
             const juce::File tmp = dir.getChildFile ("melody.kamt.download");
+            if (tmp.existsAsFile() && tmp.getSize() == want)
+            {   // uz stiahnuty (predosly pokus sa nedokoncil len pri presune)
+                model.deleteFile();
+                if (! tmp.moveFileTo (model)) tmp.copyFileTo (model);
+            }
+            if (! model.existsAsFile() || model.getSize() != want)
+            {
             tmp.deleteFile();
-            juce::FileOutputStream out (tmp);
-            if (! out.openedOk()) { fail ("Model AI sa nedá uložiť na disk."); return; }
             juce::int64 got = 0;
+            {   // subor sa musi zavriet pred presunom (Windows inak presun nedovoli)
+            juce::FileOutputStream out (tmp);
+            if (! out.openedOk()) { fail (juce::String::fromUTF8 ("Model AI sa nedá uložiť na disk.")); return; }
             for (int part = 0; part < 10 && got < want; ++part)
             {
                 auto in = juce::URL (base + "melody.kamt.part" + juce::String (part)).createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs (20000));
@@ -1505,8 +1513,12 @@ void MainView::onAiContinue (const juce::var& v)
                 }
             }
             out.flush();
-            if (got != want) { fail ("Sťahovanie modelu AI sa prerušilo – skús to znova."); return; }
-            model.deleteFile(); tmp.moveFileTo (model);
+            }
+            if (got != want) { tmp.deleteFile(); fail (juce::String::fromUTF8 ("Sťahovanie modelu AI sa prerušilo – skús to znova.")); return; }
+            model.deleteFile();
+            if (! tmp.moveFileTo (model) && ! tmp.copyFileTo (model)) { fail (juce::String::fromUTF8 ("Model AI sa nepodarilo uložiť.")); return; }
+            tmp.deleteFile();
+            }
         }
         prog ("load", 0.0f, {});
         korgus::MelodyAI ai;

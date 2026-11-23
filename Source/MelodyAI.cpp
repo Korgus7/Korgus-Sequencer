@@ -98,11 +98,11 @@ juce::String MelodyAI::load (const juce::File& f)
 {
     unload();
     juce::FileInputStream in (f);
-    if (! in.openedOk()) return "Model sa nedá otvoriť.";
+    if (! in.openedOk()) return juce::String::fromUTF8 ("Model sa nedá otvoriť.");
     char magic[4]; in.read (magic, 4);
-    if (std::memcmp (magic, "KAMT", 4) != 0) return "Neplatný súbor modelu.";
+    if (std::memcmp (magic, "KAMT", 4) != 0) return juce::String::fromUTF8 ("Neplatný súbor modelu.");
     int h[6]; in.read (h, sizeof (h));
-    if (h[0] != 1) return "Nepodporovaná verzia modelu.";
+    if (h[0] != 1) return juce::String::fromUTF8 ("Nepodporovaná verzia modelu.");
     nLayer = h[1]; nHead = h[2]; nEmbd = h[3]; nVocab = h[4]; nCtx = h[5];
     const int E = nEmbd;
     std::vector<uint16_t> buf;
@@ -119,7 +119,7 @@ juce::String MelodyAI::load (const juce::File& f)
         ok = ok && rd (L.ln1g, E) && rd (L.ln1b, E) && rd (L.wqkv, (size_t) E * 3 * E) && rd (L.bqkv, 3 * E) && rd (L.wo, (size_t) E * E) && rd (L.bo, E)
                 && rd (L.ln2g, E) && rd (L.ln2b, E) && rd (L.wfc, (size_t) E * 4 * E) && rd (L.bfc, 4 * E) && rd (L.wpr, (size_t) 4 * E * E) && rd (L.bpr, E);
     ok = ok && rd (lnfg, E) && rd (lnfb, E);
-    if (! ok) { unload(); return "Súbor modelu je poškodený (neúplný)."; }
+    if (! ok) { unload(); return juce::String::fromUTF8 ("Súbor modelu je poškodený (neúplný)."); }
     resetCache();
     return {};
 }
