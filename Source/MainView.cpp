@@ -662,6 +662,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("kbdState",    [this] (const juce::var& v) { onKbdState (v); })
         .withEventListener ("selTrack",    [this] (const juce::var& v) { onSelTrack (v); })
         .withEventListener ("trackFx",     [this] (const juce::var& v) { onTrackFx (v); })
+        .withEventListener ("fxMove",      [this] (const juce::var& v) { onFxMove (v); })
         .withEventListener ("openFx",      [this] (const juce::var& v) { onOpenFx (v); })
         .withEventListener ("trackPlugin", [this] (const juce::var& v) { onTrackPlugin (v); })
         .withEventListener ("openPlugin",  [this] (const juce::var& v) { onOpenPlugin (v); })
@@ -1430,6 +1431,35 @@ void MainView::onTrackFx (const juce::var& v)
                 onOpenFx (v);
             return;
         }
+}
+
+void MainView::onFxMove (const juce::var& v)
+{
+    const auto ft = v["fromTrack"].toString(), tt = v["toTrack"].toString();
+    const int fi = (int) v.getProperty ("fromIdx", 0), ti = (int) v.getProperty ("toIdx", 0);
+    const bool copy = (bool) v.getProperty ("copy", false);
+    if (! juce::isPositiveAndBelow (fi, Engine::numFx) || ! juce::isPositiveAndBelow (ti, Engine::numFx) || (ft == tt && fi == ti)) return;
+    auto takeState = [this] (const juce::String& t, int i, juce::PluginDescription& d, juce::MemoryBlock& st) -> bool
+    {
+        auto di = fxDesc.find (t); if (di == fxDesc.end()) return false;
+        auto it = di->second.find (i); if (it == di->second.end()) return false;
+        auto* p = engine.getFx (engine.getOrCreateSlot (t), i); if (p == nullptr) return false;
+        d = it->second; p->getStateInformation (st); return true;
+    };
+    juce::PluginDescription dSrc, dDst; juce::MemoryBlock sSrc, sDst;
+    if (! takeState (ft, fi, dSrc, sSrc)) return;
+    const bool hasDst = takeState (tt, ti, dDst, sDst);
+    auto clear = [this] (const juce::String& t, int i)
+    {
+        pluginWindows.erase (t + "#fx" + juce::String (i)); unwatchPlugin (t, i + 1);
+        engine.setTrackFx (engine.getOrCreateSlot (t), i, nullptr); fxDesc[t].erase (i);
+    };
+    // ciel dostane zdrojovy efekt so vsetkymi nastaveniami; pri presune sa na povodne miesto da efekt z ciela (vymena)
+    if (! copy) clear (ft, fi);
+    loadFxForTrack (tt, ti, dSrc, &sSrc, {});
+    if (! copy && hasDst) loadFxForTrack (ft, fi, dDst, &sDst, {});
+    sendTrackPlugins();
+    saveSession();
 }
 
 std::unique_ptr<juce::AudioPluginInstance> MainView::createInstance (const juce::PluginDescription& d, const juce::MemoryBlock* state, bool instrument)

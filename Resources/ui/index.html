@@ -72,7 +72,9 @@ input[type=range]{accent-color:#2d4362}
 #dseSoft.on{background:#c9a35a;color:#151c27;border-color:#c9a35a}
 #hSplit{height:6px;cursor:row-resize;background:transparent;flex:0 0 6px;margin:-2px 0}#hSplit:hover{background:#c9a35a55}
 #edWin[hidden]~*{} #keyRulerRow{position:sticky;top:0;z-index:4;display:flex;width:max-content;background:#cfcfcf;border-bottom:1px solid #888}#keyRulerRow .sp{position:sticky;left:0;z-index:5;background:#cfcfcf;flex:0 0 auto;border-right:1px solid #555}
-#mixWin{flex:none;height:390px}
+#mixWin{flex:none;height:390px;position:relative}
+#mixGrip{position:absolute;left:0;right:0;top:-3px;height:7px;cursor:ns-resize;z-index:5}
+#mixGrip:hover,#mixGrip.on{background:rgba(201,163,90,.35)}
 #autoWin{flex:none;height:230px}
 #trWin .bar{min-height:44px}
 #trWin .bar #bRew,#trWin .bar #bStop,#trWin .bar #bPlay,#trWin .bar #bRec,#trWin .bar #bLoop,#trWin .bar #bClick{height:34px;min-width:44px;font-size:17px;padding:0 8px}
@@ -132,6 +134,9 @@ body.native #trackList .thead{position:sticky;top:0;z-index:3}
 .ms .dd{position:relative;height:20px;background:#3a4757;border-radius:3px;flex:none}
 .ms.sel .dd{background:#6b7b90}
 .ms .dd.on{background:#4f6f91}
+.ms .dd.dropT{outline:2px solid #c9a35a;outline-offset:-2px}
+.fxGhost{position:fixed;z-index:9999;pointer-events:none;background:#2d4362;color:#e4e9ef;font-size:11px;padding:3px 8px;border-radius:3px;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.fxGhost.cp::before{content:'+ ';color:#c9a35a;font-weight:bold}
 .ms .dd::after{content:'';position:absolute;right:5px;top:8px;border:4px solid transparent;border-top-color:#e4e9ef;pointer-events:none}
 .ms .dd select{appearance:none;-webkit-appearance:none;width:100%;height:20px;border:0;background:transparent;color:#e4e9ef;font-size:11px;padding:0 14px 0 5px;outline:none;box-shadow:none!important;cursor:pointer}
 .ms .dd select option{background:#2a3442;color:#e4e9ef}
@@ -618,6 +623,7 @@ window.addEventListener('load',()=>{ try{ if(typeof nat==='function') nat('lang'
 </div>
 
 <div class="win" id="mixWin" hidden>
+  <div id="mixGrip" title="Ťahaním zmeníš výšku mixpultu (dvojklik = pôvodná)"></div>
   <div class="tb">Mixpult<span class="sp"></span><button id="mixAmix" title="Automatický mix – nastaví hlasitosť a panorámu stôp">Auto mix</button><span style="width:6px"></span><button id="mixClose" title="Zavrieť (F3)">×</button></div>
   <div id="mixBody"><div id="mixStrips"></div></div>
 </div>
@@ -686,8 +692,16 @@ function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
   return {masterVol:song.masterVol==null?1:song.masterVol,aux:auxArr().map(a=>({vol:a.vol})),byp:song.byp||{},tempoMap:song.tempoLane&&song.tempoLane.pts.length?song.tempoLane.pts.map(q=>[q[0],Math.round((TMIN+q[1]*(TMAX-TMIN))*100)/100]):[],tempo:song.tempo,bars:song.bars,keyK:song.keyK==null?-1:song.keyK,keyM:song.keyM?1:0,chords:(song.chords||[]).map(c=>({s:c.s,c:c.c})),locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,groups:(song.groups||[]).map(g=>({id:g.id,vol:g.vol==null?1:g.vol,pan:g.pan||0,mute:!!g.mute,solo:!!g.solo,send:g.send||[0,0]})),
-    tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,out:t.out&&(song.groups||[]).some(g=>g.id===t.out)?t.out:'',vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,sc:!!t.sc,send:t.send||[0,0],mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},dset:t.dset||{},auto:(t.autoR===false?[]:(t.auto||[])).filter(a=>!a.rec).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:drumPartsMuted(t)}))};
+    tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,out:t.out&&(song.groups||[]).some(g=>g.id===t.out)?t.out:'',vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,sc:!!t.sc,send:t.send||[0,0],mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},dset:t.dset||{},auto:(t.autoR===false?[]:(t.auto||[])).filter(a=>!a.rec).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.follow&&t.type==='synth'?followParts(t):drumPartsMuted(t)}))};
 }
+// akordova stopa: stopa so zapnutym „Sleduje akordy“ hra noty prisposobene akordom (ulozene noty sa nemenia)
+function chordRootAt(st){ const cs=chordsSorted(); let c=null; cs.forEach(q=>{ if(q.s<=st) c=q; }); const r=c?parseChord(c.c):null; return r?r.root:null; }
+function followParts(t){
+  if(!(song.chords||[]).length) return t.parts;
+  const role=energyRole(t), bass=role&&role.n==='bas';
+  return t.parts.map(p=>{ if(!p.notes) return p; const a=p.start*SPB, ns=p.notes.map(n=>({...n}));
+    if(bass) ns.forEach(n=>{ const st=a+n.s; if(st%4!==0&&(n.l||1)<6) return; const r=chordRootAt(st); if(r==null) return; const pc=((n.p%12)+12)%12; let d=((r-pc)%12+12)%12; if(d>6) d-=12; n.p+=d; });
+    fitToChords(ns,a); return {...p,notes:ns}; }); }
 // bicie: stlmene riadky (reproduktor pri nazve) sa do motora posielaju prazdne
 function laneOff(t,l){ if(t.lmute&&t.lmute[l]) return true; const so=t.lsolo&&Object.keys(t.lsolo).some(k=>t.lsolo[k]); return !!so&&!t.lsolo[l]; }
 function drumPartsMuted(t){ if(t.type!=='drum') return t.parts; const m=DRUMS.map((_,l)=>l).filter(l=>laneOff(t,l)); const ps=energyDrumParts(t.parts); if(!m.length) return ps;
@@ -1835,6 +1849,8 @@ function renderTracksNative(L){
       ...(tr.type!=='audio'?[['Pridať objekt z knižnice…',()=>patternDialog(tr)]]:[]),
       ...(tr.type==='audio'&&NATIVE?[['Pridať objekt z knižnice…',()=>loopBrowser(tr.id,Math.floor(curPos()/SPB))]]:[]),
       ['Duplikovať stopu',()=>dupTrack(i)],
+      ...(tr.type==='synth'?[[(tr.follow?'✓ ':'')+'Sleduje akordy',()=>{ pushUndo(); tr.follow=!tr.follow; if(tr.follow&&!(song.chords||[]).length) ensureChords(tr.id); save(); renderTracks(); drawArrange();
+        toast(tr.follow?'Stopa <b>'+esc(tr.name)+'</b> sleduje akordovú stopu – pri prehrávaní sa noty prispôsobia akordom. Uložené noty sa nemenia.':'Stopa <b>'+esc(tr.name)+'</b> už nesleduje akordy.'); }]]:[]),
       null,
       // zvuk
       ...(tr.type==='audio'&&NATIVE?[['Hlasová predvoľba…',()=>voicePresetDialog(tr)]]:[]),
@@ -2367,6 +2383,35 @@ function masteringOpen(){ if(!NATIVE) return;
     nat('trackFx',{track:'__master',idx,uid:p.uid,name:'Master'}); return; }
   if(fxIsOff('__master',idx)) fxSetOff('__master',idx,false);
   nat('openFx',{track:'__master',idx,name:'Master'}); }
+function fxDragStart(e,trId,k,has,sl,name){
+  const x0=e.clientX, y0=e.clientY; let ghost=null, over=null;
+  const mv=ev=>{ if(!has) return; if(!ghost&&Math.hypot(ev.clientX-x0,ev.clientY-y0)<5) return;
+    if(!ghost){ ghost=document.createElement('div'); ghost.className='fxGhost'; ghost.textContent=name.replace(/^Korgus /,''); document.body.appendChild(ghost); }
+    ghost.style.left=(ev.clientX+10)+'px'; ghost.style.top=(ev.clientY+8)+'px'; ghost.classList.toggle('cp',ev.altKey||ev.ctrlKey);
+    const t=document.elementFromPoint(ev.clientX,ev.clientY), dd=t&&t.closest&&t.closest('#mixStrips .dd, #mixBody .dd');
+    if(over&&over!==dd) over.classList.remove('dropT'); over=dd; if(dd) dd.classList.add('dropT'); };
+  const up=ev=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up);
+    if(over) over.classList.remove('dropT');
+    if(!ghost){ try{ sl.showPicker(); }catch(err){ sl.focus(); } return; }
+    ghost.remove();
+    if(!over) return; const tt=over.dataset.tr, tk=+over.dataset.k; if(tt==null||(tt===trId&&tk===k)) return;
+    const copy=ev.altKey||ev.ctrlKey; pushUndo();
+    const b=song.byp||(song.byp={}), A=b[trId]||[false,false,false,false], B=b[tt]||[false,false,false,false], va=!!A[k], vb=!!B[tk];
+    b[trId]=A; b[tt]=B; B[tk]=va; if(!copy) A[k]=vb; for(const id of [trId,tt]) if(b[id]&&!b[id].some(x=>x)) delete b[id];
+    nat('fxMove',{fromTrack:trId,fromIdx:k,toTrack:tt,toIdx:tk,copy}); save();
+    toast(copy?'Efekt skopírovaný.':'Efekt presunutý. Tip: s klávesom Alt sa efekt skopíruje.'); };
+  document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+}
+/* vyska mixpultu tahanim horneho okraja (ako v Cubase) */
+{ const g=$('mixGrip'), w=$('mixWin');
+  const setH=h=>{ h=Math.round(clamp(h,200,Math.max(240,window.innerHeight-160))); w.style.height=h+'px'; return h; };
+  try{ const h=+localStorage.getItem('korgus.mixH'); if(h) setH(h); }catch(e){}
+  g.onmousedown=e=>{ e.preventDefault(); const y0=e.clientY, h0=w.offsetHeight; g.classList.add('on');
+    const mv=ev=>{ setH(h0+(y0-ev.clientY)); renderMixer(); drawArrange(); };
+    const up=()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); g.classList.remove('on'); try{ localStorage.setItem('korgus.mixH',w.offsetHeight); }catch(e){} };
+    document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up); };
+  g.ondblclick=()=>{ w.style.height=''; try{ localStorage.removeItem('korgus.mixH'); }catch(e){} renderMixer(); drawArrange(); };
+}
 function renderMixer(){
   if(!mixOpen()) return;
   const box=$('mixStrips'); box.innerHTML='';
@@ -2381,7 +2426,9 @@ function renderMixer(){
         const op=el('b','op',ICO_WIN); op.title='Otvoriť okno efektu'; op.onmousedown=e=>e.stopPropagation(); op.onclick=e=>{ e.stopPropagation(); nat('openFx',{track:o.id,idx:k,name:o.name}); }; d.appendChild(op); }
       sl.innerHTML='<option value="">–</option>'+fxList.map(p=>`<option value="${esc(p.uid)}">${esc(String(p.name).replace(/^Korgus /,''))}</option>`).join('');
       sl.value=f?f.uid:''; sl.title=f?f.name+' (dvojklik = okno efektu)':'Efekt '+(k+1);
-      sl.onmousedown=e=>e.stopPropagation();
+      d.dataset.tr=o.id; d.dataset.k=k;
+      // tahanie efektu na iny slot alebo inu stopu (ako v Cubase); Alt / Ctrl = kopia. Bez pohybu sa otvori zoznam efektov.
+      sl.onmousedown=e=>{ e.stopPropagation(); if(e.button!==0) return; e.preventDefault(); fxDragStart(e,o.id,k,!!f,sl,f?String(f.name):''); };
       sl.onchange=()=>{ if(sl.value==='__scan'){ sl.value=f?f.uid:''; nat('showPlugins'); sl.blur(); return; } nat('trackFx',{track:o.id,idx:k,uid:sl.value,name:o.name}); sl.blur(); };
       d.ondblclick=()=>{ if(f) nat('openFx',{track:o.id,idx:k,name:o.name}); };
       d.appendChild(sl); st.appendChild(d); }

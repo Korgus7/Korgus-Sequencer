@@ -58,6 +58,7 @@ private:
     void onNote (const juce::var&);
     void onTrackPlugin (const juce::var&);
     void onTrackFx (const juce::var&);
+    void onFxMove (const juce::var&);   // presun / kopia efektu tahanim v mixpulte (ako v Cubase)
     void onOpenFx (const juce::var&);
     void onSelTrack (const juce::var&);
     void sendDevices();

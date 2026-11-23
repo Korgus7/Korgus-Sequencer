@@ -552,22 +552,35 @@ public:
         highG   = add ("highgain", "Výšky", -15, 15, 0, "dB");
         highF   = add ("highfreq", "Výšky Hz", 2000, 16000, 8000, "Hz", 0.5f, 0);
         outG    = add ("output", "Výstup", -18, 18, 0, "dB");
-        lowCut->tip = sk ("Odreže hlboké basy pod touto frekvenciou (hučanie, dunenie). V grafe: ľavý bod.");
-        lowG->tip   = sk ("Zosilní alebo stíši basy. V grafe ťahaj bod B hore / dole.");
-        lowF->tip   = sk ("Odkiaľ začínajú basy. V grafe ťahaj bod B do strany.");
-        midG->tip   = sk ("Zosilní alebo stíši stredy (hlas, gitara). V grafe ťahaj bod S.");
-        midF->tip   = sk ("Ktoré stredy sa menia. V grafe ťahaj bod S do strany.");
-        midQ->tip   = sk ("Šírka pásma stredov: malé číslo = široké, veľké = úzke. V grafe koliesko myši na bode S.");
-        highG->tip  = sk ("Zosilní alebo stíši výšky (jas, vzduch). V grafe ťahaj bod V.");
-        highF->tip  = sk ("Odkiaľ začínajú výšky. V grafe ťahaj bod V do strany.");
+        // dalsie pasma (ako v Inspirii) - ovladaju sa v grafe
+        static const float defF[3] = { 300, 3000, 6000 };
+        for (int k = 0; k < 3; ++k)
+        {
+            const String n (k + 2);
+            pG[k] = add ("p" + n + "gain", "Pásmo", -15, 15, 0, "dB");
+            pF[k] = add ("p" + n + "freq", "Pásmo Hz", 40, 16000, defF[k], "Hz", 0.3f, 0);
+            pQ[k] = add ("p" + n + "q", "Pásmo šírka", 0.3f, 8, 1, "", 0.4f, 2);
+            for (auto* x : { pG[k], pF[k], pQ[k] }) x->inEditor = false;
+        }
+        highCut = add ("highcut", "High Cut", 1000, 20000, 20000, "Hz", 0.3f, 0);
+        highCut->inEditor = false;
+        lowCut->tip = sk ("Odreže hlboké basy pod touto frekvenciou (hučanie, dunenie). V grafe: bod 1.");
+        lowG->tip   = sk ("Zosilní alebo stíši basy. V grafe ťahaj bod 2 hore / dole.");
+        lowF->tip   = sk ("Odkiaľ začínajú basy. V grafe ťahaj bod 2 do strany.");
+        midG->tip   = sk ("Zosilní alebo stíši stredy (hlas, gitara). V grafe ťahaj bod 3.");
+        midF->tip   = sk ("Ktoré stredy sa menia. V grafe ťahaj bod 3 do strany.");
+        midQ->tip   = sk ("Šírka pásma: malé číslo = široké, veľké = úzke. V grafe pravé tlačidlo alebo koliesko na bode.");
+        highG->tip  = sk ("Zosilní alebo stíši výšky (jas, vzduch). V grafe ťahaj bod 7.");
+        highF->tip  = sk ("Odkiaľ začínajú výšky. V grafe ťahaj bod 7 do strany.");
         outG->tip   = sk ("Celková hlasitosť po ekvalizácii.");
     }
 
     std::unique_ptr<Component> makeDisplay() override;
-    int displayHeight() const override { return 190; }
+    int displayHeight() const override { return 210; }
     std::vector<Preset> presets() const override
     {
-        return { { "Bez úprav", { { "lowcut", 20 }, { "lowgain", 0 }, { "midgain", 0 }, { "highgain", 0 }, { "output", 0 } } },
+        std::vector<Preset> v = {
+                 { "Bez úprav", { { "lowcut", 20 }, { "lowgain", 0 }, { "midgain", 0 }, { "highgain", 0 }, { "output", 0 } } },
                  { "Spev – čistý", { { "lowcut", 100 }, { "lowgain", -2 }, { "lowfreq", 200 }, { "midgain", -2 }, { "midfreq", 400 }, { "midq", 1.2f }, { "highgain", 3 }, { "highfreq", 9000 } } },
                  { "Spev – teplý", { { "lowcut", 80 }, { "lowgain", 2 }, { "lowfreq", 180 }, { "midgain", -1.5f }, { "midfreq", 2500 }, { "midq", 1.0f }, { "highgain", 1 }, { "highfreq", 10000 } } },
                  { "Akustická gitara", { { "lowcut", 90 }, { "lowgain", -3 }, { "lowfreq", 180 }, { "midgain", 2 }, { "midfreq", 3000 }, { "midq", 1.0f }, { "highgain", 2 }, { "highfreq", 10000 } } },
@@ -575,6 +588,9 @@ public:
                  { "Bicie – úder", { { "lowcut", 30 }, { "lowgain", 3 }, { "lowfreq", 70 }, { "midgain", -3 }, { "midfreq", 400 }, { "midq", 1.0f }, { "highgain", 3 }, { "highfreq", 8000 } } },
                  { "Telefón", { { "lowcut", 500 }, { "lowgain", 0 }, { "midgain", 8 }, { "midfreq", 1500 }, { "midq", 1.0f }, { "highgain", -15 }, { "highfreq", 3500 } } },
                  { "Menej hučania", { { "lowcut", 120 }, { "lowgain", 0 }, { "midgain", 0 }, { "highgain", 0 } } } };
+        for (auto& p : v) for (auto* id : { "p2gain", "p3gain", "p4gain" }) p.v.push_back ({ id, 0.0f });
+        for (auto& p : v) p.v.push_back ({ "highcut", 20000.0f });
+        return v;
     }
 
 private:
@@ -583,20 +599,40 @@ private:
 
     void prepare() override
     {
-        for (auto* f : { &hp, &ls, &pk, &hs }) { f->prepare (spec); f->reset(); }
+        for (auto& f : flt) { f.prepare (spec); f.reset(); }
         last.fill (-1e9f);
         update (true);
     }
-
+    std::array<float, 18> values() const
+    {
+        return { lowCut->get(), lowG->get(), lowF->get(), midG->get(), midF->get(), midQ->get(), pG[0]->get(), pF[0]->get(), pQ[0]->get(),
+                 pG[1]->get(), pF[1]->get(), pQ[1]->get(), pG[2]->get(), pF[2]->get(), pQ[2]->get(), highG->get(), highF->get(), highCut->get() };
+    }
+    // koeficienty pasma b (0 LC, 1 basy, 2-5 spicky, 6 vysky, 7 HC)
+    static dsp::IIR::Coefficients<float>::Ptr coef (int b, const std::array<float, 18>& v, double rate)
+    {
+        using C = dsp::IIR::Coefficients<float>;
+        const double ny = rate * 0.45;
+        auto fq = [ny] (float f) { return jmin ((double) f, ny); };
+        if (b == 0) return C::makeHighPass (rate, fq (v[0]), 0.707f);
+        if (b == 1) return C::makeLowShelf (rate, fq (v[2]), 0.707f, Decibels::decibelsToGain (v[1]));
+        if (b >= 2 && b <= 5) { const int o = 3 + (b - 2) * 3; return C::makePeakFilter (rate, fq (v[(size_t) o + 1]), v[(size_t) o + 2], Decibels::decibelsToGain (v[(size_t) o])); }
+        if (b == 6) return C::makeHighShelf (rate, fq (v[16]), 0.707f, Decibels::decibelsToGain (v[15]));
+        return C::makeLowPass (rate, fq (v[17]), 0.707f);
+    }
+    static bool active (int b, const std::array<float, 18>& v)
+    {
+        if (b == 0) return v[0] > 20.5f;
+        if (b == 1) return std::abs (v[1]) > 0.01f;
+        if (b >= 2 && b <= 5) return std::abs (v[(size_t) (3 + (b - 2) * 3)]) > 0.01f;
+        if (b == 6) return std::abs (v[15]) > 0.01f;
+        return v[17] < 19900.0f;
+    }
     void update (bool force)
     {
-        const std::array<float, 8> now { lowCut->get(), lowG->get(), lowF->get(), midG->get(), midF->get(), midQ->get(), highG->get(), highF->get() };
+        const auto now = values();
         if (! force && now == last) return;
-        const double ny = rate * 0.45;
-        *hp.state = *dsp::IIR::Coefficients<float>::makeHighPass (rate, jmin ((double) now[0], ny), 0.707f);
-        *ls.state = *dsp::IIR::Coefficients<float>::makeLowShelf (rate, jmin ((double) now[2], ny), 0.707f, Decibels::decibelsToGain (now[1]));
-        *pk.state = *dsp::IIR::Coefficients<float>::makePeakFilter (rate, jmin ((double) now[4], ny), now[5], Decibels::decibelsToGain (now[3]));
-        *hs.state = *dsp::IIR::Coefficients<float>::makeHighShelf (rate, jmin ((double) now[7], ny), 0.707f, Decibels::decibelsToGain (now[6]));
+        for (int b = 0; b < 8; ++b) *flt[(size_t) b].state = *coef (b, now, rate);
         last = now;
     }
 
@@ -605,26 +641,24 @@ private:
         update (false);
         dsp::AudioBlock<float> blk (b);
         dsp::ProcessContextReplacing<float> ctx (blk);
-        if (lowCut->get() > 20.5f) hp.process (ctx);
-        if (std::abs (lowG->get()) > 0.01f) ls.process (ctx);
-        if (std::abs (midG->get()) > 0.01f) pk.process (ctx);
-        if (std::abs (highG->get()) > 0.01f) hs.process (ctx);
+        for (int k = 0; k < 8; ++k) if (active (k, last)) flt[(size_t) k].process (ctx);
         const float g = Decibels::decibelsToGain (outG->get());
         b.applyGainRamp (0, b.getNumSamples(), lastOut, g);
         lastOut = g;
     }
 
-    FxParam *lowCut, *lowG, *lowF, *midG, *midF, *midQ, *highG, *highF, *outG;
-    Filter hp, ls, pk, hs;
-    std::array<float, 8> last {};
+    FxParam *lowCut, *lowG, *lowF, *midG, *midF, *midQ, *highG, *highF, *outG, *highCut;
+    FxParam *pG[3], *pF[3], *pQ[3];
+    std::array<Filter, 8> flt;
+    std::array<float, 18> last {};
     float lastOut = 1.0f;
 };
 
-// EQ: krivka so spektrom, body pasiem sa tahaju mysou
+// EQ: krivka so spektrom, 8 bodov pasiem sa tahaju mysou (ako v Inspirii)
 class EqDisplay final : public Component, public SettableTooltipClient, private Timer
 {
 public:
-    explicit EqDisplay (EqFx& f) : fx (f) { ++fx.scope.users; startTimerHz (25); setTooltip (sk ("Ťahaj body: LC = odrezanie basov, B = basy, S = stredy (koliesko = šírka), V = výšky · dvojklik na bod = nula")); }
+    explicit EqDisplay (EqFx& f) : fx (f) { ++fx.scope.users; startTimerHz (25); setTooltip (sk ("Ťahaj body: hore / dole = hlasnejšie / tichšie, do strany = výška. Pravé tlačidlo (alebo Shift) + ťahanie hore / dole = užšie / širšie pásmo, rovnako koliesko. Dvojklik = vynulovať.")); }
     ~EqDisplay() override { stopTimer(); --fx.scope.users; }
 
     void paint (Graphics& g) override
@@ -643,7 +677,6 @@ public:
             g.setColour (db == 0 ? GCol::steel : GCol::grid); g.drawHorizontalLine ((int) yOf (db), a.getX(), a.getRight());
             g.setColour (GCol::dim); g.drawText ((db > 0 ? "+" : "") + String ((int) db), 2, (int) yOf (db) - 6, 22, 12, Justification::centredRight);
         }
-        // spektrum vystupu
         const double sr = fx.sampleRate();
         Path sp; bool first = true;
         for (float x = a.getX(); x <= a.getRight(); x += 2.0f)
@@ -655,32 +688,32 @@ public:
         }
         sp.lineTo (a.getRight(), a.getBottom()); sp.closeSubPath();
         g.setColour (GCol::steel.withAlpha (0.55f)); g.fillPath (sp);
-        // krivka
+        const auto v = fx.values();
         Path cv;
         for (float x = a.getX(); x <= a.getRight(); x += 1.5f)
         {
-            const float y = yOf (Decibels::gainToDecibels (response (hzOf (x)), -40.0f));
+            const float y = yOf (Decibels::gainToDecibels (response (hzOf (x), v), -40.0f));
             if (x == a.getX()) cv.startNewSubPath (x, y); else cv.lineTo (x, y);
         }
         g.setColour (GCol::gold); g.strokePath (cv, PathStrokeType (2.0f));
-        // body
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 8; ++i)
         {
-            const auto pt = pointPos (i);
+            const auto pt = pointPos (i, v);
             const bool on = i == hover || i == dragging;
-            g.setColour (on ? GCol::gold : GCol::line); g.fillEllipse (pt.x - 7, pt.y - 7, 14, 14);
-            g.setColour (GCol::bg); g.setFont (FontOptions (9.0f, Font::bold));
-            g.drawText (i == 0 ? "LC" : i == 1 ? "B" : i == 2 ? "S" : "V", Rectangle<float> (pt.x - 7, pt.y - 7, 14, 14), Justification::centred);
+            g.setColour (on ? GCol::gold : (EqFx::active (i, v) ? GCol::text.withAlpha (0.85f) : GCol::line)); g.fillEllipse (pt.x - 7, pt.y - 7, 14, 14);
+            g.setColour (GCol::bg); g.setFont (FontOptions (9.5f, Font::bold));
+            g.drawText (String (i + 1), Rectangle<float> (pt.x - 7, pt.y - 7, 14, 14), Justification::centred);
         }
         if (hover >= 0 || dragging >= 0)
         {
             const int i = dragging >= 0 ? dragging : hover;
-            String t;
             auto hzT = [] (float f) { return f >= 1000 ? String (f / 1000.0f, 1) + " kHz" : String (roundToInt (f)) + " Hz"; };
-            if (i == 0) t = sk ("Odrezanie basov") + ": " + (fx.lowCut->get() < 20.5f ? sk ("vyp.") : hzT (fx.lowCut->get()));
-            else if (i == 1) t = sk ("Basy") + ": " + hzT (fx.lowF->get()) + "  " + String (fx.lowG->get(), 1) + " dB";
-            else if (i == 2) t = sk ("Stredy") + ": " + hzT (fx.midF->get()) + "  " + String (fx.midG->get(), 1) + " dB  Q " + String (fx.midQ->get(), 2);
-            else t = sk ("Výšky") + ": " + hzT (fx.highF->get()) + "  " + String (fx.highG->get(), 1) + " dB";
+            auto [f, gn, q] = trio (i);
+            String t = String (i + 1) + ": " + hzT (f->get());
+            if (gn != nullptr) t << "  " << String (gn->get(), 1) << " dB";
+            if (q != nullptr) t << "  Q " << String (q->get(), 2);
+            if (i == 0 && f->get() < 20.5f) t = "1: " + sk ("vyp.");
+            if (i == 7 && f->get() > 19900.0f) t = "8: " + sk ("vyp.");
             g.setColour (GCol::text); g.setFont (FontOptions (12.0f));
             g.drawText (t, a.toNearestInt().removeFromTop (16).reduced (6, 0), Justification::centredRight);
         }
@@ -689,30 +722,38 @@ public:
     void mouseExit (const MouseEvent&) override { hover = -1; repaint(); }
     void mouseDown (const MouseEvent& e) override
     {
-        dragging = hit (e.position);
-        for (auto* p : prm (dragging)) if (p != nullptr) p->beginChangeGesture();
+        dragging = hit (e.position); if (dragging < 0) return;
+        auto [f, gn, q] = trio (dragging);
+        qMode = q != nullptr && (e.mods.isRightButtonDown() || e.mods.isShiftDown() || e.mods.isAltDown());
+        qStart = q != nullptr ? q->get() : 1.0f; yStart = e.position.y;
+        for (auto* p : { f, gn, q }) if (p != nullptr) p->beginChangeGesture();
     }
     void mouseDrag (const MouseEvent& e) override
     {
         if (dragging < 0) return;
-        const float hz = hzOf (e.position.x), db = dbOf (e.position.y);
-        auto [f, gn] = pair (dragging);
-        f->setFromUi (hz);
-        if (gn != nullptr) gn->setFromUi (std::round (db * 2.0f) / 2.0f);
+        auto [f, gn, q] = trio (dragging);
+        if (qMode) { q->setFromUi (qStart * std::pow (2.0f, (yStart - e.position.y) / 40.0f)); repaint(); return; }
+        f->setFromUi (hzOf (e.position.x));
+        if (gn != nullptr) gn->setFromUi (std::round (dbOf (e.position.y) * 2.0f) / 2.0f);
         repaint();
     }
-    void mouseUp (const MouseEvent&) override { for (auto* p : prm (dragging)) if (p != nullptr) p->endChangeGesture(); dragging = -1; repaint(); }
+    void mouseUp (const MouseEvent&) override
+    {
+        if (dragging >= 0) { auto [f, gn, q] = trio (dragging); for (auto* p : { f, gn, q }) if (p != nullptr) p->endChangeGesture(); }
+        dragging = -1; qMode = false; repaint();
+    }
     void mouseDoubleClick (const MouseEvent& e) override
     {
         const int i = hit (e.position); if (i < 0) return;
-        auto [f, gn] = pair (i);
-        if (gn != nullptr) gn->setFromUi (0.0f); else f->setFromUi (20.0f);
+        auto [f, gn, q] = trio (i);
+        if (gn != nullptr) gn->setFromUi (0.0f); else f->setFromUi (i == 0 ? 20.0f : 20000.0f);
         repaint();
     }
     void mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& w) override
     {
-        if (hit (e.position) != 2) return;
-        fx.midQ->setFromUi (fx.midQ->get() * (w.deltaY > 0 ? 1.15f : 1.0f / 1.15f));
+        const int i = hit (e.position); if (i < 0) return;
+        auto [f, gn, q] = trio (i); if (q == nullptr) return;
+        q->setFromUi (q->get() * (w.deltaY > 0 ? 1.15f : 1.0f / 1.15f));
         repaint();
     }
 
@@ -722,41 +763,40 @@ private:
     float hzOf (float x) const { const auto a = area(); return 20.0f * std::pow (1000.0f, jlimit (0.0f, 1.0f, (x - a.getX()) / a.getWidth())); }
     float yOf (float db) const { const auto a = area(); return jmap (jlimit (-18.0f, 18.0f, db), 18.0f, -18.0f, a.getY(), a.getBottom()); }
     float dbOf (float y) const { const auto a = area(); return jlimit (-15.0f, 15.0f, jmap (y, a.getY(), a.getBottom(), 18.0f, -18.0f)); }
-    std::pair<FxParam*, FxParam*> pair (int i) const
+    // frekvencia, zisk, sirka pasma i
+    std::tuple<FxParam*, FxParam*, FxParam*> trio (int i) const
     {
-        if (i == 0) return { fx.lowCut, nullptr };
-        if (i == 1) return { fx.lowF, fx.lowG };
-        if (i == 2) return { fx.midF, fx.midG };
-        return { fx.highF, fx.highG };
+        if (i == 0) return { fx.lowCut, nullptr, nullptr };
+        if (i == 1) return { fx.lowF, fx.lowG, nullptr };
+        if (i == 2) return { fx.midF, fx.midG, fx.midQ };
+        if (i >= 3 && i <= 5) return { fx.pF[i - 3], fx.pG[i - 3], fx.pQ[i - 3] };
+        if (i == 6) return { fx.highF, fx.highG, nullptr };
+        return { fx.highCut, nullptr, nullptr };
     }
-    std::array<FxParam*, 2> prm (int i) const { if (i < 0) return { nullptr, nullptr }; auto [a, b] = pair (i); return { a, b }; }
-    Point<float> pointPos (int i) const
+    Point<float> pointPos (int i, const std::array<float, 18>& v) const
     {
-        auto [f, gn] = pair (i);
+        auto [f, gn, q] = trio (i);
         const float hz = f->get();
-        return { xOf (hz), gn != nullptr ? yOf (gn->get()) : yOf (Decibels::gainToDecibels (response (hz), -40.0f)) };
+        return { xOf (hz), gn != nullptr ? yOf (gn->get()) : yOf (Decibels::gainToDecibels (response (hz, v), -40.0f)) };
     }
     int hit (Point<float> p) const
     {
+        const auto v = fx.values();
         int best = -1; float bd = 14.0f;
-        for (int i = 0; i < 4; ++i) { const float d = pointPos (i).getDistanceFrom (p); if (d < bd) { bd = d; best = i; } }
+        for (int i = 0; i < 8; ++i) { const float d = pointPos (i, v).getDistanceFrom (p); if (d < bd) { bd = d; best = i; } }
         return best;
     }
-    float response (float hz) const
+    float response (float hz, const std::array<float, 18>& v) const
     {
-        const double sr = jmax (8000.0, fx.sampleRate()), ny = sr * 0.45;
-        using C = dsp::IIR::Coefficients<float>;
+        const double sr = jmax (8000.0, fx.sampleRate());
         double m = 1.0;
-        if (fx.lowCut->get() > 20.5f) m *= C::makeHighPass (sr, jmin ((double) fx.lowCut->get(), ny), 0.707f)->getMagnitudeForFrequency (hz, sr);
-        if (std::abs (fx.lowG->get()) > 0.01f) m *= C::makeLowShelf (sr, jmin ((double) fx.lowF->get(), ny), 0.707f, Decibels::decibelsToGain (fx.lowG->get()))->getMagnitudeForFrequency (hz, sr);
-        if (std::abs (fx.midG->get()) > 0.01f) m *= C::makePeakFilter (sr, jmin ((double) fx.midF->get(), ny), fx.midQ->get(), Decibels::decibelsToGain (fx.midG->get()))->getMagnitudeForFrequency (hz, sr);
-        if (std::abs (fx.highG->get()) > 0.01f) m *= C::makeHighShelf (sr, jmin ((double) fx.highF->get(), ny), 0.707f, Decibels::decibelsToGain (fx.highG->get()))->getMagnitudeForFrequency (hz, sr);
+        for (int b = 0; b < 8; ++b) if (EqFx::active (b, v)) m *= EqFx::coef (b, v, sr)->getMagnitudeForFrequency (hz, sr);
         return (float) m * Decibels::decibelsToGain (fx.outG->get());
     }
     void timerCallback() override { spec.update (fx.scope); repaint(); }
     EqFx& fx;
     Spectrum spec;
-    int hover = -1, dragging = -1;
+    int hover = -1, dragging = -1; bool qMode = false; float qStart = 1, yStart = 0;
 };
 std::unique_ptr<Component> EqFx::makeDisplay() { return std::make_unique<EqDisplay> (*this); }
 
