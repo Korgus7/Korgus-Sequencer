@@ -515,18 +515,52 @@ void KorgusLookAndFeel::drawComboBox (juce::Graphics& g, int w, int h, bool, int
 
 namespace
 {
+    // malá ikona velkosti v pravom hornom rohu okna pluginu (namiesto listy „Velkost pluginu“)
+    struct SizeIcon : juce::Component, juce::SettableTooltipClient
+    {
+        std::function<void()> onClick;
+        SizeIcon() { setTooltip (sk ("Veľkosť pluginu")); setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        void paint (juce::Graphics& g) override
+        {
+            const bool hov = isMouseOver();
+            auto r = getLocalBounds().toFloat();
+            g.setColour (juce::Colour (0xff2d4362).withAlpha (hov ? 1.0f : 0.75f)); g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (juce::Colour (0xffe4e9ef).withAlpha (hov ? 1.0f : 0.8f));
+            const auto c = r.reduced (5.0f, 4.0f);
+            juce::Path p;
+            p.startNewSubPath (c.getX(), c.getBottom()); p.lineTo (c.getRight(), c.getY());
+            p.startNewSubPath (c.getRight() - 4.5f, c.getY()); p.lineTo (c.getRight(), c.getY()); p.lineTo (c.getRight(), c.getY() + 4.5f);
+            p.startNewSubPath (c.getX(), c.getBottom() - 4.5f); p.lineTo (c.getX(), c.getBottom()); p.lineTo (c.getX() + 4.5f, c.getBottom());
+            g.strokePath (p, juce::PathStrokeType (1.4f));
+        }
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit (const juce::MouseEvent&) override { repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override { if (getLocalBounds().contains (e.getPosition()) && onClick) onClick(); }
+    };
+
     // lista s velkostou nad pluginom + samotny plugin (pripadne v posuvnom okne)
     class PluginHolder : public juce::Component, private juce::ComponentListener
     {
     public:
-        static constexpr int kBarH = 26;
-        int barH = kBarH;   // Inspiria ma velkost vo vlastnej hlavicke – lista sa neukazuje
+        static constexpr int kBarH = 0;   // velkost je za ikonou v rohu (lista sa uz neukazuje)
+        int barH = kBarH;
+        bool ownSize = false;             // Inspiria ma vlastnu ikonu velkosti
 
         PluginHolder (juce::AudioProcessorEditor* e, float scale, std::function<void (float)> onScale)
             : ed (e), onScaleFn (std::move (onScale))
         {
             if (ed != nullptr && ed->getAudioProcessor() != nullptr && ed->getAudioProcessor()->getName().containsIgnoreCase ("Korgus Inspiria"))
-            { barH = 0; scale = 1.0f; label.setVisible (false); size.setVisible (false); }
+            { barH = 0; scale = 1.0f; ownSize = true; label.setVisible (false); size.setVisible (false); }
+            if (! ownSize)
+            {
+                icon.onClick = [this]
+                {
+                    juce::PopupMenu m; const int pct[] = { 75, 100, 125, 150, 175, 200, 250 };
+                    const int cur = size.getSelectedId();
+                    for (int k = 0; k < 7; ++k) m.addItem (pct[k], juce::String (pct[k]) + " %", true, pct[k] == cur);
+                    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (icon), [this] (int r) { if (r > 0) { size.setSelectedId (r, juce::dontSendNotification); applyScale ((float) r / 100.0f, true); } });
+                };
+            }
             label.setText (sk ("Veľkosť pluginu"), juce::dontSendNotification);
             label.setColour (juce::Label::textColourId, juce::Colour (0xffe4e9ef));
             label.setFont (juce::FontOptions (13.0f));
@@ -548,6 +582,7 @@ namespace
                 updateSize();
             }
             else setSize (300, barH + 60);
+            if (! ownSize) { addAndMakeVisible (icon); icon.toFront (false); }
         }
         ~PluginHolder() override
         {
@@ -568,6 +603,7 @@ namespace
             size.setBounds (bar.removeFromLeft (90));
             if (vp != nullptr) vp->setBounds (r);
             else box.setTopLeftPosition (r.getPosition());
+            icon.setBounds (getWidth() - (vp != nullptr ? 42 : 28), 6, 22, 20); icon.toFront (false);
         }
 
     private:
@@ -640,6 +676,7 @@ namespace
         std::unique_ptr<juce::Viewport> vp;
         juce::Label label;
         juce::ComboBox size;
+        SizeIcon icon;
         std::function<void (float)> onScaleFn;
     };
 }

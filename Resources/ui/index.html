@@ -2360,18 +2360,9 @@ function meterTick(t){
     a.l*=k; a.r*=k; if(a.l<0.0005) a.l=0; if(a.r<0.0005) a.r=0; if(a.l||a.r) live=true; }
   meterRaf=live?requestAnimationFrame(meterTick):0;
 }
+// merac je zluceny s Korgus Master: MERAC otvori Master (merac je v jeho okne)
+function meterOpen(){ masteringOpen(); }
 /* Mastering: vlozi Korgus Master na vystup (master zbernica), ak tam este nie je, a otvori ho */
-// Korgus Meter na Mastri: ak tam nie je, vlozi sa na posledne volne miesto (za limiter) a otvori
-function meterOpen(){ if(!NATIVE) return;
-  const fx=((natTrackPlugins.__master||{}).fx||[]), re=/^korgus meter$/i;
-  let idx=fx.findIndex(f=>f&&re.test(f.name));
-  if(idx<0){
-    const p=natPlugins.find(x=>!x.inst&&re.test(x.name)); if(!p){ toast('Korgus Meter sa nenašiel – je potrebná nová verzia programu.'); return; }
-    for(let k=3;k>=0;k--) if(!fx[k]){ idx=k; break; }
-    if(idx<0){ toast('Master zbernica má všetky 4 miesta pre efekty obsadené – uvoľni jedno.'); return; }
-    let last=-1; for(let k=0;k<4;k++) if(fx[k]) last=k; if(last<3&&!fx[last+1]) idx=Math.max(idx,last+1);
-    nat('trackFx',{track:'__master',idx,uid:p.uid,name:'Master'}); setTimeout(()=>nat('openFx',{track:'__master',idx,name:'Master'}),700); return; }
-  nat('openFx',{track:'__master',idx,name:'Master'}); }
 function masteringOpen(){ if(!NATIVE) return;
   const fx=((natTrackPlugins.__master||{}).fx||[]), re=/^korgus master$/i;
   let idx=fx.findIndex(f=>f&&re.test(f.name));
@@ -2433,7 +2424,7 @@ function renderMixer(){
       d.ondblclick=()=>{ if(f) nat('openFx',{track:o.id,idx:k,name:o.name}); };
       d.appendChild(sl); st.appendChild(d); }
     if(o.id==='__master'&&NATIVE){ const mb=el('button','mastbtn'+(refIsOn?' on':''),'REF  A/B'); mb.id='bRef'; mb.title='Referenčná pesnička: prepínanie medzi ňou a tvojím mixom (kláves B). Pravý klik = výber pesničky a hlasitosť'; mb.onmousedown=e=>e.stopPropagation(); mb.onclick=e=>{ e.stopPropagation(); if(!song.ref){ refDialog(); return; } refToggle(); }; mb.oncontextmenu=e=>{ e.preventDefault(); e.stopPropagation(); refDialog(); }; st.appendChild(mb);
-      const mt=el('button','mastbtn','MERAČ'); mt.title='Merač hlasitosti (LUFS, radar, True Peak) – vloží Korgus Meter na Master a otvorí ho'; mt.onmousedown=e=>e.stopPropagation(); mt.onclick=e=>{ e.stopPropagation(); meterOpen(); }; st.appendChild(mt); }
+      const mt=el('button','mastbtn','MERAČ'); mt.title='Merač hlasitosti (LUFS, radar, True Peak) – je v okne Korgus Master'; mt.onmousedown=e=>e.stopPropagation(); mt.onclick=e=>{ e.stopPropagation(); meterOpen(); }; st.appendChild(mt); }
     if(!o.master){
       const pn=el('div','pan'), pi=el('i'), pv=el('div','pv'); pn.appendChild(pi);
       const showP=()=>{ const p=o.pan(); const a=50, b=50+p*50; pi.style.left=Math.min(a,b)+'%'; pi.style.width=Math.max(1,Math.abs(b-a))+'%';
@@ -4815,7 +4806,7 @@ const TEMPLATES=[
   {k:'suno',n:'Pesnička Remix',d:'Vyberieš pesničku. Program zistí tempo, rozloží ju na spev, bicie, basu a ostatné, rozpozná akordy a pridá stopu s Korgus Inspiria.',tempo:120,master:['limiter'],suno:true,tracks:[{t:'audio',n:'Pesnička'}]},
   {k:'voice',n:'Nahrávanie hlasu',d:'Jedna audio stopa s EQ a kompresorom – hovorené slovo, podcast.',tempo:100,master:['limiter'],
    tracks:[{t:'audio',n:'Hlas',fx:['eq','comp']}]}];
-const FXRE={gater:/korgus gater/i,deesser:/korgus de-esser/i,harmony:/korgus dvojhlas/i,eq:/^korgus eq$/i,comp:/korgus kompresor/i,reverb:/korgus dozvuk/i,delay:/korgus ozvena/i,limiter:/korgus limiter/i,pulse:/korgus pulsedip/i,master:/^korgus master$/i,vocoder:/korgus vocoder/i};
+const FXRE={gater:/korgus gater/i,deesser:/korgus de-esser/i,harmony:/^korgus hlas$/i,eq:/^korgus eq$/i,comp:/korgus kompresor/i,reverb:/korgus dozvuk/i,delay:/korgus ozvena/i,limiter:/korgus limiter/i,pulse:/korgus pulsedip/i,master:/^korgus master$/i,vocoder:/korgus vocoder/i};
 const VOXP=[
   {n:'Rádio',d:'Čistý, blízky pop spev: EQ, de-esser, kompresor a krátky dozvuk.',fx:[
     ['eq',{lowcut:100,midgain:-2,midfreq:350,midq:1,highgain:4,highfreq:10000}],['deesser',{freq:6500,threshold:-30,range:8}],
@@ -5863,7 +5854,7 @@ function helpDialog(){ dialog('Pomoc – Korgus Sequencer',`${appVer?'<p style="
 <li>Export → Export videa (MP4): video na výšku alebo na šírku s názvom, vizualizáciou a tvojím obrázkom.</li>
 <li>Súbor → Obnoviť zálohu: program každých 5 minút uloží verziu piesne (posledných 60).</li>
 <li>Pravý klik na audio klip: <b>Zarovnať na takty</b> (tempo a mriežka podľa nahrávky), <b>Rozpoznať akordy</b> (vyplní akordovú stopu), <b>Bicie z nahrávky</b> (rytmus do krokového sekvencera – najlepšie na stope Bicie po rozložení na 4 stopy).</li>
-<li>Efekt <b>Korgus Dvojhlas</b>: zhrubne spev (Dvojhlas) alebo pridá druhý hlas o zvolený interval (Harmonizér).</li>
+<li>Efekt <b>Korgus Hlas</b>: Dvojhlas (zhrubne spev alebo pridá druhý hlas o zvolený interval), Robot alebo Robot + dvojhlas.</li>
 <li>Mixpult → REF A/B na Mastri (pravý klik = výber pesničky): kláves B prepína počas prehrávania medzi referenciou a tvojím mixom pri rovnakej hlasitosti.</li>
 <li>Ozubené koliesko vedľa metronómu: hlasitosť, zvuk, klikanie na osminy či šestnástiny, zvýraznenie prvej doby a predpočítanie pred nahrávaním.</li>
 <li><b>Nastavenia</b>: Nastavenia zvuku (zvuková karta, latencia), Správa pluginov (ktoré pluginy používaš, hľadanie nových, zakázané), MIDI ovládače a jazyk.</li>
