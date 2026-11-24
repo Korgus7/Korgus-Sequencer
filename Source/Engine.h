@@ -186,6 +186,8 @@ public:
     void setPosition (double step);
     void liveNote (int slot, int pitch, float vel, bool on);
     void setSelectedSlot (int slot)                 { selectedSlot = slot; }
+    void setInTranspose (int semi)                  { inTranspose = juce::jlimit (-48, 48, semi); }   // transpozicia vstupu z klaves (vybrana stopa)
+    int  getInTranspose() const                     { return inTranspose.load(); }
     // dalsie zapnute stopy, na ktorych MIDI klavesy hraju naraz (ako v Cubase); max 8
     void setExtraSlots (const std::vector<int>& v)
     {
@@ -348,6 +350,8 @@ private:
     juce::SpinLock cmdLock;
     std::vector<Cmd> cmds;
 
+    std::atomic<int> inTranspose { 0 };
+    std::array<int, 128> inHeld {};   // ktory tón hra drzana klavesa (pre spravne pustenie po zmene transpozicie)
     std::atomic<int> state { stopped }, selectedSlot { -1 }, countBeat { 0 }, countTotal { 0 };
     std::atomic<double> publicPos { 0 };
     std::atomic<double> publicMs { 0 }, publicSps { 8.0 }, outLatSec { 0.01 };   // pre presny cas MIDI noty pri nahravani

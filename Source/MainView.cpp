@@ -341,8 +341,8 @@ struct MainView::KbdPoll : juce::Timer
             bool& was = scDown[k.vk & 0xff];
             if (d && ! was)
             {
-                const bool arrow = k.vk >= 0x25 && k.vk <= 0x28;
-                const bool ok = k.needCtrl ? (m & 1) != 0 : (! arrow || ! juceFocus);   // v Inspirii sipky prepinaju zvuky
+                // okno pluginu v popredi: sipky, Delete, Enter, PageUp... patria pluginu (Inspiria nimi prepina zvuky) - do programu idu len skratky s Ctrl
+                const bool ok = k.needCtrl ? (m & 1) != 0 : ! juceFocus;
                 if (ok)
                 {
                     auto o = obj(); put (o, "code", juce::String (k.code)); put (o, "key", juce::String (k.key));
@@ -397,7 +397,7 @@ struct MainView::KbdPoll : juce::Timer
         const bool textFocus = (fc != nullptr && dynamic_cast<juce::TextEditor*> (fc) != nullptr) || KbdKeys::nativeTextFocus()
                                || (fgMain && jsText);   // pise sa do textoveho pola na stranke
         const bool fwd = fgPlug || (fgMain && ! pageFocus);   // stranka nema fokus (klik na listu okna) -> skratky posle tento casovac
-        if (fwd && ! textFocus && juce::Process::isForegroundProcess()) forwardShortcuts (fgPlug && fc != nullptr);
+        if (fwd && ! textFocus && juce::Process::isForegroundProcess()) forwardShortcuts (fgPlug);
         if (! fg || textFocus || KbdKeys::commandModsDown() || ! juce::Process::isForegroundProcess())
         {
             releaseAll();
@@ -437,7 +437,7 @@ struct MainView::KbdPoll : juce::Timer
             {
                 int pitch;
                 if (drum) { if (k.semi >= (int) drumPitch.size()) { down[n] = d; continue; } pitch = drumPitch[(size_t) k.semi]; }
-                else pitch = juce::jlimit (0, 127, (oct + 2) * 12 + k.semi);
+                else pitch = juce::jlimit (0, 127, (oct + 2) * 12 + k.semi + mv.engine.getInTranspose());
                 const float vf = (float) vel / 127.0f;
                 bool own = false;
                 if (drum) if (auto it = drumSmp.find (tr); it != drumSmp.end() && k.semi < (int) it->second.size()) own = it->second[(size_t) k.semi];
@@ -1391,6 +1391,7 @@ void MainView::onSelTrack (const juce::var& v)
         engine.setExtraSlots (ex);
     }
     engine.setMidiFilter (v.getProperty ("midiIn", "").toString());
+    engine.setInTranspose ((int) v.getProperty ("tr", 0));
     {
         std::vector<int> sk;
         if (const auto* a = v.getProperty ("skip", {}).getArray()) for (const auto& x : *a) sk.push_back ((int) x);

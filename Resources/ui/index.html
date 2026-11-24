@@ -108,7 +108,7 @@ button.qb{font:bold 11px Tahoma,Arial,sans-serif;min-width:26px;padding:0 4px}
 #autoWin .tb select{height:20px;font-size:11px;max-width:260px}
 #autoBody{flex:1;overflow-x:auto;overflow-y:hidden;background:#232c38;border-top:1px solid #161d27}
 #autoInner{display:flex;height:100%;width:max-content;min-width:100%}
-#autoGut{position:sticky;left:0;z-index:2;width:318px;flex:none;background:#2a3442;border-right:2px solid #161d27;color:#e4e9ef;padding:8px 10px;box-sizing:border-box;font-size:12px}
+#autoGut{position:sticky;left:0;z-index:2;width:var(--tlw,318px);flex:none;background:#2a3442;border-right:2px solid #161d27;color:#e4e9ef;padding:8px 10px;box-sizing:border-box;font-size:12px}
 #autoGut b{display:block;font-size:13px;margin-bottom:6px}
 #autoGut .av{color:#c9d2dc;font-size:12px}
 #autoGut .ah{color:#8a96a6;font-size:11px;margin-top:10px;line-height:1.5}
@@ -187,7 +187,7 @@ body.native #trackList .thead{position:sticky;top:0;z-index:3}
 #outSel{max-width:150px}
 #arrScroll{flex:1;overflow:auto;background:#9c9c9c;border-top:1px solid #808080}
 #arrInner{display:flex;align-items:flex-start;width:max-content;min-width:100%}
-#trackList{position:sticky;left:0;z-index:2;background:#c0c0c0;width:318px;flex:none;border-right:2px solid #404040;align-self:stretch}
+#trackList{position:sticky;left:0;z-index:2;background:#c0c0c0;width:var(--tlw,318px);flex:none;border-right:2px solid #404040;align-self:stretch}
 canvas{display:block}
 .thead,.trk{display:flex;align-items:center;gap:3px;padding:0 4px}
 .thead{position:sticky;top:0;z-index:3;background:#c0c0c0;height:26px;font-size:11px;color:#2a2a2a;border-bottom:1px solid #808080}
@@ -483,6 +483,11 @@ svg.mi{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.4;str
 .ntr .tg.pwr{width:24px} .ntr .tg.pwr.off{color:#6b7889;border-color:rgba(255,255,255,.06)} .ntr .tg.fxn{width:30px;font-size:11px}
 .fxpop{position:fixed;z-index:60;background:#1f2833;border:1px solid #3a4757;border-radius:3px;padding:4px;display:flex;flex-direction:column;gap:3px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
 .fxpop .r{display:flex;gap:3px;align-items:center}
+.ntr .rgrip{position:absolute;left:0;right:0;bottom:0;height:5px;cursor:ns-resize;z-index:2}
+.ntr .rgrip:hover{background:rgba(201,162,74,.35)}
+.tlgrip{position:absolute;top:0;bottom:0;right:-4px;width:7px;cursor:ew-resize;z-index:4}
+.tlgrip:hover{background:rgba(201,162,74,.35)}
+.ntr .tg.mtr{width:30px;font-size:11px} .trpop .tg{width:34px} .trpop .tg.trv{width:40px}
 .ntr .r0 .tyi{color:#aab5c3}
 /* horne menu o kusok vyssie */
 #topTb{min-height:32px}
@@ -1029,6 +1034,11 @@ function setupNative(){
 const $=id=>document.getElementById(id);
 let SECH=0, CHH=0, ENH=0, RULH=26; const SPB=16, LO=24, HI=96, LS='sekvencer92.song', LSV='sekvencer92.view';
 let ROWH=28, KH=12;
+/* vyska stopy: vlastna (tr.h, tahanim spodneho okraja stopy) alebo spolocna ROWH */
+const rowH=i=>{ const t=song.tracks[i]; return t&&t.h?t.h:ROWH; };
+const rowY=i=>{ let y=RULH; for(let k=0;k<i;k++) y+=rowH(k); return y; };
+const rowAt=y=>{ if(y<RULH) return rowAt(y); let t=RULH; for(let k=0;k<song.tracks.length;k++){ const h=rowH(k); if(y<t+h) return k; t+=h; } return song.tracks.length+Math.floor((y-t)/ROWH); };
+const rowAtF=y=>{ const i=rowAt(y); if(i<0||i>=song.tracks.length) return i; return i+(y-rowY(i))/rowH(i); };
 const BLACK=new Set([1,3,6,8,10]);
 const DRUMS=[['Kick',36],['Snare',38],['Clap',39],['HH zatvorený',42],['HH otvorený',46],['Tom nízky',45],['Tom vysoký',50],['Rim',37],['Činel',49]];
 const PRESETS={
@@ -1737,6 +1747,17 @@ function ctxMenu(x,y,items){
   setTimeout(()=>{ addEventListener('mousedown',close); addEventListener('keydown',close); },0);
 }
 let fxPop=null;   // stopa s rozbalenymi efektmi
+const mkEl=(tag,cls,html)=>{const d=document.createElement(tag); if(cls) d.className=cls; if(html!=null) d.innerHTML=html; return d;};
+/* sirka panelu stop - tahanim pravej hrany (ulozi sa) */
+let TLW=318; try{ TLW=clamp(+localStorage.getItem('korgus.tlw')||318,240,640); }catch(e){}
+document.documentElement.style.setProperty('--tlw',TLW+'px');
+function tlGrip(L){ const g=mkEl('div','tlgrip'); g.title='Ťahaním zmeníš šírku stôp (dvojklik = pôvodná)';
+  g.onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); const x0=e.clientX, w0=TLW;
+    const mv=ev=>{ TLW=clamp(Math.round(w0+ev.clientX-x0),240,640); document.documentElement.style.setProperty('--tlw',TLW+'px'); };
+    const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); try{ localStorage.setItem('korgus.tlw',TLW); }catch(_){ } renderTracks(); drawArrange(); };
+    addEventListener('mousemove',mv); addEventListener('mouseup',up); };
+  g.ondblclick=()=>{ TLW=318; document.documentElement.style.setProperty('--tlw','318px'); try{ localStorage.setItem('korgus.tlw',318); }catch(_){ } renderTracks(); drawArrange(); };
+  L.appendChild(g); }
 function renderTracksNative(L){
   syncAutoRec();
   const h=document.createElement('div'); h.className='thead'; h.style.height=RULH+'px'; L.appendChild(h);
@@ -1764,7 +1785,7 @@ function renderTracksNative(L){
         ex.title=open?'Zbaliť efekty stopy':'Na stope je '+n+' efektov – klik = ukázať všetky';
         ex.onmousedown=e=>e.stopPropagation(); ex.onclick=()=>{ fxPop=open?null:tr.id; renderTracks(); }; r.appendChild(ex); } }
     return r; };
-  const showFxPop=()=>{ document.querySelectorAll('.fxpop').forEach(x=>x.remove()); if(fxPop==null) return;
+  const showFxPop=()=>{ document.querySelectorAll('.fxpop:not(.trpop)').forEach(x=>x.remove()); if(fxPop==null) return;
     const tr=song.tracks.find(t=>t.id===fxPop), btn=document.querySelector('[data-fxpop="'+fxPop+'"]'); if(!tr||!btn){ fxPop=null; return; }
     const all=((natTrackPlugins[tr.id]||{}).fx||[]), pop=el('div','fxpop ntr'); pop.onmousedown=e=>e.stopPropagation();
     for(let k=0;k<4;k++) if(all[k]||k===0||all[k-1]) pop.appendChild(fxRow(tr,k,true));   // vyplnene sloty + jeden prazdny na pridanie
@@ -1772,7 +1793,14 @@ function renderTracksNative(L){
     document.body.appendChild(pop);
     setTimeout(()=>{ const close=e=>{ if(!pop.contains(e.target)&&!e.target.closest('[data-fxpop]')){ fxPop=null; pop.remove(); renderTracks(); removeEventListener('mousedown',close,true); } }; addEventListener('mousedown',close,true); },0); };
   song.tracks.forEach((tr,i)=>{
-    const audio=tr.type==='audio', r=el('div','ntr'+(i===selT?' sel':'')); r.dataset.i=i; r.style.height=ROWH+'px'; r.style.boxShadow='inset 8px 0 0 '+trColor(tr);
+    const audio=tr.type==='audio', r=el('div','ntr'+(i===selT?' sel':'')); r.dataset.i=i; r.style.height=rowH(i)+'px'; r.style.boxShadow='inset 8px 0 0 '+trColor(tr);
+    { const g=el('div','rgrip'); g.title='Ťahaním zmeníš výšku stopy (dvojklik = spoločná výška)';
+      g.onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); const y0=e.clientY, h0=rowH(i);
+        const mv=ev=>{ tr.h=clamp(Math.round(h0+ev.clientY-y0),28,400); if(tr.h===ROWH) delete tr.h; r.style.height=rowH(i)+'px'; drawArrange(); };
+        const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); save(); renderTracks(); };
+        addEventListener('mousemove',mv); addEventListener('mouseup',up); };
+      g.ondblclick=e=>{ e.stopPropagation(); delete tr.h; save(); renderTracks(); drawArrange(); };
+      r.appendChild(g); }
     const cs=el('div','cstrip'); cs.title='Farba stopy – klik = zmeniť'; cs.onmousedown=e=>e.stopPropagation(); cs.onclick=e=>{ e.stopPropagation(); colorMenu(tr,e.clientX,e.clientY); }; r.appendChild(cs);
     const num=el('div','num',String(i+1)), col=el('div','col');
     // riadok 1: M S ● ◐, nazov, ikona
@@ -1855,11 +1883,15 @@ function renderTracksNative(L){
       const din=dd(ICO_IN,mi,tr.midiIn||'','MIDI vstup a kanál do nástroja'+(ch>1?' (kanál '+ch+')':''),(v,sl)=>{
         if(v.startsWith('__ch')){ tr.midiCh=+v.slice(4); sl.value=tr.midiIn||''; save(); renderTracks(); return; }
         tr.midiIn=v; save(); natSel();}); din.classList.add('inp');
-      r3.append(din,di,ko);
+      r3.append(din);
+      if(tr.type!=='drum'){ const t=tr.inTr||0, mt=el('button','tg mtr'+(t?' on':''),t?(t>0?'+':'')+t:ICO_MIDI);
+        mt.title=t?'Transpozícia vstupu z klávesov: '+(t>0?'+':'')+t+' poltónov (klik = zmeniť)':'Transpozícia vstupu z klávesov (klik = zmeniť)';
+        mt.onmousedown=e=>e.stopPropagation(); mt.onclick=e=>trPop(tr,mt); r3.append(mt); }
+      r3.append(di,ko);
       rows.push(r3,fxRow(tr,0));
     }
     // len riadky, ktore sa zmestia
-    let hgt=5; rows.forEach(x=>{ const hh=x===vb?14:26; if(hgt+hh<=ROWH){ col.appendChild(x); hgt+=hh; } });
+    let hgt=5; rows.forEach(x=>{ const hh=x===vb?14:26; if(hgt+hh<=rowH(i)){ col.appendChild(x); hgt+=hh; } });
     r.append(col,hm);
     if(selTracks.has(tr.id)) r.classList.add('msel');
     r.addEventListener('mousedown',e=>{ if(e.button===0) trackMultiClick(e,i); selectTrack(i); if(e.button===0&&!e.ctrlKey&&!e.shiftKey) trackDragStart(e,i); });
@@ -2562,12 +2594,12 @@ function trackDragStart(e,i){
 function renderTracks(){
   const L=$('trackList'); L.innerHTML='';
   if(NATIVE){ renderMixer(); renderAuto(); }
-  if(NATIVE){ renderTracksNative(L); updImp(); return; }
+  if(NATIVE){ renderTracksNative(L); tlGrip(L); updImp(); return; }
   const h=document.createElement('div'); h.className='thead';
   h.innerHTML='<span class="w22">M</span><span class="w22">S</span><span class="w84">Stopa</span>'+(mixMode?(NATIVE?'<span class="w82">Pan</span><span class="w40"></span>':'<span class="w40">Pan</span><span class="w40">Dozvuk</span><span class="w40">Ozvena</span>'):(NATIVE?'<span class="w82">VST nástroj</span><span class="w40">Okno</span>':'<span class="w82">Zvuk</span><span class="w40">Kan.</span>'))+'<span>Hlasitosť</span>';
   L.appendChild(h);
   song.tracks.forEach((tr,i)=>{
-    const r=document.createElement('div'); r.className='trk'+(i===selT?' sel':''); r.dataset.i=i; r.style.height=ROWH+'px';
+    const r=document.createElement('div'); r.className='trk'+(i===selT?' sel':''); r.dataset.i=i; r.style.height=rowH(i)+'px';
     const m=document.createElement('button'); m.className='m'+(tr.mute?' on':''); m.textContent='M'; m.title='Stlmiť';
     m.onclick=()=>{tr.mute=!tr.mute; m.classList.toggle('on',tr.mute); drawArrange(); save();};
     const s=document.createElement('button'); s.className='s'+(tr.solo?' on':''); s.textContent='S'; s.title='Sólo';
@@ -2606,11 +2638,27 @@ function renderTracks(){
     L.appendChild(r);
   });
 }
+/* transpozicia vstupu z klaves (MIDI aj klavesnica pocitaca) - len co hras a nahravas, nahrate noty sa nemenia */
+const ICO_MIDI='<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 10.5v-2M6.5 7v-1.5M8 6v-1.5M9.5 7v-1.5M11.5 10.5v-2"/></svg>';
+function trPop(tr,btn){
+  document.querySelectorAll('.fxpop').forEach(x=>x.remove());
+  const pop=mkEl('div','fxpop ntr trpop'); pop.onmousedown=e=>e.stopPropagation();
+  const set=v=>{ tr.inTr=clamp(v,-48,48); if(!tr.inTr) delete tr.inTr; save(); natSel(); renderTracks(); draw(); };
+  const draw=()=>{ const t=tr.inTr||0; pop.innerHTML=''; const r=mkEl('div','r');
+    const b=(txt,v,tt)=>{ const x=mkEl('button','tg',txt); x.title=tt; x.onclick=()=>set(v); r.appendChild(x); };
+    b('−12',t-12,'O oktávu nižšie'); b('−1',t-1,'O poltón nižšie');
+    const val=mkEl('button','tg trv'+(t?' on':''),(t>0?'+':'')+t); val.title='Späť na 0'; val.onclick=()=>set(0); r.appendChild(val);
+    b('+1',t+1,'O poltón vyššie'); b('+12',t+12,'O oktávu vyššie'); pop.appendChild(r); };
+  draw();
+  const rc=btn.getBoundingClientRect(); pop.style.left=rc.left+'px'; pop.style.top=(rc.bottom+2)+'px';
+  document.body.appendChild(pop);
+  setTimeout(()=>{ const close=e=>{ if(!pop.contains(e.target)&&e.target!==btn&&!btn.contains(e.target)){ pop.remove(); removeEventListener('mousedown',close,true); } }; addEventListener('mousedown',close,true); },0);
+}
 function natSel(){ const tr=targetTrack(); if(!tr) return;
   // stopy so zapnutym reproduktorom hraju spolu; bicie: riadky s vlastnym samplom zahra program (drumHit), nie nastroj stopy – inak by znel dvakrat / iny nastroj
   const drum=tr.type==='drum', skip=[];
   if(drum) for(let p=0;p<128;p++){ let l=DRUMS.findIndex(d=>d[1]===p); if(l<0) l=(((p-36)%DRUMS.length)+DRUMS.length)%DRUMS.length; if(smpOf(tr,l)||!natTrackPlugins[tr.id]) skip.push(p); }
-  nat('selTrack',{track:tr.id,midiIn:tr.midiIn||'',arm:armedSynths().filter(t=>t!==tr).map(t=>t.id),skip}); }
+  nat('selTrack',{track:tr.id,tr:tr.type==='drum'?0:(tr.inTr||0),midiIn:tr.midiIn||'',arm:armedSynths().filter(t=>t!==tr).map(t=>t.id),skip}); }
 function selectTrack(i){
   if(NATIVE){ setTimeout(natSel,0); if(i!==selT) setTimeout(()=>{ renderMixer(); renderAuto(); },0); }
   if(i===selT) return; selT=i;
@@ -2621,12 +2669,12 @@ function selectTrack(i){
 const arrCv=$('arrCv');
 function drawArrange(){
   autoBars(false);
-  const bw=zoomA, W=song.bars*bw+1, H=RULH+song.tracks.length*ROWH+ROWH;
+  const bw=zoomA, W=song.bars*bw+1, H=rowY(song.tracks.length)+ROWH;
   const c=sizeCv(arrCv,W,H);
   c.fillStyle='#cfcfcf'; c.fillRect(0,0,W,H);
   const lx=song.locL/SPB*bw, rx=song.locR/SPB*bw;
   if(song.locR>song.locL&&song.loopOn){c.fillStyle='rgba(45,67,98,.07)'; c.fillRect(lx,RULH,rx-lx,H-RULH);}
-  song.tracks.forEach((tr,i)=>{const y=RULH+i*ROWH; c.fillStyle=i===selT?'#dfe5ec':(i%2?'#d2d2d2':'#d9d9d9'); c.fillRect(0,y,W,ROWH); c.fillStyle='#a8a8a8'; c.fillRect(0,y+ROWH-1,W,1);});
+  song.tracks.forEach((tr,i)=>{const y=rowY(i), rh=rowH(i); c.fillStyle=i===selT?'#dfe5ec':(i%2?'#d2d2d2':'#d9d9d9'); c.fillRect(0,y,W,rh); c.fillStyle='#a8a8a8'; c.fillRect(0,y+rh-1,W,1);});
   c.font='10px Tahoma,Arial,sans-serif'; c.textBaseline='middle';
   const every=bw>=22?1:bw>=12?2:4;
   for(let b=0;b<=song.bars;b++){ c.fillStyle=b%4===0?'#8a8a8a':'#b4b4b4'; c.fillRect(b*bw,RULH,1,H-RULH); }
@@ -2652,7 +2700,7 @@ function drawArrange(){
     c.restore(); c.font='10px Tahoma,Arial,sans-serif'; c.textBaseline='middle';
   };
   song.tracks.forEach((tr,i)=>{
-    const y0=RULH+i*ROWH+3, h=ROWH-7;
+    const y0=rowY(i)+3, h=rowH(i)-7;
     for(const p of tr.parts){
       const x0=p.start*bw+1, w=p.len*bw-1, sel=selParts.has(p.id);
       c.fillStyle=tr.mute?'#a8a8a8':sel?shadeHex(trColor(tr),-.45):trColor(tr); c.fillRect(x0,y0,w,h);
@@ -2676,22 +2724,22 @@ function drawArrange(){
   if(drag&&drag.src==='arr'&&drag.type==='box'&&(!drag.right||drag.moved)){const bx=Math.min(drag.x0,drag.x1), by=Math.min(drag.y0,drag.y1);
     c.fillStyle='rgba(45,67,98,.12)'; c.fillRect(bx,by,Math.abs(drag.x1-drag.x0),Math.abs(drag.y1-drag.y0));
     c.strokeStyle='#2d4362'; c.setLineDash([4,3]); c.strokeRect(bx+.5,by+.5,Math.abs(drag.x1-drag.x0),Math.abs(drag.y1-drag.y0)); c.setLineDash([]);}
-  if(arrTool==='cut'&&cutHover){c.strokeStyle='#8e3a2c'; c.lineWidth=2; c.setLineDash([3,2]); c.beginPath(); c.moveTo(cutHover.x+.5,RULH+cutHover.ti*ROWH+1); c.lineTo(cutHover.x+.5,RULH+cutHover.ti*ROWH+ROWH-2); c.stroke(); c.setLineDash([]); c.lineWidth=1;}
+  if(arrTool==='cut'&&cutHover){c.strokeStyle='#8e3a2c'; c.lineWidth=2; c.setLineDash([3,2]); c.beginPath(); c.moveTo(cutHover.x+.5,rowY(cutHover.ti)+1); c.lineTo(cutHover.x+.5,rowY(cutHover.ti)+rowH(cutHover.ti)-2); c.stroke(); c.setLineDash([]); c.lineWidth=1;}
   // krivka automatizacie priamo na stope (vybrana krivka stopy)
   if(NATIVE) song.tracks.forEach((tr,i)=>{ if(!tr.auto||!tr.auto.length) return;
     const a=tr.auto.find(x=>x.id===autoSel[tr.id])||tr.auto[0]; if(!a||!a.pts.length) return;
-    const y0=RULH+i*ROWH+3, hh=ROWH-8, Y=v=>y0+(1-v)*hh, X=st=>st/SPB*bw;
+    const y0=rowY(i)+3, hh=rowH(i)-8, Y=v=>y0+(1-v)*hh, X=st=>st/SPB*bw;
     c.strokeStyle=tr.autoR===false?'rgba(201,162,74,.35)':'rgba(201,162,74,.9)'; c.lineWidth=1.5; c.beginPath();
     c.moveTo(0,Y(a.pts[0][1])); a.pts.forEach(q=>c.lineTo(X(q[0]),Y(q[1]))); c.lineTo(W,Y(a.pts[a.pts.length-1][1])); c.stroke(); c.lineWidth=1;
-    if(ROWH>=52){ c.fillStyle='rgba(201,162,74,.9)'; c.font='9px Tahoma,Arial,sans-serif'; c.fillText(a.name,4-0,y0+hh-2); c.font='10px Tahoma,Arial,sans-serif'; } });
+    if(rowH(i)>=52){ c.fillStyle='rgba(201,162,74,.9)'; c.font='9px Tahoma,Arial,sans-serif'; c.fillText(a.name,4-0,y0+hh-2); c.font='10px Tahoma,Arial,sans-serif'; } });
   if(natRec&&playing&&!counting&&playStep>=natRec.startStep) natRec.ids.forEach(id=>{const ti=song.tracks.findIndex(t=>t.id===id);
-    if(ti>=0){c.fillStyle='rgba(142,58,44,.55)'; c.fillRect(natRec.startStep/SPB*bw,RULH+ti*ROWH+3,(playStep-natRec.startStep+1)/SPB*bw,ROWH-7);
-      const pk=natRecPk[id]; if(pk&&pk.mn.length){ const y0=RULH+ti*ROWH+3, h=ROWH-7, cy=y0+h/2, hh=h/2-2, spp=pk.B/pk.sr*song.tempo/60*4, x0=pk.start/SPB*bw;
+    if(ti>=0){c.fillStyle='rgba(142,58,44,.55)'; c.fillRect(natRec.startStep/SPB*bw,rowY(ti)+3,(playStep-natRec.startStep+1)/SPB*bw,rowH(ti)-7);
+      const pk=natRecPk[id]; if(pk&&pk.mn.length){ const y0=rowY(ti)+3, h=rowH(ti)-7, cy=y0+h/2, hh=h/2-2, spp=pk.B/pk.sr*song.tempo/60*4, x0=pk.start/SPB*bw;
         c.fillStyle='#eef2f7'; const step=Math.max(1,Math.floor(pk.mn.length/Math.max(1,pk.mn.length*spp/SPB*bw)));
         for(let k=0;k<pk.mn.length;k+=step){ let a=pk.mn[k], z=pk.mx[k]; for(let q=1;q<step&&k+q<pk.mn.length;q++){ a=Math.min(a,pk.mn[k+q]); z=Math.max(z,pk.mx[k+q]); }
           const x=x0+k*spp/SPB*bw, y1=cy-z/127*hh, y2=cy-a/127*hh; c.fillRect(x,y1,Math.max(1,step*spp/SPB*bw),Math.max(1,y2-y1)); } } }});
   if(recAudio&&playing&&ac.currentTime>=recAudio.t0&&playStep>=recAudio.startStep){const ti=song.tracks.findIndex(t=>t.id===recAudio.tr.id);
-    if(ti>=0){c.fillStyle='rgba(142,58,44,.55)'; c.fillRect(recAudio.startStep/SPB*bw,RULH+ti*ROWH+3,(playStep-recAudio.startStep+1)/SPB*bw,ROWH-7);}}
+    if(ti>=0){c.fillStyle='rgba(142,58,44,.55)'; c.fillRect(recAudio.startStep/SPB*bw,rowY(ti)+3,(playStep-recAudio.startStep+1)/SPB*bw,rowH(ti)-7);}}
   drawHead();
   if(!NATIVE){ const ph=(playing?playStep:song.pos)/SPB*bw; c.fillStyle='#a8322a'; c.fillRect(Math.round(ph),0,2,H); }
   else $('arrPH').style.height=H+'px';
@@ -3021,7 +3069,7 @@ function doprovodDialog(a,b,label){
   $('dopOk').onclick=()=>finish(true); $('dopNo').onclick=()=>finish(false);
   const mo=new MutationObserver(()=>{ if(dlg.hidden){ mo.disconnect(); finish(false); } }); mo.observe(dlg,{attributes:true,attributeFilter:['hidden']});
 }
-function arrHeadY(){ const sc=$('arrScroll'); if(!sc) return 0; const H=RULH+song.tracks.length*ROWH+ROWH; return Math.max(0,Math.min(sc.scrollTop,H-RULH)); }
+function arrHeadY(){ const sc=$('arrScroll'); if(!sc) return 0; const H=rowY(song.tracks.length)+ROWH; return Math.max(0,Math.min(sc.scrollTop,H-RULH)); }
 function rulerUnit(){return zoomA>=48?4:16;}
 function rulerSnap(x){const u=rulerUnit(); return clamp(Math.round(x/zoomA*SPB/u)*u,0,song.bars*SPB);}
 /* lokatory L-R aj v editoroch (bicie: hlavicka krokov, noty: pravitko) – zobrazenie a tahanie */
@@ -3069,7 +3117,7 @@ arrCv.addEventListener('mousedown',e=>{
     drag={src:'arr',type:'box',right:true,moved:false,x0:q.x,y0:q.y,x1:q.x,y1:q.y,cx:e.clientX,cy:e.clientY,base:e.shiftKey?new Set(selParts):new Set()}; return; }
   if(e.button!==0) return; e.preventDefault();
   const {x,y}=arrXY(e), bw=zoomA;
-  if(arrTool!=='arrow'&&y>=RULH){ const ti0=Math.floor((y-RULH)/ROWH), tr0=song.tracks[ti0], p0=tr0&&tr0.parts.find(q=>x/bw>=q.start&&x/bw<q.start+q.len);
+  if(arrTool!=='arrow'&&y>=RULH){ const ti0=rowAt(y), tr0=song.tracks[ti0], p0=tr0&&tr0.parts.find(q=>x/bw>=q.start&&x/bw<q.start+q.len);
     if(p0){ if(arrTool==='cut') splitPart(tr0,p0,x); else if(arrTool==='erase') deletePart(tr0,p0); else gluePart(tr0,p0); } return; }
   if(SECH&&y<SECH){ secMouseDown(e,x); return; }
   if(CHH&&y<SECH+CHH){ chordMouseDown(e,x); return; }
@@ -3079,13 +3127,13 @@ arrCv.addEventListener('mousedown',e=>{
     if(y>=RULH-14&&song.locR>song.locL){ const lx=song.locL/SPB*bw, rx=song.locR/SPB*bw, onL=x>=lx-3&&x<=lx+14, onR=x>=rx-14&&x<=rx+3;
       if(onL||onR){ const w=onL&&onR?(Math.abs(x-lx)<=Math.abs(x-rx)?'L':'R'):onL?'L':'R'; drag={src:'arr',type:'loc'+w,x0:x,moved:false}; return; } }
     drag={src:'arr',type:'ruler',x0:x,moved:false,ctrl:e.ctrlKey,alt:e.altKey}; return;}
-  const ti=Math.floor((y-RULH)/ROWH);
+  const ti=rowAt(y);
   if((ti<0||ti>=song.tracks.length)&&!e.ctrlKey){selParts.clear(); drawArrange(); return;}
   const tr=song.tracks[ti], bf=x/bw, p=tr&&tr.parts.find(p=>bf>=p.start&&bf<p.start+p.len);
   if(tr) selectTrack(ti);
   if(p&&e.shiftKey){ selParts.has(p.id)?selParts.delete(p.id):selParts.add(p.id); drawArrange(); return; }
   if(!p&&(e.ctrlKey||!tr)){ if(!e.shiftKey) selParts.clear(); drag={src:'arr',type:'box',x0:x,y0:y,x1:x,y1:y,base:new Set(selParts)}; drawArrange(); return; }
-  if(p&&NATIVE&&tr.type==='audio'&&p.len*bw>=24){ const x0=p.start*bw+1, w=p.len*bw-1, y0=RULH+ti*ROWH+3, H=clipFxHandles(p,x0,y0,w);
+  if(p&&NATIVE&&tr.type==='audio'&&p.len*bw>=24){ const x0=p.start*bw+1, w=p.len*bw-1, y0=rowY(ti)+3, H=clipFxHandles(p,x0,y0,w);
     if(y>=y0&&y<=y0+9){ let t=null; if(Math.abs(x-H.g)<=5) t='cgain'; else if(Math.abs(x-H.fi)<=5) t='fadeIn'; else if(Math.abs(x-H.fo)<=5) t='fadeOut';
       if(t){ pushUndo(); selParts.clear(); selParts.add(p.id); drag={src:'arr',type:t,p,tr,x0:x,y0:y,fi0:p.fi||0,fo0:p.fo||0,g0:p.gain==null?1:p.gain}; drawArrange(); return; } } }
   pushUndo();
@@ -3105,14 +3153,14 @@ arrCv.addEventListener('mousedown',e=>{
   }
   drawArrange();
 });
-arrCv.addEventListener('mousemove',e=>{ if(drag) return; const {x,y}=arrXY(e), ti=Math.floor((y-RULH)/ROWH), tr=song.tracks[ti];
+arrCv.addEventListener('mousemove',e=>{ if(drag) return; const {x,y}=arrXY(e), ti=rowAt(y), tr=song.tracks[ti];
   let h=null, cur=''; if(tr&&y>=RULH&&arrTool==='arrow'){ const p=tr.parts.find(q=>x/zoomA>=q.start&&x/zoomA<q.start+q.len); if(p){ h=p.id; if(p.len*zoomA>20&&(x<p.start*zoomA+7||x>(p.start+p.len)*zoomA-7)) cur='ew-resize'; } }
   if(y<RULH&&y>=RULH-14&&song.locR>song.locL){ const lx=song.locL/SPB*zoomA, rx=song.locR/SPB*zoomA; if((x>=lx-3&&x<=lx+14)||(x>=rx-14&&x<=rx+3)) cur='ew-resize'; }
   arrCv.style.cursor=cur;
   { const hp=h&&tr?tr.parts.find(q=>q.id===h):null, t=hp?partInfo(hp):''; if(arrCv.title!==t) arrCv.title=t; }
   if(h!==clipHover){ clipHover=h; drawArrange(); } });
 arrCv.addEventListener('dblclick',e=>{
-  const {x,y}=arrXY(e); if(SECH&&y<SECH){ secDblClick(x); return; } if(CHH&&y<SECH+CHH){ chordDblClick(x); return; } if(ENH&&y<SECH+CHH+ENH) return; const ti=Math.floor((y-RULH)/ROWH); const tr=song.tracks[ti]; if(!tr||y<RULH) return;
+  const {x,y}=arrXY(e); if(SECH&&y<SECH){ secDblClick(x); return; } if(CHH&&y<SECH+CHH){ chordDblClick(x); return; } if(ENH&&y<SECH+CHH+ENH) return; const ti=rowAt(y); const tr=song.tracks[ti]; if(!tr||y<RULH) return;
   if(tr.type==='audio'){ const hit=tr.parts.find(p=>x/zoomA>=p.start&&x/zoomA<p.start+p.len); if(!hit){audTarget={trId:tr.id,bar:Math.floor(x/zoomA)}; pickAudio();} return; }
   const p=tr.parts.find(p=>x/zoomA>=p.start&&x/zoomA<p.start+p.len); if(p) openEditor(tr,p);
 });
@@ -3126,7 +3174,7 @@ function rulerMenu(st,cx,cy){
       toast(pu?'Nahráva sa celá pieseň.':'Nahrávanie sa zapíše len medzi L a R (lokátory sú červené).'); }]]);
 }
 function arrRightClick(d){
-  const ti=Math.floor((d.y0-RULH)/ROWH), tr=song.tracks[ti]; const bf=d.x0/zoomA;
+  const ti=rowAt(d.y0), tr=song.tracks[ti]; const bf=d.x0/zoomA;
   const p=tr&&tr.parts.find(p=>bf>=p.start&&bf<p.start+p.len);
   if(!p){selParts.clear(); drawArrange(); if(NATIVE&&d.cx!=null) transitionMenu(tr&&tr.type==='audio'?tr:null,d.cx,d.cy,Math.floor(bf)); return;}   // prazdne miesto: prechodove efekty na toto miesto
   // pravy klik casti nemaze (na mazanie je guma) - len ju oznaci
@@ -3402,7 +3450,7 @@ $('atProd').onclick=producerOpen; $('atVer').onclick=versionsOpen; $('atProd').h
 $('atEnergy').onclick=()=>{ if(ENH) energyOff(); else setEnergyLane(true); }; $('atEnergy').hidden=!NATIVE; $('atEnergy').classList.toggle('on',!!ENH);
 $('atArrow').onclick=()=>setArrTool('arrow'); $('atCut').onclick=()=>setArrTool('cut'); $('atGlue').onclick=()=>setArrTool('glue'); $('atErase').onclick=()=>setArrTool('erase');
 arrCv.addEventListener('mousemove',e=>{
-  if(arrTool!=='cut'||drag) return; const {x,y}=arrXY(e), ti=Math.floor((y-RULH)/ROWH), tr=song.tracks[ti];
+  if(arrTool!=='cut'||drag) return; const {x,y}=arrXY(e), ti=rowAt(y), tr=song.tracks[ti];
   const p=tr&&y>=RULH&&tr.parts.find(q=>x/zoomA>=q.start&&x/zoomA<q.start+q.len); const st=p?cutStep(tr,p,x):null;
   const nh=st!==null?{x:st/SPB*zoomA,ti}:null; if(JSON.stringify(nh)!==JSON.stringify(cutHover)){cutHover=nh; drawArrange();}
 });
@@ -3465,7 +3513,7 @@ function arrMove(e){
   if(d.type==='box'){
     if(d.right&&!d.moved){ if(Math.abs(x-d.x0)<4&&Math.abs(y-d.y0)<4) return; d.moved=true; }
     d.x1=x; d.y1=y;
-    const b0=Math.min(d.x0,x)/bw, b1=Math.max(d.x0,x)/bw, t0=(Math.min(d.y0,y)-RULH)/ROWH, t1=(Math.max(d.y0,y)-RULH)/ROWH;
+    const b0=Math.min(d.x0,x)/bw, b1=Math.max(d.x0,x)/bw, t0=rowAtF(Math.min(d.y0,y)), t1=rowAtF(Math.max(d.y0,y));
     selParts=new Set(d.base);
     song.tracks.forEach((tr,i)=>{ if(i+1>t0&&i<t1) tr.parts.forEach(p=>{ if(p.start<b1&&p.start+p.len>b0) selParts.add(p.id); }); });
     drawArrange(); return;
@@ -3485,7 +3533,7 @@ function arrMove(e){
       if(d.copy&&!d.copied&&db!==0){g.forEach(o=>{const cp=JSON.parse(JSON.stringify(o.p)); cp.id=uid(); cp.start=o.s0; o.tr.parts.push(cp);}); d.copied=true;}
       g.forEach(o=>o.p.start=o.s0+db);
       // presun celej skupiny na ine stopy (rovnaky posun pre vsetky, len na rovnaky typ stopy)
-      const dti=Math.floor((y-RULH)/ROWH)-d.ti0;
+      const dti=rowAt(y)-d.ti0;
       const ok=g.every(o=>{ const nt=song.tracks[o.ti0+dti]; return nt&&nt.type===o.tr.type; });
       if(ok) g.forEach(o=>{ const nt=song.tracks[o.ti0+dti]; if(nt!==o.tr){ o.tr.parts.splice(o.tr.parts.indexOf(o.p),1); nt.parts.push(o.p); o.tr=nt; } });
       else if(dti&&!d.warned){ d.warned=true; toast('Časti sa dajú presunúť len na stopu rovnakého typu (nástroj / bicie / audio).'); }
@@ -3494,7 +3542,7 @@ function arrMove(e){
     }
     if(d.copy&&!d.copied&&db!==0){const cp=JSON.parse(JSON.stringify(p)); cp.id=uid(); cp.start=d.s0; d.tr.parts.push(cp); d.copied=true;}
     p.start=clamp(d.s0+db,0,song.bars-p.len);
-    const ti=Math.floor((y-RULH)/ROWH), nt=song.tracks[ti];
+    const ti=rowAt(y), nt=song.tracks[ti];
     if(nt&&nt!==d.tr&&nt.type===d.tr.type){d.tr.parts.splice(d.tr.parts.indexOf(p),1); nt.parts.push(p); d.tr=nt; selT=ti; renderTracks(); if(ed&&ed.pId===p.id){ed.trId=nt.id; renderEditor();}}
     else if(nt&&nt!==d.tr&&!d.warned){ d.warned=true; toast('Časti sa dajú presunúť len na stopu rovnakého typu (nástroj / bicie / audio).'); }
   } else {
@@ -5762,12 +5810,13 @@ $('langSel').onchange=e=>{ e.target.blur(); const v=e.target.value; try{ localSt
 function zoomArr(dh,dv,ax,ay){
   const sc=$('arrScroll'), b=arrCv.getBoundingClientRect();
   const mx=ax==null?sc.clientWidth/2+sc.getBoundingClientRect().left:ax, my=ay==null?b.top+RULH:ay;
-  const bar=(mx-b.left)/zoomA, row=(my-b.top-RULH)/ROWH;
+  const bar=(mx-b.left)/zoomA, row=rowAtF(my-b.top);
   if(dh) zoomA=clamp(Math.round(zoomA*(dh>0?1.25:.8)),8,160);
-  if(dv) ROWH=clamp(ROWH+(dv>0?(ROWH>=140?20:8):(ROWH>140?-20:-8)),28,400);
+  if(dv){ const old=ROWH; ROWH=clamp(ROWH+(dv>0?(ROWH>=140?20:8):(ROWH>140?-20:-8)),28,400);
+    song.tracks.forEach(t=>{ if(t.h) t.h=clamp(Math.round(t.h*ROWH/old),28,400); }); }   // vlastne vysky stop sa zvacsia v rovnakom pomere
   if(dv) renderTracks(); drawArrange();
   if(dh) sc.scrollLeft+=bar*zoomA-(mx-b.left);
-  if(dv&&ay!=null) sc.scrollTop+=Math.max(0,row)*ROWH-(my-b.top-RULH);
+  if(dv&&ay!=null){ const r=Math.max(0,row), i=Math.floor(r); sc.scrollTop+=rowY(i)+(r-i)*rowH(i)-RULH-(my-b.top-RULH); }
   saveView();
 }
 function zoomKey(dh,dv,ax,ay){
@@ -6143,7 +6192,7 @@ function dropMidi(f,tr,bar){
   rd.readAsArrayBuffer(f); }
 $('arrScroll').addEventListener('drop',e=>{
   e.preventDefault(); const f=e.dataTransfer&&e.dataTransfer.files[0]; if(!f) return;
-  const {x,y}=arrXY(e); const ti=Math.floor((y-RULH)/ROWH), tr=song.tracks[ti];
+  const {x,y}=arrXY(e); const ti=rowAt(y), tr=song.tracks[ti];
   if(/\.midi?$/i.test(f.name||'')){ dropMidi(f,tr,Math.max(0,Math.floor(x/zoomA))); return; }
   importAudioFile(f,tr&&tr.type==='audio'?tr.id:null,Math.max(0,Math.floor(x/zoomA)));
 });

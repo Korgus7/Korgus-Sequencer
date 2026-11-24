@@ -364,6 +364,15 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
     juce::MidiMessage m (mIn);
     if (const int vc = velCurve.load(); vc != 1 && m.isNoteOn())
         m.setVelocity (juce::jlimit (0.01f, 1.0f, std::pow (m.getFloatVelocity(), vc == 0 ? 0.6f : 1.6f)));
+    if (m.isNoteOnOrOff())
+    {   // transpozicia vstupu vybranej stopy; pustenie klavesy ide na ten ton, ktory zacal hrat
+        const int n = m.getNoteNumber();
+        int out;
+        if (m.isNoteOn()) { out = n + inTranspose.load(); inHeld[(size_t) n] = out + 1; }
+        else { out = inHeld[(size_t) n] > 0 ? inHeld[(size_t) n] - 1 : n + inTranspose.load(); inHeld[(size_t) n] = 0; }
+        if (out < 0 || out > 127) return;
+        m.setNoteNumber (out);
+    }
     if (m.isController() && m.getChannel() >= 1)
     {
         // MIDI learn / priradene ovladace (z akehokolvek zariadenia)

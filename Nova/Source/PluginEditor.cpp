@@ -492,6 +492,10 @@ namespace
             places.clear();
             places.push_back ({ T ("MIESTA"), {} });
             auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+            {
+                const auto mine = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Korgus").getChildFile ("Moje samply");
+                if (mine.isDirectory()) places.push_back ({ T ("Moje samply"), mine });   // ulozene vyseky z editora samplu
+            }
             places.push_back ({ T ("Hudba"), juce::File::getSpecialLocation (juce::File::userMusicDirectory) });
             places.push_back ({ T ("Plocha"), juce::File::getSpecialLocation (juce::File::userDesktopDirectory) });
             places.push_back ({ T ("Dokumenty"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory) });
@@ -747,6 +751,8 @@ namespace
             btn (loopB, juce::String::fromUTF8 ("⟲ ") + T ("Slučka"), T ("Pri držaní tónu opakuje označený kúsok (svetlé pole)"));
             btn (pitch, juce::String::fromUTF8 ("♪ ") + T ("Zistiť tón"), T ("Zistí tón vybranej časti a nastaví Zákl. tón a Jemne"));
             btn (reset, T ("Pôvodné"), T ("Celý sampel bez úprav"));
+            btn (saveCut, juce::String::fromUTF8 ("⤓ ") + T ("Uložiť výsek"), T ("Uloží vybranú časť ako nový zvuk (WAV) do priečinka Moje samply – aj s nábehom, doznením a slučkou"));
+            saveCut.onClick = [this] { saveSelection(); };
             rev.setClickingTogglesState (true); loopB.setClickingTogglesState (true);
             rev.setToggleState (ed.rev, juce::dontSendNotification);
             loopB.setToggleState (p.params.getRawParameterValue (pre + "loop")->load() > 0.5f, juce::dontSendNotification);
@@ -811,6 +817,44 @@ namespace
             setSize (620, 306);
         }
         ~SampleEditor() override { if (playing) p.keyboard.noteOff (1, playNote, 0.0f); }
+        // ulozi vybranu cast samplu ako WAV (odzadu, nabeh/doznenie, slucka ako znacky vo WAV)
+        void saveSelection()
+        {
+            if (smp == nullptr) return;
+            const int n = smp->buf.getNumSamples(), ch = smp->buf.getNumChannels();
+            const int a = juce::jlimit (0, n - 1, (int) (ed.start * (float) n)), b = juce::jlimit (a + 1, n, (int) (ed.end * (float) n));
+            juce::AudioBuffer<float> part (ch, b - a);
+            for (int c = 0; c < ch; ++c) part.copyFrom (c, 0, smp->buf, c, a, b - a);
+            if (ed.rev) part.reverse (0, part.getNumSamples());
+            const int len = part.getNumSamples();
+            const int fi = juce::jmin (len, (int) (ed.fin * smp->rate)), fo = loopOn() ? 0 : juce::jmin (len, (int) (ed.fout * smp->rate));
+            if (fi > 1) part.applyGainRamp (0, fi, 0.0f, 1.0f);
+            if (fo > 1) part.applyGainRamp (len - fo, fo, 1.0f, 0.0f);
+            const auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Korgus").getChildFile ("Moje samply");
+            dir.createDirectory();
+            auto base = juce::File::createLegalFileName ((smp->name.isNotEmpty() ? smp->name.upToLastOccurrenceOf (".", false, false) : juce::String ("sampel")) + " - vysek");
+            auto f = dir.getNonexistentChildFile (base, ".wav", false);
+            std::unordered_map<juce::String, juce::String> meta;
+            if (loopOn())
+            {   // slucka relativne k zaciatku vyseku
+                int ls = (int) (ed.ls * (float) n) - a, le = (int) (ed.le * (float) n) - a;
+                if (ed.rev) { const int t = len - le; le = len - ls; ls = t; }
+                ls = juce::jlimit (0, len - 2, ls); le = juce::jlimit (ls + 1, len - 1, le);
+                meta["NumSampleLoops"] = "1"; meta["Loop0Type"] = "0";
+                meta["Loop0Start"] = juce::String (ls); meta["Loop0End"] = juce::String (le - 1);
+            }
+            const int root = juce::roundToInt (p.params.getRawParameterValue (pre + "root")->load());
+            meta["MidiUnityNote"] = juce::String (root);
+            std::unique_ptr<juce::OutputStream> os (f.createOutputStream().release());
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> w;
+            if (os != nullptr)
+                w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (smp->rate).withNumChannels (ch).withBitsPerSample (24).withMetadataValues (meta));
+            if (w == nullptr || ! w->writeFromAudioSampleBuffer (part, 0, len)) { info = T ("Výsek sa nepodarilo uložiť."); repaint(); return; }
+            w.reset();
+            info = T ("Uložené: ") + f.getFileName() + "  (" + T ("Moje samply") + ")";
+            repaint();
+        }
         void timerCallback() override { stopTimer(); }
 
         void buildPeaks()
@@ -923,7 +967,8 @@ namespace
         void resized() override
         {
             int x = 12; const int y = getHeight() - 38, h = 28;
-            for (auto* b : { &play, &rev, &loopB, &pitch }) { b->setBounds (x, y, 112, h); x += 118; }
+            for (auto* b : { &play, &rev, &loopB, &pitch }) { b->setBounds (x, y, 94, h); x += 100; }
+            saveCut.setBounds (x, y, 108, h);
             reset.setBounds (getWidth() - 12 - 90, y, 90, h);
             const int y2 = getHeight() - 74;
             scanB.setBounds (12, y2, 112, h);
@@ -977,7 +1022,7 @@ namespace
 
         NovaProcessor& p; int li; juce::String pre; std::function<void()> onChanged;
         nova::SmpEdit ed; nova::UserSamplePtr smp; std::vector<std::pair<float, float>> peaks;
-        juce::TextButton play, rev, loopB, pitch, reset, scanB;
+        juce::TextButton play, rev, loopB, pitch, reset, scanB, saveCut;
         juce::Slider scanRate, scanRange; juce::Label scanRateL, scanRangeL; juce::ComboBox scanShape;
         juce::String info; int drag = -1, playNote = 60; bool playing = false;
     };
