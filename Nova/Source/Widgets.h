@@ -100,6 +100,14 @@ namespace nova::ui
         }
         juce::Font getComboBoxFont (juce::ComboBox&) override { return juce::FontOptions (13.0f); }
         juce::Font getPopupMenuFont() override { return juce::FontOptions (14.0f); }
+        // okno editora (bublina): zaoblenie 3 px, tlmeny okraj, bez bieleho
+        float getCallOutBoxCornerSize (const juce::CallOutBox&) override { return 3.0f; }
+        void drawCallOutBoxBackground (juce::CallOutBox&, juce::Graphics& g, const juce::Path& path, juce::Image&) override
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillPath (path, juce::AffineTransform::translation (0.0f, 2.0f));
+            g.setColour (bg); g.fillPath (path);
+            g.setColour (line); g.strokePath (path, juce::PathStrokeType (1.0f));
+        }
         void drawPopupMenuBackground (juce::Graphics& g, int w, int h) override { g.fillAll (panelHi); g.setColour (line); g.drawRect (0, 0, w, h); }
         juce::Label* createSliderTextBox (juce::Slider& s) override
         {

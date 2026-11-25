@@ -1154,7 +1154,7 @@ namespace
             };
             rev.onClick = [this] { ed.rev = rev.getToggleState(); apply(); };
             loopB.onClick = [this] { if (auto* prm = p.params.getParameter (pre + "loop")) prm->setValueNotifyingHost (loopB.getToggleState() ? 1.0f : 0.0f); repaint(); };
-            reset.onClick = [this] { const bool r = ed.rev; ed = {}; ed.rev = r; apply(); };
+            reset.onClick = [this] { const bool r = ed.rev; ed = {}; ed.rev = r; scanB.setToggleState (false, juce::dontSendNotification); showScan(); resized(); apply(); };
             pitch.onClick = [this]
             {
                 if (smp == nullptr) return;
@@ -1177,7 +1177,7 @@ namespace
             {
                 ed.scan = scanB.getToggleState();
                 if (ed.scan && ! loopOn()) { loopB.setToggleState (true, juce::sendNotification); }
-                apply();
+                showScan(); resized(); apply();
             };
             auto sl = [this] (juce::Slider& x, juce::Label& l, const juce::String& t, double lo, double hi, double v, double skew)
             {
@@ -1201,8 +1201,28 @@ namespace
             scanShape.onChange = [this] { ed.scanShape = scanShape.getSelectedItemIndex(); apply(); };
             scanShape.setTooltip (T ("Ako sa slučka posúva: tam a späť, stále dopredu, alebo náhodne skáče"));
             addAndMakeVisible (scanShape);
-            setSize (620, 306);
+            // menej pouzivane funkcie v ponuke
+            for (auto* b : { &pitch, &reset, &saveCut }) b->setVisible (false);
+            more.setButtonText (juce::String::fromUTF8 ("⋯")); more.setTooltip (T ("Ďalšie: Zistiť tón, Uložiť výsek, Pôvodné"));
+            addAndMakeVisible (more);
+            more.onClick = [this]
+            {
+                juce::PopupMenu m;
+                m.addItem (1, juce::String::fromUTF8 ("♪ ") + T ("Zistiť tón"));
+                m.addItem (2, juce::String::fromUTF8 ("⤓ ") + T ("Uložiť výsek"));
+                m.addSeparator();
+                m.addItem (3, T ("Pôvodné"));
+                m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&more), [this] (int r)
+                {
+                    if (r == 1 && pitch.onClick) pitch.onClick();
+                    else if (r == 2) saveSelection();
+                    else if (r == 3 && reset.onClick) reset.onClick();
+                });
+            };
+            showScan();
+            setSize (620, 324);
         }
+        void showScan() { for (juce::Component* c : { (juce::Component*) &scanRate, (juce::Component*) &scanRange, (juce::Component*) &scanRateL, (juce::Component*) &scanRangeL, (juce::Component*) &scanShape }) c->setVisible (ed.scan); }
         ~SampleEditor() override { if (playing) p.keyboard.noteOff (1, playNote, 0.0f); }
         // ulozi vybranu cast samplu ako WAV (odzadu, nabeh/doznenie, slucka ako znacky vo WAV)
         void saveSelection()
@@ -1262,7 +1282,7 @@ namespace
                 peaks[(size_t) x] = { lo, hi };
             }
         }
-        juce::Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (12.0f).withTrimmedTop (24.0f).withTrimmedBottom (80.0f); }
+        juce::Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (12.0f).withTrimmedTop (24.0f).withTrimmedBottom (ed.scan ? 98.0f : 62.0f); }
         // zoom: zobrazeny usek v0..v1 (koliesko mysi = zoom okolo kurzora, Shift + koliesko = posun)
         float v0 = 0.0f, v1 = 1.0f;
         float pxPerF() const { return waveArea().getWidth() / (v1 - v0); }
@@ -1349,18 +1369,16 @@ namespace
             auto ms = [] (double sec) { return sec < 1.0 ? juce::String (juce::roundToInt (sec * 1000.0)) + " ms" : juce::String (sec, 2) + " s"; };
             juce::String t = T ("Začiatok ") + ms (ed.start * d) + "   " + T ("Koniec ") + ms (ed.end * d) + "   " + T ("Nábeh ") + ms (ed.fin) + (loopOn() ? juce::String() : "   " + T ("Doznenie ") + ms (ed.fout));
             if (info.isNotEmpty()) t += "   ·   " + info;
-            g.drawText (t, 12, getHeight() - 106, getWidth() - 24, 18, juce::Justification::centredLeft);
+            g.drawText (t, 12, (int) waveArea().getBottom() + 3, getWidth() - 24, 18, juce::Justification::centredLeft);
         }
         void resized() override
         {
             int x = 12; const int y = getHeight() - 38, h = 28;
-            for (auto* b : { &play, &rev, &loopB, &pitch }) { b->setBounds (x, y, 94, h); x += 100; }
-            saveCut.setBounds (x, y, 108, h);
-            reset.setBounds (getWidth() - 12 - 90, y, 90, h);
+            for (auto* b : { &play, &rev, &loopB, &scanB }) { b->setBounds (x, y, 104, h); x += 110; }
+            more.setBounds (getWidth() - 12 - 44, y, 44, h);
             const int y2 = getHeight() - 74;
-            scanB.setBounds (12, y2, 112, h);
-            scanRateL.setBounds (130, y2, 60, h); scanRate.setBounds (190, y2, 150, h);
-            scanRangeL.setBounds (346, y2, 52, h); scanRange.setBounds (398, y2, 110, h);
+            scanRateL.setBounds (12, y2, 60, h); scanRate.setBounds (72, y2, 170, h);
+            scanRangeL.setBounds (256, y2, 52, h); scanRange.setBounds (308, y2, 170, h);
             scanShape.setBounds (getWidth() - 12 - 100, y2 + 2, 100, h - 4);
         }
         int hit (juce::Point<float> m) const
@@ -1379,9 +1397,22 @@ namespace
             for (auto& k : c) if (std::abs (m.x - k.x) < bd) { bd = std::abs (m.x - k.x); best = k.id; }
             return best;
         }
-        void mouseMove (const juce::MouseEvent& e) override { setMouseCursor (hit (e.position) >= 0 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor); }
-        float panFrom = 0.0f;
-        void mouseDown (const juce::MouseEvent& e) override { drag = hit (e.position); panFrom = v0; }
+        // vnutri vyberu (alebo slucky) sa da cely vysek posuvat
+        int bodyHit (juce::Point<float> m) const
+        {
+            if (smp == nullptr || ! waveArea().contains (m)) return -1;
+            const float f = fOf (m.x);
+            if (loopOn() && f > ed.ls && f < ed.le && ed.ls >= ed.start && ed.le <= ed.end && ed.le - ed.ls < (ed.end - ed.start) * 0.98f) return 7;
+            if (f > ed.start && f < ed.end) return 6;
+            return -1;
+        }
+        void mouseMove (const juce::MouseEvent& e) override
+        {
+            setMouseCursor (hit (e.position) >= 0 ? juce::MouseCursor::LeftRightResizeCursor
+                          : bodyHit (e.position) >= 0 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+        }
+        float panFrom = 0.0f; nova::SmpEdit edFrom;
+        void mouseDown (const juce::MouseEvent& e) override { drag = hit (e.position); if (drag < 0) drag = bodyHit (e.position); panFrom = v0; edFrom = ed; }
         void mouseDrag (const juce::MouseEvent& e) override
         {
             if (drag < 0)
@@ -1400,6 +1431,19 @@ namespace
                 case 3: ed.le = juce::jlimit (ed.ls + minGap, 1.0f, f); break;
                 case 4: ed.fin = juce::jlimit (0.0f, (ed.end - ed.start) * d, (f - ed.start) * d); break;
                 case 5: ed.fout = juce::jlimit (0.0f, (ed.end - ed.start) * d, (ed.end - f) * d); break;
+                case 6:   // posun celeho vyseku (slucka ide s nim)
+                {
+                    const float dx = juce::jlimit (-edFrom.start, 1.0f - edFrom.end, (float) e.getDistanceFromDragStartX() / pxPerF());
+                    ed.start = edFrom.start + dx; ed.end = edFrom.end + dx;
+                    ed.ls = juce::jlimit (0.0f, 1.0f, edFrom.ls + dx); ed.le = juce::jlimit (0.0f, 1.0f, edFrom.le + dx);
+                    break;
+                }
+                case 7:   // posun slucky vo vnutri vyseku
+                {
+                    const float dx = juce::jlimit (ed.start - edFrom.ls, ed.end - edFrom.le, (float) e.getDistanceFromDragStartX() / pxPerF());
+                    ed.ls = edFrom.ls + dx; ed.le = edFrom.le + dx;
+                    break;
+                }
                 default: break;
             }
             apply();
@@ -1409,7 +1453,7 @@ namespace
 
         NovaProcessor& p; int li; juce::String pre; std::function<void()> onChanged;
         nova::SmpEdit ed; nova::UserSamplePtr smp; std::vector<std::pair<float, float>> peaks;
-        juce::TextButton play, rev, loopB, pitch, reset, scanB, saveCut;
+        juce::TextButton play, rev, loopB, pitch, reset, scanB, saveCut, more;
         juce::Slider scanRate, scanRange; juce::Label scanRateL, scanRangeL; juce::ComboBox scanShape;
         juce::String info; int drag = -1, playNote = 60; bool playing = false;
     };
