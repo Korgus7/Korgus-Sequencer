@@ -205,6 +205,9 @@ def _muldjord():
 I = [x for x in I if x['id'] != 41]
 I.append(dict(id=41, name='Bicia suprava', sus=False, maxlen=5, notune=1, kit=1, items=_muldjord()))
 
+# Celesta (pjcohen, Freesound, CC BY 4.0): chromaticky G2-G6, nazvy krizikov chybaju -> tony podla vysky
+I.append(dict(id=48, name='Celesta', src=[('celesta/*.wav', 'DETECT')], vel=[None], sus=False, maxlen=6))
+
 def collect(ins):
     if 'items' in ins:
         res = []

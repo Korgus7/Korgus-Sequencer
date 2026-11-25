@@ -21,7 +21,7 @@ namespace nova
                 { "Akustická gitara", "Acoustic Guitar" }, { "Jazzová gitara", "Jazz Guitar" }, { "Basgitara", "Bass Guitar" }, { "Jazzový kontrabas", "Jazz Upright Bass" },
                 { "Sláčiková sekcia", "String Section" }, { "Sólové husle", "Solo Violin" }, { "Violončelá", "Cellos" }, { "Trúbka s dusítkom", "Muted Trumpet" },
                 { "Trúbka", "Trumpet" }, { "Tenor saxofón", "Tenor Sax" }, { "Trombón", "Trombone" }, { "Priečna flauta", "Concert Flute" }, { "Klarinet", "Clarinet" },
-                { "Jazzový vibrafón", "Jazz Vibraphone" }, { "Koncertná marimba", "Concert Marimba" }, { "Zvonkohra", "Glockenspiel" },
+                { "Jazzový vibrafón", "Jazz Vibraphone" }, { "Koncertná marimba", "Concert Marimba" }, { "Koncertná celesta", "Concert Celesta" }, { "Zvonkohra", "Glockenspiel" },
                 { "Pizzicato sláčiky", "Pizzicato Strings" }, { "Sláčiky tremolo", "Tremolo Strings" }, { "Sláčiky staccato", "Staccato Strings" }, { "Koncertná harfa", "Concert Harp" },
                 { "Píšťalový organ", "Pipe Organ" }, { "Elektrická gitara", "Electric Guitar" }, { "Ústna harmonika", "Harmonica" }, { "Lesný roh", "French Horn" },
                 { "Hoboj", "Oboe" }, { "Fagot", "Bassoon" }, { "Tuba", "Tuba" }, { "Okarína", "Ocarina" }, { "Zobcová flauta", "Recorder" },

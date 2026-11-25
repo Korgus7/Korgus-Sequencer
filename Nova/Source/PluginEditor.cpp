@@ -29,7 +29,7 @@ namespace
             { "Sláčiky a harfa", "Strings & harp", { 8, 9, 37, 10, 20, 28, 29, 22 } },
             { "Plechové dychy", "Brass", { 12, 11, 14, 24, 27 } },
             { "Drevené dychy", "Woodwinds", { 38, 15, 35, 16, 25, 26, 13, 34, 21 } },
-            { "Melodické bicie a zvony", "Mallets & bells", { 17, 18, 32, 19, 31, 30 } },
+            { "Melodické bicie a zvony", "Mallets & bells", { 17, 18, 32, 19, 48, 31, 30 } },
             { "Akordeón a gajdy", "Accordion & bagpipe", { 44, 46 } },
             { "Bicie a perkusie", "Drums & percussion", { 40, 41, 42, 43 } } };
         return g;

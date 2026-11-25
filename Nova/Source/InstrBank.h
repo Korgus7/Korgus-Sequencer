@@ -14,7 +14,7 @@
 class InstrBank
 {
 public:
-    static constexpr int numInstr = 48, maxLayers = 6;
+    static constexpr int numInstr = 49, maxLayers = 6;
     static constexpr int oldPiano = 36, numMenu = 48;   // 36 = povodny klavir (PianoBank 1), mimo suborov nastrojov
     using Sample = PianoBank::Sample;
     struct Inst
