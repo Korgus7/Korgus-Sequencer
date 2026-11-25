@@ -63,6 +63,8 @@ jobs:
           test -s out/AI/onnxruntime.dll
           # Korgus Inspiria (posledny build z vetvy nova)
           if git fetch -q --depth 1 origin nova; then git show "FETCH_HEAD:Korgus Inspiria.vst3" > "out/Korgus Inspiria.vst3" || rm -f "out/Korgus Inspiria.vst3"; fi
+          # nahrate nastroje Inspirie (instalator ich da vedla pluginu)
+          mkdir -p "out/Inspiria Instruments" && cp Nova/Resources/instr/*.knin "out/Inspiria Instruments/"
           echo "1.0.${{ github.run_number }}" > out/version.txt
           ls -la out out/AI
 

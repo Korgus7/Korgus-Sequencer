@@ -272,6 +272,10 @@ namespace nova
                 // okno Inspiracie
                 { "Inšpirácia: zachytí, čo si zahral (aj bez nahrávania). Klik otvorí celé MIDI – vyberieš úsek a vložíš ho do stopy alebo uložíš ako MIDI / WAV. ↺ v rohu = vymazať a počúvať od ďalšieho tónu",
                   "Inspiration: captures what you played (even without recording). Click opens the whole MIDI – pick a section and insert it into the track or save it as MIDI / WAV. ↺ in the corner = clear and listen from the next note" },
+                { "Viola", "Viola" }, { "Pikola", "Piccolo" }, { "Banjo", "Banjo" }, { "Tympany", "Timpani" }, { "Bicia súprava", "Drum kit" },
+                { "Ručné bubny", "Hand drums" }, { "Perkusie", "Percussion" }, { " (sťahujem ", " (downloading " },
+                { " (nedá sa stiahnuť – skontroluj internet)", " (can't download – check the internet)" },
+                { "Sťahujem nástroj… ", "Downloading instrument… " }, { "Nástroj sa nedá stiahnuť – skontroluj internet", "The instrument can't be downloaded – check the internet" },
                 { "Vymazať", "Clear" }, { "Vymazať zachytené hranie – Inšpirácia bude počúvať od ďalšieho tónu", "Clear what was captured – Inspiration listens from the next note" },
                 { "Vymazané – počúvam od ďalšieho tónu", "Cleared – listening from the next note" },
                 { "Zavrieť", "Close" }, { "Celé", "All" }, { "Ukázať celé hranie", "Show everything you played" }, { "Posledná fráza", "Last phrase" },

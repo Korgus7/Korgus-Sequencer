@@ -72,6 +72,7 @@ namespace nova
         void fadeAll() { fadeRequest = true; }
         bool pianoReady() const { return bank != nullptr && bank->ready(); }
         bool pianoFailed() const { return bank != nullptr && bank->failed(); }
+        int instrStatus (int id, float& prog) const { prog = 0; if (id <= 0 || id == InstrBank::oldPiano || ibank == nullptr) return 0; if (ibank->downloading (id)) { prog = ibank->progress (id); return 4; } return ibank->failed (id) ? 3 : 0; }
         bool instrReady (int id) const { if (id == InstrBank::oldPiano) { auto* b = bank2Raw.load(); return b != nullptr && b->ready(); } return id == 0 ? pianoReady() : ibank != nullptr && ibank->ready (id); }
         // volat z hlavneho vlakna (nacitanie povodneho klavira az ked je treba)
         void requestInstr (int id) { if (id == InstrBank::oldPiano) { if (bank2 == nullptr) { bank2 = PianoBank::get (1); bank2Raw.store (bank2.get()); } return; } if (ibank != nullptr) ibank->request (id); }

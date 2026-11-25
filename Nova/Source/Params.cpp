@@ -66,7 +66,7 @@ namespace nova
                 F (p + "ldelay", "Oneskorenie", 0, 3, 0, "s", 0.5f);
                 C (p + "lsync", "LFO tempo", "Voľne|1/1|1/2|1/4|1/8|1/16|1/4T|1/8T|1/16T", 0);
                 C (p + "src", "Zdroj", "Klavír|Vlastný WAV|Vzorky", 0);
-                C (p + "inst", "Nástroj", "Koncertný klavír|Pianíno|Rhodes|Čembalo|Akustická gitara|Jazzová gitara|Basgitara|Kontrabas|Sláčiková sekcia|Husle|Violončelá|Trúbka s dusítkom|Trúbka|Tenor saxofón|Trombón|Flauta|Klarinet|Vibrafón|Marimba|Zvonkohra|Pizzicato sláčiky|Ústna harmonika|Harfa|Píšťalový organ|Lesný roh|Hoboj|Fagot|Tuba|Sláčiky tremolo|Sláčiky staccato|Kalimba|Rúrkové zvony|Xylofón|Elektrická gitara|Okarína|Zobcová flauta|Pôvodný klavír", 0);
+                C (p + "inst", "Nástroj", "Koncertný klavír|Pianíno|Rhodes|Čembalo|Akustická gitara|Jazzová gitara|Basgitara|Kontrabas|Sláčiková sekcia|Husle|Violončelá|Trúbka s dusítkom|Trúbka|Tenor saxofón|Trombón|Flauta|Klarinet|Vibrafón|Marimba|Zvonkohra|Pizzicato sláčiky|Ústna harmonika|Harfa|Píšťalový organ|Lesný roh|Hoboj|Fagot|Tuba|Sláčiky tremolo|Sláčiky staccato|Kalimba|Rúrkové zvony|Xylofón|Elektrická gitara|Okarína|Zobcová flauta|Pôvodný klavír|Viola|Pikola|Banjo|Tympany|Bicia súprava|Ručné bubny|Perkusie", 0);
                 F (p + "root", "Základný tón", 0, 127, 60, "note");
                 B (p + "loop", "Opakovať", false);
                 C (p + "wt", "Tabuľka", "Analóg|PWM|Harmonický|Vokál|Digitál|Organ|Sklo|Spev", 0);
@@ -216,7 +216,7 @@ namespace nova
 
     const juce::StringArray& soundGroups (int section)
     {
-        static const juce::StringArray n = split ("Sláčiky|Brnkacie|Klavír|Drevené dychy|Plechové dychy|Mechové|Melodické bicie");
+        static const juce::StringArray n = split ("Sláčiky|Brnkacie|Klavír|Drevené dychy|Plechové dychy|Mechové|Bicie|Melodické bicie");
         static const juce::StringArray s = split ("Basy|Leady|Plucky|Pady|Klávesy|Sláčiky|Bicie|Atmosféry|Hlas|Elektrické");
         return section == 0 ? n : s;
     }
@@ -231,10 +231,11 @@ namespace nova
             {
                 for (auto& x : split (names)) m[x] = { sct, juce::String::fromUTF8 (grp) };
             };
-            put (0, "Sláčiky", "Sláčiková sekcia|Sólové husle|Violončelá|Pizzicato sláčiky|Sláčiky tremolo|Sláčiky staccato|Jazzový kontrabas");
-            put (0, "Brnkacie", "Akustická gitara|Koncertná harfa");
+            put (0, "Sláčiky", "Sláčiková sekcia|Sólové husle|Viola|Violončelá|Pizzicato sláčiky|Sláčiky tremolo|Sláčiky staccato|Jazzový kontrabas");
+            put (0, "Brnkacie", "Akustická gitara|Koncertná harfa|Banjo");
+            put (0, "Bicie", "Tympany|Bicia súprava|Ručné bubny|Perkusie");
             put (0, "Klavír", "Koncertný klavír|Pôvodný klavír|Pianíno|Čembalo");
-            put (0, "Drevené dychy", "Tenor saxofón|Priečna flauta|Klarinet|Hoboj|Fagot|Okarína|Zobcová flauta");
+            put (0, "Drevené dychy", "Pikola|Priečna flauta|Tenor saxofón|Klarinet|Hoboj|Fagot|Okarína|Zobcová flauta");
             put (0, "Plechové dychy", "Trúbka s dusítkom|Trúbka|Trombón|Lesný roh|Tuba");
             put (0, "Mechové", "Ústna harmonika|Píšťalový organ");
             put (0, "Melodické bicie", "Jazzový vibrafón|Koncertná marimba|Zvonkohra|Africká kalimba|Rúrkové zvony|Xylofón");
@@ -625,6 +626,14 @@ namespace nova
             v.push_back (I ("Africká kalimba", "Zvonky", 30, 0.001f, 1.0f).s ("rv_mix", 0.2f).s ("rv_size", 0.5f).s ("rv_damp", 0.5f).s ("p_gain", -10.4f).f);
             v.push_back (I ("Rúrkové zvony", "Zvonky", 31, 0.001f, 2.5f).s ("rv_mix", 0.3f).s ("rv_size", 0.75f).s ("rv_damp", 0.45f).s ("p_gain", -16.2f).f);
             v.push_back (I ("Xylofón", "Zvonky", 32, 0.001f, 0.6f).s ("rv_mix", 0.2f).s ("rv_size", 0.55f).s ("rv_damp", 0.5f).s ("p_gain", -4.9f).f);
+            // nove nastroje (stahuju sa az pri prvom pouziti)
+            v.push_back (I ("Viola", "Sláčiky", 37, 0.04f, 0.45f).s ("rv_mix", 0.27f).s ("rv_size", 0.62f).s ("rv_damp", 0.5f).s ("p_gain", -4.6f).f);
+            v.push_back (I ("Pikola", "Dychy", 38, 0.015f, 0.2f).s ("rv_mix", 0.24f).s ("rv_size", 0.6f).s ("rv_damp", 0.45f).s ("p_gain", -3.0f).f);
+            v.push_back (I ("Banjo", "Gitary", 39, 0.001f, 0.3f).s ("rv_mix", 0.12f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -6.0f).f);
+            v.push_back (I ("Tympany", "Zvonky", 40, 0.001f, 1.2f).s ("rv_mix", 0.26f).s ("rv_size", 0.7f).s ("rv_damp", 0.5f).s ("p_gain", -6.0f).f);
+            v.push_back (I ("Bicia súprava", "Zvonky", 41, 0.001f, 0.6f).s ("rv_mix", 0.1f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", -5.0f).f);
+            v.push_back (I ("Ručné bubny", "Zvonky", 42, 0.001f, 0.4f).s ("rv_mix", 0.12f).s ("rv_size", 0.45f).s ("rv_damp", 0.5f).s ("p_gain", 0.0f).f);
+            v.push_back (I ("Perkusie", "Zvonky", 43, 0.001f, 1.5f).s ("rv_mix", 0.18f).s ("rv_size", 0.6f).s ("rv_damp", 0.45f).s ("p_gain", -7.0f).f);
             return v;
         }();
         return list;

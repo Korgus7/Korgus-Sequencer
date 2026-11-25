@@ -422,6 +422,38 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "instlevel")
+    {
+        // hlasitost nahratych nastrojov (s cakanim na nacitanie): uroven s p_gain
+        for (auto& f : nova::factoryPatches())
+        {
+            auto it = f.values.find ("a_inst"); if (it == f.values.end()) continue;
+            const int inst = (int) it->second; if (inst <= 0 || inst == InstrBank::oldPiano) continue;
+            nova::PatchData pd; pd.values = f.values;
+            nova::Settings s;
+            NovaProcessor::settingsFrom (s, [&pd] (const juce::String& id) { if (id == "p_gain" || id == "volume") return 0.0f; auto i2 = pd.values.find (id); if (i2 != pd.values.end()) return i2->second; const auto* sp = nova::findSpec (id); return sp != nullptr ? sp->def : 0.0f; });
+            s.arpOn = false;
+            auto syn = std::make_unique<nova::Synth>(); syn->prepare (sr, bs); syn->requestInstr (inst);
+            for (int i = 0; i < 400 && ! syn->instrReady (inst); ++i) Thread::sleep (25);
+            std::vector<int> ch { 48, 55, 60, 64 };
+            if (inst == 41) ch = { 36, 38, 42 }; else if (inst == 42) ch = { 60, 63, 66 }; else if (inst == 43) ch = { 54, 75, 81 };
+            std::vector<float> sq; AudioBuffer<float> b (2, bs);
+            const int total = (int) (2.0 * sr);
+            for (int pos = 0; pos < total; pos += bs)
+            {
+                MidiBuffer mb;
+                if (pos == 0) for (int n : ch) mb.addEvent (MidiMessage::noteOn (1, n, 0.8f), 0);
+                if (pos <= (int) (1.2 * sr) && pos + bs > (int) (1.2 * sr)) for (int n : ch) mb.addEvent (MidiMessage::noteOff (1, n), 0);
+                b.clear(); syn->process (b, mb, s);
+                for (int i = 0; i < bs; ++i) sq.push_back (0.5f * (b.getSample (0, i) * b.getSample (0, i) + b.getSample (1, i) * b.getSample (1, i)));
+            }
+            const int w = (int) (0.4 * sr); double acc = 0, best = 0;
+            for (int i = 0; i < (int) sq.size(); ++i) { acc += sq[(size_t) i]; if (i >= w) acc -= sq[(size_t) (i - w)]; best = std::max (best, acc / w); }
+            const float m = Decibels::gainToDecibels ((float) std::sqrt (best), -100.0f), g = pd.values["p_gain"];
+            printf ("%2d %-20s %6.1f dB  (p_gain %5.1f) -> %6.1f dB\n", inst, f.name.toRawUTF8(), m, g, m + g);
+        }
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "level")
     {
         // hlasitost tovarenskych zvukov a nahodnych zvukov "Prekvap ma"

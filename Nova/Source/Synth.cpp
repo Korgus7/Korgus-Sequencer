@@ -153,7 +153,7 @@ namespace nova
                 lv.velGain = clampf (std::pow (v.vel / center, 0.9f), 0.08f, 2.0f) * std::pow (0.15f + 0.85f * v.vel, 1.6f) * I->gain;
                 // "ludske" hranie: kazda nota trochu ina hlasitost; sláciky, dychy, gitary a basy aj jemne ladenie (klavesy a zvonky nie)
                 lv.velGain *= 1.0f + 0.08f * v.rng.next();
-                const bool fixedPitch = s.inst <= 3 || (s.inst >= 17 && s.inst <= 19) || s.inst == 23 || (s.inst >= 30 && s.inst <= 32);
+                const bool fixedPitch = s.inst <= 3 || (s.inst >= 17 && s.inst <= 19) || s.inst == 23 || (s.inst >= 30 && s.inst <= 32) || s.inst >= 40 || I->kit;
                 if (! fixedPitch) lv.human = 0.04f * v.rng.next();
                 lv.noDamper = false;
                 lv.gain = 1.0f / 0.3f;   // doznenie = gombik Doznenie

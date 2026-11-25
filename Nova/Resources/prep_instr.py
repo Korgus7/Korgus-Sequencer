@@ -81,7 +81,63 @@ I += [
  dict(id=35, name='Zobcova flauta', src=[('vcsl/Aerophones/Edge-blown Aerophones/Baroque Alto Recorder/Sustain/*.wav', r'_Sus_([A-G]#?\d)_rr1')], vel=[None], sus=True, maxlen=4, oct=1),
 ]
 
+# --- nove nastroje (stahuju sa zvlast): VSCO 2 CE, VCSL, ganjo (itsclipping) - vsetko CC0
+VC = 'vcsl/Membranophones/Struck Membranophones/'; VI = 'vcsl/Idiophones/Struck Idiophones/'
+def K(note, *files, cents=0):   # bici nastroj: nota a subory po vrstvach (od najjemnejsej)
+    return [(note, l, f, cents) for l, f in enumerate(files)]
+I += [
+ dict(id=37, name='Viola', src=[('VSCO-2-CE/Strings/Viola Section/susvib/*.wav', r'_susvib_([A-G]#?\d)_v(\d)_1')], vel=['1','2'], sus=True, maxlen=5, oct=1),
+ dict(id=38, name='Pikola', src=[('VSCO-2-CE/Woodwinds/Piccolo/Sus/*.wav', r'piccolo_([A-G]#?\d)_sustain1')], vel=[None], sus=True, maxlen=4, oct=1),
+ dict(id=39, name='Banjo', src=[('ganjo/Common/*.wav', r'Banjo_Common - ([A-G]#?\d)\.wav')], vel=[None], sus=False, maxlen=4, oct=-1),
+ dict(id=40, name='Tympany', sus=False, maxlen=5, notune=1, items=
+      sum([K(n, *[VC + 'Timpani 1/Hit/Timpani%d_Hit_v%d_rr1_Sum.wav' % (d, v) for v in (2, 3, 4)], cents=c)
+           for d, n, c in ((1, 49, 5), (2, 54, -47), (3, 56, 30), (4, 59, 0), (5, 61, 32))], [])),
+ dict(id=41, name='Bicia suprava', sus=False, maxlen=6, notune=1, kit=1, items=
+      K(36, *[VC + 'Bass Drum 1/BDrumNew_hit_v%d_rr1_Sum.wav' % v for v in (2, 5, 7)]) +
+      K(37, VC + 'Snare Drum, Modern 1/Snare2_stick_v1_rr1_Mid.wav') +
+      K(38, *[VC + 'Snare Drum, Modern 1/Snare2_HitSN_v%d_rr1_Mid.wav' % v for v in (3, 6, 9)]) +
+      K(40, *[VC + 'Snare Drum, Modern 1/Snare2_HitNS_v%d_rr1_Mid.wav' % v for v in (2, 4, 6)]) +
+      K(42, *[VI + 'Hi-Hat Cymbal/HiHat_HitC_v%d_rr1_Mid.wav' % v for v in (1, 3, 4)]) +
+      K(44, VI + 'Hi-Hat Cymbal/HiHat_Close_rr1_Mid.wav') +
+      K(46, VI + 'Hi-Hat Cymbal/HiHat_HitO_rr1_Mid.wav') +
+      K(49, *[VI + 'Clash Cymbals 1/cymbal_crash1_%s.wav' % v for v in ('mp1', 'mf1', 'ff2')]) +
+      K(51, *[VI + 'Suspended Cymbal 1/susCymb1_hit_stick_%s.wav' % v for v in ('pp1', 'mp1', 'f1')]) +
+      K(53, *[VI + 'Suspended Cymbal 1/susCymb1_hit_bell_%s.wav' % v for v in ('pp1', 'mf1', 'fff1')]) +
+      K(55, VI + 'Clash Cymbals 1/cymbal_crash1_short1.wav')),
+ dict(id=42, name='Rucne bubny', sus=False, maxlen=3, notune=1, kit=1, items=
+      K(60, *[VC + 'Bongos/BongoH_Hit1_v%d_rr1_Mid.wav' % v for v in (1, 2, 3)]) +
+      K(61, *[VC + 'Bongos/BongoL_Hit1_v%d_rr1_Mid.wav' % v for v in (1, 2, 3)]) +
+      K(62, *[VC + 'Conga/Quinto_HitFM1_v%d_rr1_Sum.wav' % v for v in (1, 2)]) +
+      K(63, *[VC + 'Conga/Quinto_HitN_v%d_rr1_Sum.wav' % v for v in (1, 2, 3)]) +
+      K(64, *[VC + 'Conga/Conga_HitN_v%d_rr1_Sum.wav' % v for v in (1, 2, 3)]) +
+      K(65, *[VC + 'Conga/Tumba_HitN_v%d_rr1_Sum.wav' % v for v in (1, 2, 4)]) +
+      K(66, *[VI + 'Cajon/Cajon_hit1_%s_rr1.wav' % v for v in ('mp', 'f', 'fff')]) +
+      K(67, *[VI + 'Cajon/Cajon_hit2_%s_rr1.wav' % v for v in ('pp', 'mp', 'f')]) +
+      K(68, *[VI + 'Cajon/Cajon_hit3_%s_rr1.wav' % v for v in ('p', 'mp', 'f')]) +
+      K(69, VC + 'Bongos/BongoH_HitMuted1_v2_rr1_Mid.wav') +
+      K(70, VC + 'Bongos/BongoL_HitMuted2_v2_rr1_Mid.wav')),
+ dict(id=43, name='Perkusie', sus=False, maxlen=8, notune=1, kit=1, items=
+      K(54, *[VI + 'Tambourine 1/Tamb1_Hit_v%d_rr1_Mid.wav' % v for v in (1, 2)]) +
+      K(56, VI + 'Tambourine 1/Tamb1_Shake_rr1_Mid.wav') +
+      K(57, *[VI + 'Gong 1/gong_%s.wav' % v for v in ('p', 'mf', 'f')]) +
+      K(59, *[VI + 'Clash Cymbals 1/cymbal_crash1_%s.wav' % v for v in ('pp1', 'mf1', 'ff2')]) +
+      K(70, VI + 'Shaker, Small/Mid_Shaker_Slap_rr1.wav') +
+      K(72, VI + 'Shaker, Small/Mid_ShakerDouble_Down_rr1.wav') +
+      K(75, *[VI + 'Claves/Claves1_Hit_v%d_rr1_Mid.wav' % v for v in (1, 2, 3)]) +
+      K(76, *[VI + 'Woodblock/wood_click_%s.wav' % v for v in ('pp_rr1', 'mp', 'ff')]) +
+      K(77, VI + 'Woodblock/wood_click3_vl1.wav', VI + 'Woodblock/wood_click3_vl2.wav') +
+      K(80, VI + 'Triangles/Triangle1_HitM_v1_rr2_Mid.wav') +
+      K(81, *[VI + 'Triangles/Triangle1_Hit_v%d_rr1_Mid.wav' % v for v in (1, 2)])),
+]
+
 def collect(ins):
+    if 'items' in ins:
+        res = []
+        for n, l, f, _ in ins['items']:
+            ff = os.path.join(S, f)
+            if os.path.exists(ff): res.append((n, l, ff))
+            else: print('  chyba subor', f)
+        return res
     out = []
     for s in ins['src']:
         pat, rx = s[0], s[1]
@@ -203,6 +259,7 @@ def process(ins, outdir):
         pk = np.abs(mono).max() + 1e-9
         # ladenie
         cents = 0
+        if 'items' in ins: cents = next((c for nn, ll, ff, c in ins['items'] if nn == n and os.path.join(S, ff) == f), 0)
         if ins['name'] != 'Zvonkohra' and not ins.get('notune'):
             hz, conf = f0(mono, sr)
             if hz:
@@ -257,7 +314,12 @@ def process(ins, outdir):
         rs = [d[l] / d[top] for d in byn.values() if l in d and top in d]
         lf[l] = float(np.median(rs)) if rs else 1.0
     if 'lf' in ins: lf = {i: v for i, v in enumerate(ins['lf'])}
-    for r in recs: r['x'] = r['x'] * (lf[r['l']] / r['rms'])
+    if 'items' in ins:   # bicie: kazda nota zvlast, vrstvy si nechaju prirodzeny pomer (najsilnejsia = 1)
+        topn = {}
+        for r in recs: topn[r['n']] = max(topn.get(r['n'], 0), r['rms'])
+        for r in recs: r['x'] = r['x'] / topn[r['n']]
+    else:
+        for r in recs: r['x'] = r['x'] * (lf[r['l']] / r['rms'])
     pk = max(np.abs(r['x']).max() for r in recs)
     # cielova hlasitost: horna vrstva v strede rozsahu ~ -14 dBFS RMS; vzorky max 0.89 (zvysok zosilni prehravac)
     topr = np.median([np.sqrt(np.mean((r['x'][:, 0] if r['loop'][1] == 0 else r['x'][:r['loop'][1], 0]) ** 2)) for r in recs if r['l'] == top]) + 1e-9
@@ -276,7 +338,7 @@ def process(ins, outdir):
         d = open(og, 'rb').read(); tot += len(d)
         ents.append((r['n'], r['l'], r['cents'], r['loop'][0], r['loop'][1], d))
     print('%-18s %3d vzoriek, vrstvy %d, %.1f MB, zisk %.1f dB' % (ins['name'], len(ents), top + 1, tot / 1e6, 20 * np.log10(extra)))
-    blob = b'INST' + struct.pack('<BBHf', 1 if ins['sus'] else 0, top + 1, len(ents), extra)
+    blob = b'INST' + struct.pack('<BBHf', (1 if ins['sus'] else 0) | (2 if ins.get('kit') else 0), top + 1, len(ents), extra)
     for n, l, c, ls, le, d in ents: blob += struct.pack('<BBbBIII', n, l, c, 0, ls, le, len(d))
     for *_, d in ents: blob += d
     return blob
@@ -286,6 +348,11 @@ def build(ids, out):
     for ins in I:
         if ids and ins['id'] not in ids: continue
         blobs.append((ins['id'], process(ins, '/home/claude/smp/out')))
+    if os.path.isdir(out):   # priecinok: kazdy nastroj zvlast
+        for i, b in blobs:
+            one = b'KNIN' + struct.pack('<II', 1, 1) + struct.pack('<III', i, 24, len(b)) + b
+            open(os.path.join(out, 'instr_%02d.knin' % i), 'wb').write(one)
+        return
     hdr = b'KNIN' + struct.pack('<II', 1, len(blobs))
     off = len(hdr) + 12 * len(blobs)
     tab = b''; body = b''
@@ -294,6 +361,16 @@ def build(ids, out):
     open(out, 'wb').write(hdr + tab + body)
     print('balik %.1f MB' % (os.path.getsize(out) / 1e6))
 
+def split(src, outdir):
+    # rozdeli balik KNIN na samostatne subory (jeden nastroj = jeden subor instr_NN.knin)
+    d = open(src, 'rb').read(); cnt = struct.unpack('<I', d[8:12])[0]
+    os.makedirs(outdir, exist_ok=True)
+    for k in range(cnt):
+        i, off, sz = struct.unpack('<III', d[12 + 12 * k:24 + 12 * k])
+        one = b'KNIN' + struct.pack('<II', 1, 1) + struct.pack('<III', i, 24, sz) + d[off:off + sz]
+        open(os.path.join(outdir, 'instr_%02d.knin' % i), 'wb').write(one)
+
 if __name__ == '__main__':
-    if sys.argv[1] == 'analyze': analyze()
+    if sys.argv[1] == 'split': split(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == 'analyze': analyze()
     elif sys.argv[1] == 'build': build([int(a) for a in sys.argv[3:]], sys.argv[2])

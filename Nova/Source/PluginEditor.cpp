@@ -25,11 +25,12 @@ namespace
     {
         static const std::vector<InstGroup> g {
             { "Klávesy", "Keys", { 0, 36, 1, 2, 3, 23 } },
-            { "Gitary a basy", "Guitars & basses", { 4, 5, 33, 6, 7 } },
-            { "Sláčiky a harfa", "Strings & harp", { 8, 9, 10, 20, 28, 29, 22 } },
+            { "Gitary a basy", "Guitars & basses", { 4, 5, 33, 39, 6, 7 } },
+            { "Sláčiky a harfa", "Strings & harp", { 8, 9, 37, 10, 20, 28, 29, 22 } },
             { "Plechové dychy", "Brass", { 12, 11, 14, 24, 27 } },
-            { "Drevené dychy", "Woodwinds", { 15, 35, 16, 25, 26, 13, 34, 21 } },
-            { "Melodické bicie a zvony", "Mallets & bells", { 17, 18, 32, 19, 31, 30 } } };
+            { "Drevené dychy", "Woodwinds", { 38, 15, 35, 16, 25, 26, 13, 34, 21 } },
+            { "Melodické bicie a zvony", "Mallets & bells", { 17, 18, 32, 19, 31, 30 } },
+            { "Bicie a perkusie", "Drums & percussion", { 40, 41, 42, 43 } } };
         return g;
     }
 
@@ -728,6 +729,15 @@ namespace
             if (p.synth.pianoFailed()) st = T ("Klavírne zvuky sa nepodarilo načítať");
             else if (! p.synth.pianoReady()) st = T ("Načítavam klavír…");
             else if (! p.currentKey.startsWith ("f:") && p.currentName.isNotEmpty()) st = T (p.currentName);
+            for (const char* l : { "a_", "b_" })
+            {   // nastroj sa stahuje (prvy raz) alebo sa nedal stiahnut
+                const juce::String px (l);
+                if (p.params.getRawParameterValue (px + "on")->load() < 0.5f || (int) p.params.getRawParameterValue (px + "wave")->load() != 7
+                    || (int) std::round (p.params.getRawParameterValue (px + "src")->load()) != 0) continue;
+                float pr = 0; const int s2 = p.synth.instrStatus ((int) std::round (p.params.getRawParameterValue (px + "inst")->load()), pr);
+                if (s2 == 4) st = T ("Sťahujem nástroj… ") + juce::String (juce::roundToInt (pr * 100.0f)) + " %";
+                else if (s2 == 3) st = T ("Nástroj sa nedá stiahnuť – skontroluj internet");
+            }
             if (st != status) { status = st; repaint(); }
         }
         void paint (juce::Graphics& g) override
@@ -1598,7 +1608,11 @@ namespace
             {
                 const int ci = curInst();
                 nm = InstrBank::name (ci, lang() == 1);
-                if (! p.synth.instrReady (ci)) nm += T (" (načítavam…)");
+                if (! p.synth.instrReady (ci))
+                {
+                    float pr = 0; const int st = p.synth.instrStatus (ci, pr);
+                    nm += st == 4 ? T (" (sťahujem ") + juce::String (juce::roundToInt (pr * 100.0f)) + " %)" : st == 3 ? T (" (nedá sa stiahnuť – skontroluj internet)") : T (" (načítavam…)");
+                }
             }
             if (nameBtn.getButtonText() != nm + juce::String::fromUTF8 (" ▾")) nameBtn.setButtonText (nm + juce::String::fromUTF8 (" ▾"));
         }

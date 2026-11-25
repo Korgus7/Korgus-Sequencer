@@ -53,6 +53,8 @@ Type: files; Name: "{app}\korgus-ui.ver"
 Source: "{#Src}\Korgus Sequencer.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Src}\AI\*"; DestDir: "{app}\AI"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
 Source: "{#Src}\Korgus Inspiria.vst3"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; nahrate nastroje Inspirie (inak sa stiahnu pri prvom pouziti)
+Source: "{#Src}\Inspiria Instruments\*"; DestDir: "{app}\Inspiria Instruments"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#Src}\Korgus.vst3"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
