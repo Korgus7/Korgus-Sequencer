@@ -185,6 +185,26 @@ I += [
  dict(id=47, name='Klasicka gitara', sus=False, maxlen=5, notune=1, items=_fp_items('scg/SpanishClassicalGuitar-20190618.sfz')),
 ]
 
+def _muldjord():
+    # MuldjordKit (Lars Muldjord, CC BY 4.0): klavesy podla General MIDI, 6 zo 14 sil uderu
+    it = _fp_items('mk/MuldjordKit SFZ+FLAC-20201018/MuldjordKit 20201018.sfz')
+    gm = {48: 36, 49: 35, 50: 38, 51: 40, 65: 37, 66: 39, 52: 42, 53: 46, 54: 51, 55: 53, 56: 59, 57: 56,
+          58: 49, 59: 57, 60: 52, 61: 50, 62: 48, 63: 45, 64: 41}
+    out = []
+    for src in gm:
+        ls = sorted(set(l for n, l, f, c, b, a in it if n == src))
+        if not ls: continue
+        k = min(6, len(ls))
+        sel = [ls[round(i * (len(ls) - 1) / max(1, k - 1))] for i in range(k)] if k > 1 else ls
+        for li, lv in enumerate(sel):
+            f = next(f for n, l, f, c, b, a in it if n == src and l == lv)
+            out.append((gm[src], li + (6 - k), f, 0, 0, 0))   # vrstvy zarovnane hore (najsilnejsia = 5)
+    # pedal hi-hat (44) = zavrety hi-hat
+    out += [(44, l, f, 0, 0, 0) for n, l, f, c, b, a in out if n == 42]
+    return out
+I = [x for x in I if x['id'] != 41]
+I.append(dict(id=41, name='Bicia suprava', sus=False, maxlen=5, notune=1, kit=1, items=_muldjord()))
+
 def collect(ins):
     if 'items' in ins:
         res = []
@@ -358,7 +378,16 @@ def process(ins, outdir):
             thr = pk * 10 ** (-62 / 20)
             ab = np.where(env > thr)[0]
             end = min(ab[-1] if len(ab) else len(x), int(ins['maxlen'] * sr), len(x))
-            x = x[:end].copy(); fl = min(int(0.35 * sr), len(x) // 3)
+            x = x[:end].copy()
+            # odsumenie: sum v tichych miestach (doznievanie) stisit - jemna brana podla odhadu sumu
+            e2 = env[:end]; nz = e2[e2 > 0]
+            if len(nz) > 20:
+                nf = np.percentile(nz, 8)
+                if nf > pk * 10 ** (-80 / 20):
+                    g = np.clip((e2 - 1.5 * nf) / (e2 + 1e-9), 0.06, 1.0) ** 0.7
+                    k = max(1, int(0.02 * sr)); g = np.convolve(g, np.ones(k) / k, 'same')
+                    x *= g[:, None]
+            fl = min(int(0.35 * sr), len(x) // 3)
             x[-fl:] *= (np.linspace(1, 0, fl) ** 2)[:, None]
             body = mono[:min(len(mono), int(0.4 * sr))]
         rms = np.sqrt(np.mean(body ** 2)) + 1e-9

@@ -22,6 +22,7 @@ public:
         bool sus = false, kit = false; int nLayers = 1; float gain = 1.0f;   // kit = bicie: kazda klavesa svoj zvuk, bez transpozicie
         std::vector<Sample> samples;
         std::array<std::array<const Sample*, maxLayers>, 128> map {};
+        std::array<float, maxLayers> layerGain { 1, 1, 1, 1, 1, 1 };   // jemne vrstvy zosilnene (ostane stvrtina rozdielu oproti najsilnejsej)
     };
 
     static std::shared_ptr<InstrBank> get();

@@ -2837,11 +2837,44 @@ namespace
         juce::Rectangle<int> nameBox; juce::String shownName, shownCat, lastKey;
     };
 
+    // klaviatura: ked nastroj nehra na celej klaviature (bicie, tympany), klavesy so zvukom su podfarbene ako v Kontakte
+    struct MappedKeys : juce::MidiKeyboardComponent
+    {
+        MappedKeys (NovaProcessor& pr) : juce::MidiKeyboardComponent (pr.keyboard, juce::MidiKeyboardComponent::horizontalKeyboard), p (pr) { on.fill (false); }
+        void refresh()
+        {
+            std::array<bool, 128> nw {}; nw.fill (false); bool any = false;
+            for (const char* l : { "a_", "b_" })
+            {
+                const juce::String px (l);
+                if (p.params.getRawParameterValue (px + "on")->load() < 0.5f || (int) p.params.getRawParameterValue (px + "wave")->load() != 7
+                    || (int) std::round (p.params.getRawParameterValue (px + "src")->load()) != 0) continue;
+                std::array<bool, 128> m {}; bool full = true;
+                if (! p.synth.instrKeyMap ((int) std::round (p.params.getRawParameterValue (px + "inst")->load()), m, full)) continue;
+                if (full) { any = false; nw.fill (false); break; }   // vrstva hra vsade - nic nepodfarbovat
+                const int sh = (int) std::round (p.params.getRawParameterValue (px + "oct")->load() * 12.0f + p.params.getRawParameterValue (px + "semi")->load());
+                for (int n = 0; n < 128; ++n) { const int s = n + sh; if (s >= 0 && s < 128 && m[(size_t) s]) { nw[(size_t) n] = true; any = true; } }
+            }
+            if (any != shade || nw != on) { shade = any; on = nw; repaint(); }
+        }
+        void drawWhiteNote (int n, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver, juce::Colour lineColour, juce::Colour textColour) override
+        {
+            juce::MidiKeyboardComponent::drawWhiteNote (n, g, area, isDown, isOver, lineColour, textColour);
+            if (shade && on[(size_t) n] && ! isDown) { g.setColour (juce::Colour (0xff8fa9c6).withAlpha (0.55f)); g.fillRect (area.reduced (1.0f, 0.0f)); }
+        }
+        void drawBlackNote (int n, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver, juce::Colour fill) override
+        {
+            juce::MidiKeyboardComponent::drawBlackNote (n, g, area, isDown, isOver, fill);
+            if (shade && on[(size_t) n] && ! isDown) { g.setColour (juce::Colour (0xff6f8db2).withAlpha (0.8f)); g.fillRect (area.reduced (area.getWidth() * 0.15f, 0.0f).withTrimmedBottom (area.getHeight() * 0.08f)); }
+        }
+        NovaProcessor& p; std::array<bool, 128> on {}; bool shade = false;
+    };
+
     // ===================================================================== rozsirena verzia
     struct ExtendedView : juce::Component, Tickable
     {
         ExtendedView (NovaEditor& e) : ed (e), p (e.proc), browser (p), insp (p), top (e, browser), la (p, 0), lb (p, 1), tube (p), fx (p), arp (p), morph (p), master (p),
-            keys (p.keyboard, juce::MidiKeyboardComponent::horizontalKeyboard)
+            keys (p)
         {
             for (auto* c : std::initializer_list<juce::Component*> { &top, &browser, &insp, &la, &lb, &tube, &fx, &arp, &morph, &master, &keys }) addAndMakeVisible (c);
             keys.setColour (juce::MidiKeyboardComponent::whiteNoteColourId, juce::Colour (0xffd9dee4));
@@ -2856,7 +2889,7 @@ namespace
         }
         void tick() override
         {
-            top.tick(); la.update(); lb.update(); tube.repaint(); morph.repaint(); fx.tick();
+            top.tick(); la.update(); lb.update(); tube.repaint(); morph.repaint(); fx.tick(); keys.refresh();
             if (p.currentKey != lastKey) { lastKey = p.currentKey; browser.list.repaint(); }
         }
         int layerAt (juce::Point<int> pt) const { return lb.getBounds().contains (pt) ? 1 : 0; }
@@ -2881,7 +2914,7 @@ namespace
         }
         NovaEditor& ed; NovaProcessor& p;
         Browser browser; InspireButton insp; TopBar top; LayerPanel la, lb; TubePanel tube; FxPanel fx; ArpPanel arp; MorphPad morph; MasterPanel master;
-        juce::MidiKeyboardComponent keys;
+        MappedKeys keys;
         juce::String lastKey;
     };
 }

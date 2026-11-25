@@ -241,7 +241,8 @@ bool InstrBank::parse (int id, const juce::MemoryBlock& mb)
     float g = 1.0f; std::memcpy (&g, b + 8, 4);
     I->gain = juce::jlimit (0.05f, 20.0f, g);   // zosilnenie nad ulozene vzorky (vyrovnana hlasitost nastrojov)
     size_t hdr = 12, dataAt = 12 + (size_t) n * 16;
-    std::vector<int> layers, spans;   // spans: bicie - kolko klaves pod (dolne 4 bity) a nad (horne 4 bity) zvuk pokryva
+    std::vector<int> layers, spans;
+    std::vector<double> rmsv;   // spans: bicie - kolko klaves pod (dolne 4 bity) a nad (horne 4 bity) zvuk pokryva
     juce::OggVorbisAudioFormat ogg;
     I->samples.reserve (n);
     for (int k = 0; k < n && ! quit; ++k)
@@ -266,11 +267,28 @@ bool InstrBank::parse (int id, const juce::MemoryBlock& mb)
             for (int i = 0; i < s.length; ++i)
                 s.data[(size_t) i * (size_t) s.ch + (size_t) c] = (int16_t) juce::jlimit (-32767.0f, 32767.0f, src[i] * 32767.0f);
         }
+        {   // hlasitost zaciatku vzorky (0,4 s) pre vyrovnanie vrstiev
+            double e = 0; const int n = juce::jmin (s.length, (int) (0.4 * s.rate)) * s.ch;
+            for (int i = 0; i < n; ++i) { const double x = s.data[(size_t) i] / 32767.0; e += x * x; }
+            rmsv.push_back (n > 0 ? std::sqrt (e / n) : 0.0);
+        }
         I->samples.push_back (std::move (s));
         layers.push_back (layer);
         spans.push_back (span);
     }
     if (I->samples.empty() || quit) return false;
+    if (I->nLayers > 1)
+    {   // jemne vrstvy (pp, p) su v nahravke vela tichsie - pri jemnom hrani bol nastroj takmer nepocut
+        std::vector<std::vector<double>> per ((size_t) I->nLayers);
+        for (size_t i = 0; i < rmsv.size(); ++i) if (rmsv[i] > 1.0e-5 && juce::isPositiveAndBelow (layers[i], I->nLayers)) per[(size_t) layers[i]].push_back (rmsv[i]);
+        auto med = [] (std::vector<double> v) { if (v.empty()) return 0.0; std::sort (v.begin(), v.end()); return v[v.size() / 2]; };
+        const double top = med (per[(size_t) I->nLayers - 1]);
+        for (int l = 0; l < I->nLayers; ++l)
+        {
+            const double m = med (per[(size_t) l]);
+            I->layerGain[(size_t) l] = (m > 0 && top > 0) ? (float) juce::jlimit (1.0, 6.0, std::pow (top / m, 0.75)) : 1.0f;
+        }
+    }
     // kazdej note a vrstve najblizsia vzorka; ked vo vrstve chyba, vezme susednu vrstvu
     for (int nt = 0; nt < 128; ++nt)
         for (int l = 0; l < I->nLayers; ++l)

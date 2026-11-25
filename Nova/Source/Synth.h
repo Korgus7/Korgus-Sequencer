@@ -72,6 +72,15 @@ namespace nova
         void fadeAll() { fadeRequest = true; }
         bool pianoReady() const { return bank != nullptr && bank->ready(); }
         bool pianoFailed() const { return bank != nullptr && bank->failed(); }
+        // ma nastroj na tejto klavese zvuk? (bicie a tympany hraju len na niektorych klavesoch)
+        bool instrKeyMap (int id, std::array<bool, 128>& out, bool& full) const
+        {
+            full = true; out.fill (false);
+            if (id <= 0 || id == InstrBank::oldPiano || ibank == nullptr) return false;
+            const auto* I = ibank->find (id); if (I == nullptr) return false;
+            for (int n = 0; n < 128; ++n) { bool on = false; for (int l = 0; l < I->nLayers; ++l) on = on || I->map[(size_t) n][(size_t) l] != nullptr; out[(size_t) n] = on; full = full && on; }
+            return true;
+        }
         int instrStatus (int id, float& prog) const { prog = 0; if (id <= 0 || id == InstrBank::oldPiano || ibank == nullptr) return 0; if (ibank->downloading (id)) { prog = ibank->progress (id); return 4; } return ibank->failed (id) ? 3 : 0; }
         bool instrReady (int id) const { if (id == InstrBank::oldPiano) { auto* b = bank2Raw.load(); return b != nullptr && b->ready(); } return id == 0 ? pianoReady() : ibank != nullptr && ibank->ready (id); }
         // volat z hlavneho vlakna (nacitanie povodneho klavira az ked je treba)

@@ -422,19 +422,67 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "keysnap")
+    {
+        // podfarbene klavesy pri bicich (snimka rozsirenej verzie)
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        q.loadPreset (String::fromUTF8 ("f:Bicia súprava")); q.synth.requestInstr (41);
+        for (int i = 0; i < 400 && ! q.synth.instrReady (41); ++i) Thread::sleep (25);
+        q.uiMode = 1;
+        std::unique_ptr<AudioProcessorEditor> ed (q.createEditor());
+        auto end = Time::getMillisecondCounter() + 1500; while (Time::getMillisecondCounter() < end) { MessageManager::getInstance()->runDispatchLoopUntil (50); }
+        auto img = ed->createComponentSnapshot (ed->getLocalBounds());
+        File f ("/tmp/keysnap.png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
+    if (argc > 1 && String (argv[1]) == "plevel")
+    {
+        // hlasitost celeho zvuku (synth + efekty) cez processBlock, ako to pocuje pouzivatel
+        NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+        const float vel = (float) SystemStats::getEnvironmentVariable ("VEL", "0.6").getDoubleValue();
+        for (auto& f : nova::factoryPatches())
+        {
+            auto it = f.values.find ("a_inst"); auto wv = f.values.find ("a_wave");
+            const bool isInst = it != f.values.end() && wv != f.values.end() && (int) wv->second == 7;
+            const int inst = isInst ? (int) it->second : -1;
+            q.loadPreset ("f:" + f.name);
+            if (inst > 0) { q.synth.requestInstr (inst); for (int i = 0; i < 400 && ! q.synth.instrReady (inst); ++i) Thread::sleep (25); }
+            if (inst == 0) for (int i = 0; i < 400 && ! q.synth.pianoReady(); ++i) Thread::sleep (25);
+            std::vector<int> ch { 60 };
+            if (inst == 41) ch = { 38 }; else if (inst == 42) ch = { 52 }; else if (inst == 43) ch = { 54 }; else if (inst == 40) ch = { 45 };
+            std::vector<float> sq; AudioBuffer<float> b (2, bs);
+            const int total = (int) (2.5 * sr);
+            for (int pos = 0; pos < total; pos += bs)
+            {
+                MidiBuffer mb;
+                if (pos == 0) for (int n : ch) mb.addEvent (MidiMessage::noteOn (1, n, vel), 0);
+                if (pos <= (int) (1.2 * sr) && pos + bs > (int) (1.2 * sr)) for (int n : ch) mb.addEvent (MidiMessage::noteOff (1, n), 0);
+                b.clear(); q.processBlock (b, mb);
+                for (int i = 0; i < bs; ++i) sq.push_back (0.5f * (b.getSample (0, i) * b.getSample (0, i) + b.getSample (1, i) * b.getSample (1, i)));
+            }
+            { MidiBuffer mb; for (int k = 0; k < 40; ++k) { b.clear(); q.processBlock (b, mb); } }   // dozvuk prec
+            const int w = (int) (0.4 * sr); double acc = 0, best = 0;
+            for (int i = 0; i < (int) sq.size(); ++i) { acc += sq[(size_t) i]; if (i >= w) acc -= sq[(size_t) (i - w)]; best = std::max (best, acc / w); }
+            printf ("%s %2d %-24s %6.1f dB\n", isInst ? "I" : "S", inst, f.name.toRawUTF8(), Decibels::gainToDecibels ((float) std::sqrt (best), -100.0f));
+        }
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "instlevel")
     {
         // hlasitost nahratych nastrojov (s cakanim na nacitanie): uroven s p_gain
         for (auto& f : nova::factoryPatches())
         {
-            auto it = f.values.find ("a_inst"); if (it == f.values.end()) continue;
-            const int inst = (int) it->second; if (inst <= 0 || inst == InstrBank::oldPiano) continue;
+            auto it = f.values.find ("a_inst"); auto wv = f.values.find ("a_wave");
+            const bool isInst = it != f.values.end() && wv != f.values.end() && (int) wv->second == 7;
+            const int inst = isInst ? (int) it->second : -1;
+            if (isInst && inst == InstrBank::oldPiano) continue;
             nova::PatchData pd; pd.values = f.values;
             nova::Settings s;
             NovaProcessor::settingsFrom (s, [&pd] (const juce::String& id) { if (id == "p_gain" || id == "volume") return 0.0f; auto i2 = pd.values.find (id); if (i2 != pd.values.end()) return i2->second; const auto* sp = nova::findSpec (id); return sp != nullptr ? sp->def : 0.0f; });
             s.arpOn = false;
-            auto syn = std::make_unique<nova::Synth>(); syn->prepare (sr, bs); syn->requestInstr (inst);
-            for (int i = 0; i < 400 && ! syn->instrReady (inst); ++i) Thread::sleep (25);
+            auto syn = std::make_unique<nova::Synth>(); syn->prepare (sr, bs);
+            if (inst > 0) { syn->requestInstr (inst); for (int i = 0; i < 400 && ! syn->instrReady (inst); ++i) Thread::sleep (25); }
+            if (inst == 0) for (int i = 0; i < 400 && ! syn->pianoReady(); ++i) Thread::sleep (25);
             std::vector<int> ch { 48, 55, 60, 64 };
             if (inst == 41) ch = { 36, 38, 42 }; else if (inst == 42) ch = { 52, 57, 62 }; else if (inst == 40) ch = { 38, 45, 53 }; else if (inst == 43) ch = { 54, 75, 81 };
             std::vector<float> sq; AudioBuffer<float> b (2, bs);
@@ -442,7 +490,7 @@ int main (int argc, char** argv)
             for (int pos = 0; pos < total; pos += bs)
             {
                 MidiBuffer mb;
-                if (pos == 0) for (int n : ch) mb.addEvent (MidiMessage::noteOn (1, n, 0.8f), 0);
+                if (pos == 0) for (int n : ch) mb.addEvent (MidiMessage::noteOn (1, n, (float) SystemStats::getEnvironmentVariable ("VEL", "0.8").getDoubleValue()), 0);
                 if (pos <= (int) (1.2 * sr) && pos + bs > (int) (1.2 * sr)) for (int n : ch) mb.addEvent (MidiMessage::noteOff (1, n), 0);
                 b.clear(); syn->process (b, mb, s);
                 for (int i = 0; i < bs; ++i) sq.push_back (0.5f * (b.getSample (0, i) * b.getSample (0, i) + b.getSample (1, i) * b.getSample (1, i)));
@@ -450,7 +498,7 @@ int main (int argc, char** argv)
             const int w = (int) (0.4 * sr); double acc = 0, best = 0;
             for (int i = 0; i < (int) sq.size(); ++i) { acc += sq[(size_t) i]; if (i >= w) acc -= sq[(size_t) (i - w)]; best = std::max (best, acc / w); }
             const float m = Decibels::gainToDecibels ((float) std::sqrt (best), -100.0f), g = pd.values["p_gain"];
-            printf ("%2d %-20s %6.1f dB  (p_gain %5.1f) -> %6.1f dB\n", inst, f.name.toRawUTF8(), m, g, m + g);
+            printf ("%s %2d %-24s %6.1f dB  (p_gain %5.1f) -> %6.1f dB\n", isInst ? "I" : "S", inst, f.name.toRawUTF8(), m, g, m + g);
         }
         return 0;
     }

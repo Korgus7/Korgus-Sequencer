@@ -150,7 +150,9 @@ namespace nova
                 lv.smp = I->map[(size_t) sn][(size_t) layer];
                 if (lv.smp == nullptr) return;
                 const float center = (float) (layer + 1) / (float) nl;
-                lv.velGain = clampf (std::pow (v.vel / center, 0.9f), 0.08f, 2.0f) * std::pow (0.15f + 0.85f * v.vel, 1.6f) * I->gain;
+                // sila uderu ako pri syntetickych zvukoch (Citlivost), vrstvy maju svoju prirodzenu hlasitost - jemne hranie uz nie je takmer ticho
+                const float vi = 0.35f + 0.65f * vt;
+                lv.velGain = clampf (std::pow (v.vel / center, 0.5f), 0.3f, 1.6f) * ((1.0f - vi) + vi * std::pow (v.vel, 1.2f)) * I->gain * I->layerGain[(size_t) layer];
                 // "ludske" hranie: kazda nota trochu ina hlasitost; sláciky, dychy, gitary a basy aj jemne ladenie (klavesy a zvonky nie)
                 lv.velGain *= 1.0f + 0.08f * v.rng.next();
                 const bool fixedPitch = s.inst <= 3 || (s.inst >= 17 && s.inst <= 19) || s.inst == 23 || (s.inst >= 30 && s.inst <= 32) || s.inst >= 40 || I->kit;
