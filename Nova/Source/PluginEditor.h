@@ -29,6 +29,8 @@ public:
     bool knobLearning (const juce::String& paramId) override { return proc.isLearning (paramId); }
     // prehliadac zvukov (layer -1 = jedno tlacidlo Nacitat)
     void openWavBrowser (int layer, std::function<void (const juce::File&, int)> onLoad);
+    // okno Inspiracie: cele zachytene MIDI, vyber useku
+    void openInspireWindow (juce::Component* fromButton);
     NovaProcessor& proc;
     nova::ui::Look look;
 

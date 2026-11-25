@@ -214,6 +214,54 @@ namespace nova
         return i < 0 || i == categories().size() - 1 ? -1 : (i < 7 ? 0 : 1);
     }
 
+    const juce::StringArray& soundGroups (int section)
+    {
+        static const juce::StringArray n = split ("Sláčiky|Brnkacie|Klavír|Drevené dychy|Plechové dychy|Mechové|Melodické bicie");
+        static const juce::StringArray s = split ("Basy|Leady|Plucky|Pady|Klávesy|Sláčiky|Bicie|Atmosféry|Hlas|Elektrické");
+        return section == 0 ? n : s;
+    }
+
+    juce::String soundGroup (const juce::String& name, const juce::String& category, bool factory, int& section)
+    {
+        // tovarenske zvuky: skupina podla nazvu (tabulka nastrojov)
+        static const std::map<juce::String, std::pair<int, juce::String>> byName = []
+        {
+            std::map<juce::String, std::pair<int, juce::String>> m;
+            auto put = [&m] (int sct, const char* grp, const char* names)
+            {
+                for (auto& x : split (names)) m[x] = { sct, juce::String::fromUTF8 (grp) };
+            };
+            put (0, "Sláčiky", "Sláčiková sekcia|Sólové husle|Violončelá|Pizzicato sláčiky|Sláčiky tremolo|Sláčiky staccato|Jazzový kontrabas");
+            put (0, "Brnkacie", "Akustická gitara|Koncertná harfa");
+            put (0, "Klavír", "Koncertný klavír|Pôvodný klavír|Pianíno|Čembalo");
+            put (0, "Drevené dychy", "Tenor saxofón|Priečna flauta|Klarinet|Hoboj|Fagot|Okarína|Zobcová flauta");
+            put (0, "Plechové dychy", "Trúbka s dusítkom|Trúbka|Trombón|Lesný roh|Tuba");
+            put (0, "Mechové", "Ústna harmonika|Píšťalový organ");
+            put (0, "Melodické bicie", "Jazzový vibrafón|Koncertná marimba|Zvonkohra|Africká kalimba|Rúrkové zvony|Xylofón");
+            put (1, "Elektrické", "Elektrická gitara|Jazzová gitara|Basgitara");
+            put (1, "Klávesy", "Rhodes");
+            put (1, "Bicie", "Kopák|Elektronický tom");
+            put (1, "Atmosféry", "Púštny dron|Ambientný oblak");
+            put (1, "Hlas", "Vocoder Robo zbor|Vocoder Vesmír|Vocoder Sklo|Vocoder Daft|Hlboký spev|WT Vokál pad");
+            return m;
+        }();
+        // povodne kategorie (aj vlastne zvuky ulozene do nich)
+        static const std::map<juce::String, std::pair<int, juce::String>> byCat = []
+        {
+            std::map<juce::String, std::pair<int, juce::String>> m;
+            auto put = [&m] (const char* c, int sct, const char* grp) { m[juce::String::fromUTF8 (c)] = { sct, juce::String::fromUTF8 (grp) }; };
+            put ("Klavír", 0, "Klavír"); put ("Klávesy", 0, "Klavír"); put ("Gitary", 0, "Brnkacie"); put ("Basy", 1, "Basy");
+            put ("Sláčiky", 0, "Sláčiky"); put ("Dychy", 0, "Drevené dychy"); put ("Zvonky", 0, "Melodické bicie");
+            put ("Synth klávesy", 1, "Klávesy"); put ("Pady", 1, "Pady"); put ("Synth sláčiky", 1, "Sláčiky"); put ("Plucky", 1, "Plucky");
+            put ("Synth basy", 1, "Basy"); put ("Leady", 1, "Leady");
+            return m;
+        }();
+        if (factory) if (auto it = byName.find (name); it != byName.end()) { section = it->second.first; return it->second.second; }
+        if (auto it = byCat.find (category); it != byCat.end()) { section = it->second.first; return it->second.second; }
+        section = -1;
+        return category;
+    }
+
     const std::vector<FactoryPatch>& factoryPatches()
     {
         static const std::vector<FactoryPatch> list = []

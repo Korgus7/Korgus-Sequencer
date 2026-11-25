@@ -140,42 +140,66 @@ namespace
 
     // ===================================================================== jednoducha verzia
     // ===================================================================== velke tlacidlo "Inspiracia"
-    // zachyti, co si prave zahral: v Korgus Sequenceri to ide do stopy, inde sa ponukne ulozenie MIDI / WAV
+    // zachyti, co si zahral: tlacidlo ukazuje prave hrane noty ako male stvorceky, klik otvori okno s celym MIDI (vyber useku lokatormi)
     struct InspireButton : juce::Component, juce::SettableTooltipClient, private juce::Timer
     {
         InspireButton (NovaProcessor& pr) : p (pr)
         {
-            setTooltip (T ("Zachytí, čo si práve zahral (aj bez nahrávania) – v Korgus Sequenceri to vloží do stopy, inde ponúkne uloženie MIDI alebo WAV"));
+            setTooltip (T ("Inšpirácia: zachytí, čo si zahral (aj bez nahrávania). Klik otvorí celé MIDI – vyberieš úsek a vložíš ho do stopy alebo uložíš ako MIDI / WAV"));
             setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            startTimerHz (12);
         }
         ~InspireButton() override { stopTimer(); }
-        void flash (const juce::String& m, int ms = 3500) { msg = m; startTimer (ms); repaint(); }
-        void timerCallback() override { stopTimer(); if (! busy) { msg = {}; repaint(); } }
+        void flash (const juce::String& m, int ms = 3500) { msg = m; msgUntil = juce::Time::getMillisecondCounter() + (juce::uint32) ms; repaint(); }
+        void timerCallback() override
+        {
+            if (msg.isNotEmpty() && ! busy && juce::Time::getMillisecondCounter() > msgUntil) { msg = {}; repaint(); }
+            if (! isShowing()) return;
+            double now = 0;
+            auto all = p.capturedNotes (now);
+            recent.clear();
+            for (auto& n : all) if (n.t + n.d >= now - kWin) recent.push_back (n);
+            const bool any = ! recent.empty();
+            if (any || hadRecent) { lastNow = now; repaint(); }
+            hadRecent = any;
+        }
         void paint (juce::Graphics& g) override
         {
             const juce::Colour gold (0xffc9a35a);
             auto r = getLocalBounds().toFloat().reduced (0.5f);
             g.setColour (hover ? juce::Colour (0xff2a2a26) : juce::Colour (0xff1f252d)); g.fillRoundedRectangle (r, 3.0f);
+            // prave hrane noty: male stvorceky (cas zlava doprava, vyska zdola hore)
+            auto nr = getLocalBounds().toFloat().reduced (8.0f, 6.0f).withTrimmedTop (getHeight() > 50 ? 20.0f : 0.0f);
+            if (! recent.empty())
+            {
+                int lo = 127, hi = 0; for (auto& n : recent) { lo = juce::jmin (lo, n.k); hi = juce::jmax (hi, n.k); }
+                const int span = juce::jmax (12, hi - lo + 2); lo = juce::jmax (0, (lo + hi) / 2 - span / 2);
+                const float sq = juce::jlimit (3.0f, 6.0f, nr.getHeight() / (float) span * 1.6f);
+                for (auto& n : recent)
+                {
+                    const float x = nr.getX() + (float) ((n.t - (lastNow - kWin)) / kWin) * nr.getWidth();
+                    const float w = juce::jmax (sq, (float) (n.d / kWin) * nr.getWidth());
+                    const float y = nr.getBottom() - sq - (float) (n.k - lo) / (float) span * (nr.getHeight() - sq);
+                    const float x0 = juce::jmax (nr.getX(), x), x1 = juce::jmin (nr.getRight(), x + w);
+                    if (x1 <= x0) continue;
+                    g.setColour (gold.withAlpha (0.35f + 0.5f * (float) n.v / 127.0f));
+                    g.fillRoundedRectangle (x0, y, juce::jmax (sq, x1 - x0), sq, 1.0f);
+                }
+            }
             g.setColour (gold.withAlpha (hover ? 1.0f : 0.85f)); g.drawRoundedRectangle (r, 3.0f, 1.5f);
             g.setColour (gold);
-            g.setFont (juce::FontOptions (msg.isEmpty() ? (getHeight() < 36 ? 14.0f : 17.0f) : (getHeight() < 36 ? 12.0f : 14.0f), juce::Font::bold));
-            g.drawFittedText (msg.isEmpty() ? T ("✦ Inšpirácia") : msg, getLocalBounds().reduced (6, 2), juce::Justification::centred, 2);
+            const bool tall = getHeight() > 50;
+            g.setFont (juce::FontOptions (msg.isEmpty() ? (tall ? 15.0f : (getHeight() < 36 ? 14.0f : 17.0f)) : (getHeight() < 36 ? 12.0f : 14.0f), juce::Font::bold));
+            auto tr = tall ? getLocalBounds().reduced (6, 4).removeFromTop (18) : getLocalBounds().reduced (6, 2);
+            if (msg.isNotEmpty() && tall) tr = getLocalBounds().reduced (6, 4);
+            if (recent.empty() || msg.isNotEmpty() || tall)
+                g.drawFittedText (msg.isEmpty() ? T ("✦ Inšpirácia") : msg, tr, juce::Justification::centred, 2);
         }
         void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
         void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
-        void mouseUp (const juce::MouseEvent& e) override { if (e.mouseWasClicked() && contains (e.getPosition()) && ! busy) capture(); }
+        void mouseUp (const juce::MouseEvent& e) override { if (e.mouseWasClicked() && contains (e.getPosition()) && ! busy) openWindow(); }
+        void openWindow();
 
-        void capture()
-        {
-            auto ph = p.lastPhrase();
-            if (ph.notes.empty()) { flash (T ("Zatiaľ si nič nezahral")); return; }
-            if (NovaProcessor::hostedInKorgus()) { p.publishCapture (ph); flash (T ("Pridané do stopy")); return; }
-            juce::PopupMenu m;
-            m.addItem (1, T ("Uložiť ako MIDI…"));
-            m.addItem (2, T ("Uložiť ako WAV…"));
-            juce::Component::SafePointer<InspireButton> sp (this);
-            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [sp, ph] (int r) { if (sp != nullptr && r > 0) sp->save (ph, r == 2); });
-        }
         void save (const nova::CapPhrase& ph, bool wav)
         {
             auto dir = dataDir(); dir.createDirectory();
@@ -208,9 +232,283 @@ namespace
             });
         }
         NovaProcessor& p;
-        juce::String msg; bool hover = false, busy = false;
+        juce::String msg; bool hover = false, busy = false, hadRecent = false;
+        juce::uint32 msgUntil = 0;
+        static constexpr double kWin = 8.0;   // tlacidlo ukazuje poslednych 8 s
+        std::vector<nova::CapNote> recent; double lastNow = 0;
         std::unique_ptr<juce::FileChooser> chooser;
     };
+
+    // usek zachyteneho hrania ako fraza (casy od prvej noty)
+    nova::CapPhrase phraseRange (const std::vector<nova::CapNote>& all, double t0, double t1)
+    {
+        nova::CapPhrase ph;
+        for (auto& n : all) if (n.t >= t0 && n.t < t1) { auto c = n; c.d = juce::jmax (0.02, juce::jmin (c.d, t1 - c.t)); ph.notes.push_back (c); }
+        if (ph.notes.empty()) return ph;
+        const double f = ph.notes.front().t;
+        ph.bpm = ph.notes.front().bpm; ph.ppq = ph.notes.front().ppq;
+        if (ph.ppq < 0 || ph.bpm <= 0) { ph.bpm = 0; ph.ppq = -1; }
+        for (auto& n : ph.notes) n.t -= f;
+        return ph;
+    }
+
+    // okno Inspiracie: cele MIDI z poslednych 10 minut, vyber useku lokatormi L / R, posun a zoom ako v editore samplu
+    struct InspireWindow : juce::Component, private juce::Timer
+    {
+        InspireWindow (NovaProcessor& pr, juce::Component::SafePointer<InspireButton> b, std::function<void()> close) : p (pr), btn (b), onClose (std::move (close))
+        {
+            reload();
+            selectLast(); fit();
+            auto setup = [this] (juce::TextButton& x, const juce::String& t, const juce::String& tip, std::function<void()> fn)
+            { x.setButtonText (t); x.setTooltip (tip); x.onClick = std::move (fn); addAndMakeVisible (x); };
+            setup (closeB, juce::String::fromUTF8 ("✕"), T ("Zavrieť"), [this] { if (onClose) onClose(); });
+            setup (fitB, T ("Celé"), T ("Ukázať celé hranie"), [this] { fit(); repaint(); });
+            setup (lastB, T ("Posledná fráza"), T ("Vybrať to, čo si hral naposledy (po poslednej dlhšej pauze)"), [this] { selectLast(); repaint(); updateButtons(); });
+            setup (allB, T ("Vybrať všetko"), T ("Vybrať celé hranie"), [this] { if (! notes.empty()) { s0 = notes.front().t; s1 = endOf (notes); } repaint(); updateButtons(); });
+            setup (zoB, juce::String::fromUTF8 ("−"), T ("Oddialiť"), [this] { zoomAt (0.5f * (float) (roll().getX() + roll().getRight()), 1.5); });
+            setup (ziB, "+", T ("Priblížiť"), [this] { zoomAt (0.5f * (float) (roll().getX() + roll().getRight()), 1.0 / 1.5); });
+            if (NovaProcessor::hostedInKorgus())
+                setup (insB, T ("Vložiť do stopy"), T ("Vybraný úsek sa vloží do stopy v Korgus Sequenceri"), [this] { insert(); });
+            setup (midB, T ("Uložiť MIDI…"), T ("Uložiť vybraný úsek ako MIDI súbor"), [this] { saveSel (false); });
+            setup (wavB, T ("Uložiť WAV…"), T ("Uložiť vybraný úsek ako zvuk WAV (s aktuálnym zvukom)"), [this] { saveSel (true); });
+            insB.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff6b5520));
+            updateButtons();
+            setWantsKeyboardFocus (true);
+            startTimerHz (8);
+        }
+        ~InspireWindow() override { stopTimer(); }
+        void reload()
+        {
+            const auto n = p.capturedNotes (now);
+            const bool grow = n.size() != notes.size();
+            notes = n;
+            lo = 127; hi = 0;
+            for (auto& x : notes) { lo = juce::jmin (lo, x.k); hi = juce::jmax (hi, x.k); }
+            if (notes.empty()) { lo = 48; hi = 72; }
+            const int mid = (lo + hi) / 2, span = juce::jmax (24, hi - lo + 4);
+            lo = juce::jlimit (0, 127 - span, mid - span / 2); hi = lo + span;
+            if (grow) repaint();
+        }
+        static double endOf (const std::vector<nova::CapNote>& v) { double e = 0; for (auto& n : v) e = juce::jmax (e, n.t + n.d); return e; }
+        void selectLast()
+        {
+            const int m = juce::jmin ((int) notes.size(), p.lastPhraseCount());
+            if (m <= 0) { s0 = s1 = 0; return; }
+            s0 = notes[notes.size() - (size_t) m].t; s1 = endOf (notes);
+        }
+        void fit()
+        {
+            if (notes.empty()) { v0 = 0; v1 = 10; return; }
+            const double a = notes.front().t, b = endOf (notes), pad = juce::jmax (0.5, (b - a) * 0.03);
+            v0 = a - pad; v1 = b + pad;
+        }
+        void timerCallback() override { const auto before = notes.size(); reload(); if (notes.size() != before) { updateButtons(); repaint(); } }
+        void updateButtons()
+        {
+            const int n = selCount();
+            for (auto* b : { &insB, &midB, &wavB }) b->setEnabled (n > 0);
+        }
+        int selCount() const { int c = 0; for (auto& n : notes) if (n.t >= s0 && n.t < s1) ++c; return c; }
+        juce::Rectangle<int> roll() const { return getLocalBounds().reduced (14).withTrimmedTop (78).withTrimmedBottom (18); }
+        juce::Rectangle<int> ruler() const { return roll().removeFromTop (20); }
+        juce::Rectangle<int> grid() const { return roll().withTrimmedTop (20).withTrimmedLeft (30); }
+        float X (double t) const { auto a = grid(); return (float) a.getX() + (float) ((t - v0) / (v1 - v0)) * (float) a.getWidth(); }
+        double Tof (float x) const { auto a = grid(); return v0 + (double) (x - (float) a.getX()) / juce::jmax (1, a.getWidth()) * (v1 - v0); }
+        void resized() override
+        {
+            closeB.setBounds (getWidth() - 14 - 30, 12, 30, 26);
+            auto row = juce::Rectangle<int> (14, 46, getWidth() - 28, 26);
+            fitB.setBounds (row.removeFromLeft (58)); row.removeFromLeft (4);
+            zoB.setBounds (row.removeFromLeft (28)); row.removeFromLeft (2); ziB.setBounds (row.removeFromLeft (28)); row.removeFromLeft (10);
+            lastB.setBounds (row.removeFromLeft (120)); row.removeFromLeft (4);
+            allB.setBounds (row.removeFromLeft (110));
+            wavB.setBounds (row.removeFromRight (110)); row.removeFromRight (4);
+            midB.setBounds (row.removeFromRight (110)); row.removeFromRight (4);
+            if (insB.isVisible()) insB.setBounds (row.removeFromRight (130));
+            infoR = { 180, 12, juce::jmax (10, closeB.getX() - 190), 26 };
+        }
+        void paint (juce::Graphics& g) override
+        {
+            const juce::Colour gold (0xffc9a35a);
+            g.fillAll (juce::Colour (0xf0101419));
+            drawPanel (g, getLocalBounds().reduced (4));
+            g.setColour (gold); g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
+            g.drawText (T ("✦ Inšpirácia"), 16, 12, 160, 26, juce::Justification::centredLeft);
+            {
+                const int n = selCount();
+                g.setColour (text); g.setFont (juce::FontOptions (12.5f));
+                g.drawText (n > 0 ? T ("Vybraté: ") + juce::String (n) + T (" nôt · ") + juce::String (s1 - s0, 1) + " s" : T ("Nič nie je vybraté"), infoR, juce::Justification::centredLeft);
+            }
+            g.setColour (dim); g.setFont (juce::FontOptions (11.5f));
+            g.drawFittedText (T ("Všetko, čo si zahral za posledných 10 minút · ťahaním v notách vyberieš úsek, vlajočky L a R ho upravia · koliesko = zoom · Shift + koliesko alebo ťahanie pravítka = posun · dvojklik = celé"),
+                              juce::Rectangle<int> (16, getHeight() - 30, getWidth() - 32, 18), juce::Justification::centredLeft, 1);
+            auto ro = roll(), gr = grid(), ru = ruler();
+            g.setColour (juce::Colour (0xff141a22)); g.fillRoundedRectangle (ro.toFloat(), 3.0f);
+            if (notes.empty())
+            {
+                g.setColour (dim); g.setFont (juce::FontOptions (14.0f));
+                g.drawText (T ("Zatiaľ si nič nezahral. Zahraj niečo na klaviatúre – objaví sa to tu."), gr, juce::Justification::centred);
+                return;
+            }
+            const float rowH = (float) gr.getHeight() / (float) (hi - lo + 1);
+            {   // oktavy
+                g.setFont (juce::FontOptions (10.0f));
+                for (int k = lo; k <= hi; ++k)
+                {
+                    const float y = (float) gr.getBottom() - (float) (k - lo + 1) * rowH;
+                    if (k % 12 == 1 || k % 12 == 3 || k % 12 == 6 || k % 12 == 8 || k % 12 == 10) { g.setColour (juce::Colour (0xff11161d)); g.fillRect ((float) gr.getX(), y, (float) gr.getWidth(), rowH); }
+                    if (k % 12 == 0)
+                    {
+                        g.setColour (line); g.fillRect ((float) gr.getX(), y + rowH - 1.0f, (float) gr.getWidth(), 1.0f);
+                        g.setColour (dim); g.drawText ("C" + juce::String (k / 12 - 1), ro.getX() + 2, (int) (y + rowH) - 12, 26, 12, juce::Justification::centredLeft);
+                    }
+                }
+            }
+            {   // pravitko: cas od zaciatku hrania
+                const double t00 = notes.front().t, span = v1 - v0;
+                double st = 1; for (double c : { 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0 }) { st = c; if (c / span * gr.getWidth() >= 70) break; }
+                g.setFont (juce::FontOptions (10.5f));
+                for (double t = std::ceil ((v0 - t00) / st) * st; t00 + t <= v1; t += st)
+                {
+                    const float x = X (t00 + t);
+                    g.setColour (line.withAlpha (0.6f)); g.fillRect (x, (float) gr.getY(), 1.0f, (float) gr.getHeight());
+                    g.setColour (dim);
+                    const int tt = (int) std::floor (t + 1.0e-6);
+                    g.drawText (juce::String (tt / 60) + ":" + juce::String (tt % 60).paddedLeft ('0', 2) + (st < 1 ? "." + juce::String ((int) std::round ((t - tt) * 100)).paddedLeft ('0', 2) : juce::String()),
+                                (int) x + 3, ru.getY(), 60, ru.getHeight(), juce::Justification::centredLeft);
+                }
+            }
+            // vyber
+            const bool hasSel = s1 > s0;
+            const float sx0 = X (s0), sx1 = X (s1);
+            {
+                juce::Graphics::ScopedSaveState ss (g);
+                g.reduceClipRegion (gr);
+                if (hasSel) { g.setColour (gold.withAlpha (0.12f)); g.fillRect (sx0, (float) gr.getY(), sx1 - sx0, (float) gr.getHeight()); }
+                for (auto& n : notes)
+                {
+                    const float x = X (n.t), w = juce::jmax (3.0f, X (n.t + n.d) - x);
+                    if (x > (float) gr.getRight() || x + w < (float) gr.getX()) continue;
+                    const float y = (float) gr.getBottom() - (float) (n.k - lo + 1) * rowH;
+                    const bool in = hasSel && n.t >= s0 && n.t < s1;
+                    g.setColour ((in ? gold : steelHi).withAlpha (0.45f + 0.55f * (float) n.v / 127.0f));
+                    g.fillRoundedRectangle (x, y + 0.5f, w, juce::jmax (2.0f, rowH - 1.0f), 1.0f);
+                }
+            }
+            if (hasSel)
+            {   // lokatory s vlajockami
+                g.setColour (gold);
+                for (int k = 0; k < 2; ++k)
+                {
+                    const float x = k == 0 ? sx0 : sx1;
+                    if (x < (float) gr.getX() - 1 || x > (float) gr.getRight() + 1) continue;
+                    g.fillRect (x - 1.0f, (float) ru.getY(), 2.0f, (float) (gr.getBottom() - ru.getY()));
+                    auto f = juce::Rectangle<float> (k == 0 ? x : x - 16.0f, (float) ru.getY() + 2.0f, 16.0f, 14.0f);
+                    g.fillRoundedRectangle (f, 2.0f);
+                    g.setColour (juce::Colour (0xff1a1d22)); g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+                    g.drawText (k == 0 ? "L" : "R", f, juce::Justification::centred);
+                    g.setColour (gold);
+                }
+            }
+        }
+        int hit (juce::Point<float> pt) const
+        {
+            if (s1 > s0 && pt.y < (float) grid().getY())
+            {
+                if (std::abs (pt.x - X (s0)) <= 9.0f || (pt.x >= X (s0) && pt.x <= X (s0) + 16.0f)) return 1;
+                if (std::abs (pt.x - X (s1)) <= 9.0f || (pt.x <= X (s1) && pt.x >= X (s1) - 16.0f)) return 2;
+            }
+            if (s1 > s0 && pt.y >= (float) grid().getY() && (std::abs (pt.x - X (s0)) <= 4.0f)) return 1;
+            if (s1 > s0 && pt.y >= (float) grid().getY() && (std::abs (pt.x - X (s1)) <= 4.0f)) return 2;
+            return 0;
+        }
+        void mouseMove (const juce::MouseEvent& e) override
+        {
+            const int h = hit (e.position);
+            setMouseCursor (h ? juce::MouseCursor::LeftRightResizeCursor : (e.position.y < (float) grid().getY() ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::IBeamCursor));
+        }
+        // prichytenie k zaciatkom / koncom not (do 8 px), Shift = volne
+        double snap (double t, bool end, bool free) const
+        {
+            if (free) return t;
+            double best = t, bd = 8.0;
+            for (auto& n : notes)
+            {
+                const double c = end ? n.t + n.d : n.t;
+                const double d = std::abs (X (c) - X (t));
+                if (d < bd) { bd = d; best = end ? c + 0.001 : c - 0.001; }
+            }
+            return best;
+        }
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (! roll().contains (e.getPosition())) { drag = 0; return; }
+            drag = hit (e.position);
+            dv0 = v0; dv1 = v1; dT = Tof (e.position.x);
+            if (drag == 0) drag = e.position.y < (float) grid().getY() ? 4 : 3;
+        }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            const bool free = e.mods.isShiftDown();
+            const double t = Tof (e.position.x);
+            if (drag == 1) s0 = juce::jmin (snap (t, false, free), s1 - 0.01);
+            else if (drag == 2) s1 = juce::jmax (snap (t, true, free), s0 + 0.01);
+            else if (drag == 3) { if (std::abs (e.getDistanceFromDragStartX()) < 3) return; const double a = snap (juce::jmin (dT, t), false, free), b = snap (juce::jmax (dT, t), true, free); s0 = a; s1 = juce::jmax (a + 0.01, b); }
+            else if (drag == 4) { const double d = (double) e.getDistanceFromDragStartX() / juce::jmax (1, grid().getWidth()) * (dv1 - dv0); v0 = dv0 - d; v1 = dv1 - d; }
+            else return;
+            updateButtons(); repaint();
+        }
+        void mouseUp (const juce::MouseEvent&) override { drag = 0; }
+        void mouseDoubleClick (const juce::MouseEvent&) override { fit(); repaint(); }
+        void zoomAt (float x, double k)
+        {
+            const double at = Tof (x), span = juce::jlimit (0.5, 900.0, (v1 - v0) * k);
+            const double rel = (at - v0) / (v1 - v0);
+            v0 = at - rel * span; v1 = v0 + span; repaint();
+        }
+        void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+        {
+            if (e.mods.isShiftDown() || std::abs (w.deltaX) > std::abs (w.deltaY))
+            {
+                const double d = (std::abs (w.deltaX) > std::abs (w.deltaY) ? -w.deltaX : -w.deltaY) * (v1 - v0) * 0.5;
+                v0 += d; v1 += d; repaint(); return;
+            }
+            zoomAt (e.position.x, std::pow (0.8, w.deltaY * 4.0));
+        }
+        bool keyPressed (const juce::KeyPress& k) override
+        {
+            if (k == juce::KeyPress::escapeKey) { if (onClose) onClose(); return true; }
+            return false;
+        }
+        void insert()
+        {
+            const auto ph = phraseRange (notes, s0, s1);
+            if (ph.notes.empty()) return;
+            p.publishCapture (ph);
+            if (btn != nullptr) btn->flash (T ("Pridané do stopy"));
+            if (onClose) onClose();
+        }
+        void saveSel (bool wav)
+        {
+            const auto ph = phraseRange (notes, s0, s1);
+            if (ph.notes.empty() || btn == nullptr) return;
+            btn->save (ph, wav);
+            if (onClose) onClose();
+        }
+        NovaProcessor& p;
+        juce::Component::SafePointer<InspireButton> btn;
+        std::function<void()> onClose;
+        std::vector<nova::CapNote> notes;
+        double now = 0, v0 = 0, v1 = 10, s0 = 0, s1 = 0, dv0 = 0, dv1 = 0, dT = 0;
+        int lo = 48, hi = 72, drag = 0;
+        juce::Rectangle<int> infoR;
+        juce::TextButton closeB, fitB, lastB, allB, zoB, ziB, insB, midB, wavB;
+    };
+
+    void InspireButton::openWindow()
+    {
+        if (auto* ed = findParentComponentOfClass<NovaEditor>()) ed->openInspireWindow (this);
+    }
 
     // tlacidlo s ikonou velkosti okna (stvorec so sipkami do rohov)
     struct SizeIconButton : juce::Button
@@ -232,11 +530,60 @@ namespace
         }
     };
 
+    // skupina zvuku v menu (Prirodne / Synteticke); vlastne priecinky maju cast -1
+    juce::String entryGroup (const PresetStore::Entry& e, int& sct)
+    {
+        const auto& fp = factoryPatches();
+        const bool fac = e.factory && juce::isPositiveAndBelow (e.factoryIndex, (int) fp.size()) && e.category == fp[(size_t) e.factoryIndex].category;
+        return soundGroup (e.name, e.category, fac, sct);
+    }
+    int currentSection (NovaProcessor& p)
+    {
+        int sct = -1;
+        if (const auto* e = p.presets.find (p.currentKey)) entryGroup (*e, sct);
+        return sct;
+    }
+    juce::String groupKey (int sct, const juce::String& g) { return "g" + juce::String (sct) + ":" + g; }
+
+    // male ikonove tlacidlo (import, pridat, pomoc) s popisom pri mysi
+    struct IconBtn : juce::Button
+    {
+        enum Kind { importK, addK, helpK };
+        IconBtn (Kind k) : juce::Button ("icon"), kind (k) {}
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            auto r = getLocalBounds().toFloat().reduced (0.5f);
+            g.setColour (down ? steelHi : (over ? steel.brighter (0.15f) : steel)); g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (over ? juce::Colours::white : nova::ui::text);
+            const auto c = r.getCentre();
+            if (kind == helpK)
+            {
+                g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+                g.drawText ("?", r, juce::Justification::centred);
+                return;
+            }
+            juce::Path p;
+            if (kind == addK)
+            {
+                p.startNewSubPath (c.x - 5.5f, c.y); p.lineTo (c.x + 5.5f, c.y);
+                p.startNewSubPath (c.x, c.y - 5.5f); p.lineTo (c.x, c.y + 5.5f);
+                g.strokePath (p, juce::PathStrokeType (1.8f));
+                return;
+            }
+            // import: sipka dole do misky
+            p.startNewSubPath (c.x, c.y - 6.5f); p.lineTo (c.x, c.y + 1.5f);
+            p.startNewSubPath (c.x - 3.5f, c.y - 2.0f); p.lineTo (c.x, c.y + 1.5f); p.lineTo (c.x + 3.5f, c.y - 2.0f);
+            p.startNewSubPath (c.x - 6.0f, c.y + 1.0f); p.lineTo (c.x - 6.0f, c.y + 5.5f); p.lineTo (c.x + 6.0f, c.y + 5.5f); p.lineTo (c.x + 6.0f, c.y + 1.0f);
+            g.strokePath (p, juce::PathStrokeType (1.5f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
+        }
+        Kind kind;
+    };
+
     struct SimpleView : juce::Component, Tickable
     {
         struct PresetButton : juce::Component
         {
-            juce::String name, key, cat; bool selected = false, hover = false, small = false, sound = false; std::function<void()> onClick;
+            juce::String name, key, cat; int sct = -1; bool selected = false, hover = false, small = false, sound = false; std::function<void()> onClick;
             void paint (juce::Graphics& g) override
             {
                 auto r = getLocalBounds().toFloat().reduced (0.5f);
@@ -256,36 +603,37 @@ namespace
             for (auto& f : factoryPatches())
             {
                 auto b = std::make_unique<PresetButton>();
-                b->name = T (f.name); b->key = "f:" + f.name; b->cat = f.category; b->sound = true;
+                int fs = 0; const auto grp = soundGroup (f.name, f.category, true, fs);
+                b->name = T (f.name); b->key = "f:" + f.name; b->cat = groupKey (juce::jmax (0, fs), grp); b->sct = juce::jmax (0, fs); b->sound = true;
                 auto key = b->key;
                 b->onClick = [this, key] { p.loadPreset (key); p.preview(); tick(); };
                 addChildComponent (*b);
                 buttons.push_back (std::move (b));
             }
-            // kategorie (tovarenske, bez "Moje zvuky")
-            for (int i = 0; i < categories().size() - 1; ++i)
-            {
-                auto c = std::make_unique<PresetButton>();
-                c->name = T (categories()[i]); c->key = categories()[i]; c->small = true;
-                auto cat = c->key;
-                c->onClick = [this, cat] { setCat (cat); };
-                addAndMakeVisible (*c);
-                catButtons.push_back (std::move (c));
-            }
-            // dve casti: Nastroje (nahrate) a Syntezator
+            // skupiny zvukov oboch casti (Prirodne, Synteticke)
+            for (int sct = 0; sct < 2; ++sct)
+                for (auto& g : soundGroups (sct))
+                {
+                    auto c = std::make_unique<PresetButton>();
+                    c->name = T (g); c->key = groupKey (sct, g); c->sct = sct; c->small = true;
+                    auto cat = c->key;
+                    c->onClick = [this, cat] { setCat (cat); };
+                    addAndMakeVisible (*c);
+                    catButtons.push_back (std::move (c));
+                }
+            // dve casti: Prirodne (nahrate nastroje) a Synteticke
             for (int sct = 0; sct < 2; ++sct)
             {
                 auto& b = secButtons[sct];
-                b.name = T (sct == 0 ? "Nástroje" : "Syntezátor");
+                b.name = T (sct == 0 ? "Prírodné" : "Syntetické");
                 b.onClick = [this, sct] { setSection (sct, true); };
                 addAndMakeVisible (b);
             }
             {
-                const auto* e = p.presets.find (p.currentKey);
-                const auto saved = p.presets.setting ("simpleCat");
-                juce::String c = e != nullptr && e->factory ? factoryPatches()[(size_t) e->factoryIndex].category : (saved.isNotEmpty() ? saved : categories()[0]);
+                juce::String c = keyGroup (p.currentKey);
+                if (c.isEmpty()) c = p.presets.setting ("simpleGrp");
                 bool has = false; for (auto& cb : catButtons) has = has || cb->key == c;
-                setCat (has ? c : categories()[0]);
+                setCat (has ? c : catButtons.front()->key);
             }
             for (auto id : { "bright", "attack", "release", "space", "width", "full", "volume" })
             {
@@ -321,14 +669,14 @@ namespace
         {
             section = sct;
             for (int i = 0; i < 2; ++i) { secButtons[i].selected = i == sct; secButtons[i].repaint(); }
-            for (auto& cb : catButtons) cb->setVisible (categorySection (cb->key) == sct);
+            for (auto& cb : catButtons) cb->setVisible (cb->sct == sct);
             // Prekvap ma, Obmena a Nauc sa zvuk patria k syntezatoru
             for (auto* c : { (juce::Component*) &surprise, (juce::Component*) &surCat, (juce::Component*) &mutateB, (juce::Component*) &learnB }) c->setVisible (sct == 1);
-            if (pickCat && categorySection (curCat) != sct)
+            if (pickCat && grpSection (curCat) != sct)
             {
-                const auto saved = p.presets.setting (sct == 0 ? "simpleCatI" : "simpleCatS");
-                juce::String c = categorySection (saved) == sct ? saved : juce::String();
-                if (c.isEmpty()) for (auto& cb : catButtons) if (categorySection (cb->key) == sct) { c = cb->key; break; }
+                const auto saved = p.presets.setting ("simpleGrp" + juce::String (sct));
+                juce::String c = grpSection (saved) == sct ? saved : juce::String();
+                if (c.isEmpty()) for (auto& cb : catButtons) if (cb->sct == sct) { c = cb->key; break; }
                 setCat (c);
                 return;
             }
@@ -336,9 +684,9 @@ namespace
         }
         void setCat (const juce::String& c)
         {
-            curCat = c; p.presets.setSetting ("simpleCat", c);
-            const int sc = categorySection (c);
-            if (sc >= 0) p.presets.setSetting (sc == 0 ? "simpleCatI" : "simpleCatS", c);
+            curCat = c; p.presets.setSetting ("simpleGrp", c);
+            const int sc = grpSection (c);
+            if (sc >= 0) p.presets.setSetting ("simpleGrp" + juce::String (sc), c);
             if (sc >= 0 && sc != section) { setSection (sc, false); }
             for (auto& cb : catButtons) { cb->selected = cb->key == c; cb->repaint(); }
             for (auto& b : buttons) b->setVisible (b->cat == c);
@@ -350,11 +698,9 @@ namespace
             if (p.currentKey != lastKey)
             {
                 lastKey = p.currentKey;
-                if (const auto* e = p.presets.find (p.currentKey); e != nullptr && e->factory && factoryPatches()[(size_t) e->factoryIndex].category != curCat)
-                {
-                    const auto c = factoryPatches()[(size_t) e->factoryIndex].category;
+                const auto c = keyGroup (p.currentKey);
+                if (c.isNotEmpty() && c != curCat)
                     for (auto& cb : catButtons) if (cb->key == c) { setCat (c); break; }
-                }
             }
             for (auto& b : buttons) { const bool s = b->key == p.currentKey; if (s != b->selected) { b->selected = s; b->repaint(); } }
             juce::String st;
@@ -391,8 +737,8 @@ namespace
             {
                 auto sr = r.removeFromTop (28);
                 const int sw = (sr.getWidth() - 6) / 2;
-                secButtons[0].setBounds (sr.getX(), sr.getY(), sw, 28);
-                secButtons[1].setBounds (sr.getX() + sw + 6, sr.getY(), sw, 28);
+                secButtons[1].setBounds (sr.getX(), sr.getY(), sw, 28);
+                secButtons[0].setBounds (sr.getX() + sw + 6, sr.getY(), sw, 28);
                 r.removeFromTop (8);
             }
             {
@@ -414,7 +760,16 @@ namespace
             auto kr = r.removeFromTop (104);
             const int kw = kr.getWidth() / juce::jmax (1, (int) knobs.size());
             for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (18, 0));
-            insp.setBounds (16, getHeight() - 22 - 8 - 30, 160, 30);
+            insp.setBounds (16, getHeight() - 22 - 8 - 60, 160, 60);
+        }
+        static int grpSection (const juce::String& k) { return k.startsWith ("g0:") ? 0 : k.startsWith ("g1:") ? 1 : -1; }
+        // skupina tovarenskeho zvuku (prazdne = vlastny zvuk)
+        static juce::String keyGroup (const juce::String& key)
+        {
+            if (! key.startsWith ("f:")) return {};
+            const auto name = key.substring (2);
+            for (auto& f : factoryPatches()) if (f.name == name) { int sc = 0; const auto g = soundGroup (f.name, f.category, true, sc); return groupKey (juce::jmax (0, sc), g); }
+            return {};
         }
         NovaEditor& ed; NovaProcessor& p;
         InspireButton insp { p };
@@ -1478,6 +1833,24 @@ namespace
     int eqTap (int t) { static const int tp[NEQ] = { 0, 1, 2, 4, 3, 2 }; return tp[t]; }
     juce::Colour eqColour (int t) { return t == 0 ? arc : (t == 1 ? arcB : (t == 2 ? text.darker (0.15f) : (t == 3 ? juce::Colour (0xff7fa89a) : (t == 5 ? juce::Colour (0xffd08a6a) : amber.brighter (0.25f))))); }
 
+    // ikona zapnutia (vsetky efekty zap / vyp) na zaciatku panelu efektov
+    struct PowerBtn : juce::Button
+    {
+        PowerBtn() : juce::Button ("fx") { setClickingTogglesState (true); }
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            const bool on = getToggleState();
+            auto r = getLocalBounds().toFloat().reduced (0.5f);
+            g.setColour (down ? steelHi : (on ? steel : juce::Colour (0xff1a2029)).brighter (over ? 0.12f : 0.0f)); g.fillRoundedRectangle (r, 3.0f);
+            const auto c = r.getCentre(); const float R = juce::jmin (r.getWidth(), r.getHeight()) * 0.3f;
+            juce::Path p;
+            p.addCentredArc (c.x, c.y, R, R, 0.0f, 0.75f, juce::MathConstants<float>::twoPi - 0.75f, true);
+            p.startNewSubPath (c.x, c.y - R - 1.5f); p.lineTo (c.x, c.y - 0.5f);
+            g.setColour (on ? arc : dim);
+            g.strokePath (p, juce::PathStrokeType (1.7f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+    };
+
     struct FxPanel : juce::Component
     {
         FxPanel (NovaProcessor& pr) : p (pr),
@@ -1530,6 +1903,9 @@ namespace
             help.setFont (juce::FontOptions (12.0f)); help.setColour (juce::Label::textColourId, dim); help.setJustificationType (juce::Justification::topLeft);
             addAndMakeVisible (help);
             for (auto* b : { &tabFx, &tabEq, &tabGate, &tabMod }) addAndMakeVisible (b);
+            fxPow.setTooltip (T ("Efekty zap / vyp: delay, dozvuk, EQ, modulácia, drive, Tube a arpeggiátor. Len na počúvanie – zvuk sa nemení."));
+            fxPowAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.params, "fx_all", fxPow);
+            addAndMakeVisible (fxPow);
             tabFx.setButtonText (T ("EFEKTY")); tabEq.setButtonText ("EQ"); tabGate.setButtonText ("GATER"); tabMod.setButtonText ("MOD");
             tabGate.setTooltip (T ("Rytmický gater: seká zvuk do rytmu podľa tempa (trance, pop pady)"));
             tabMod.setTooltip (T ("Modulačná matica: LFO, obálka, sila úderu… môže hýbať ľubovoľným cieľom"));
@@ -1687,7 +2063,8 @@ namespace
         }
         void resized() override
         {
-            tabFx.setBounds (10, 8, 62, 22); tabEq.setBounds (74, 8, 34, 22); tabGate.setBounds (110, 8, 52, 22); tabMod.setBounds (164, 8, 40, 22); tabVoc.setBounds (206, 8, 70, 22);
+            fxPow.setBounds (10, 8, 24, 22);
+            tabFx.setBounds (38, 8, 62, 22); tabEq.setBounds (102, 8, 34, 22); tabGate.setBounds (138, 8, 52, 22); tabMod.setBounds (192, 8, 40, 22); tabVoc.setBounds (234, 8, 70, 22);
             // vocoder
             vcOn->setBounds (12, 40, 110, 22); vcSrc.setBounds (130, 40, 200, 22); vcMeter.setBounds (340, 44, getWidth() - 352, 14);
             vcHelp.setBounds (getWidth() - 36, 70, 24, 22);
@@ -1735,6 +2112,7 @@ namespace
         Toggle drive, chorus, delay, reverb, pp; Seg sync, chType;
         std::vector<std::unique_ptr<Knob>> fx, eq;
         std::unique_ptr<Knob> excK;
+        PowerBtn fxPow; std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> fxPowAtt;
         juce::TextButton tabFx, tabEq, tabGate, tabMod, targets[NEQ], flatBtn; juce::Slider width, punch; juce::Label widthL, punchL; HelpBtn help, gtHelp;
         std::unique_ptr<Toggle> gtOn; std::unique_ptr<Seg> gtRate; std::unique_ptr<Combo> mSrc[4], mDst[4]; std::unique_ptr<Knob> gtDepth, gtSmooth, gtSwing; std::unique_ptr<juce::Slider> mAmt[4]; std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mAmtAtt[4]; juce::ComboBox gtPreset;
         juce::TextButton tabVoc; std::unique_ptr<Toggle> vcOn; std::unique_ptr<Knob> vcK[6]; HelpBtn vcHelp;
@@ -1894,14 +2272,16 @@ namespace
     {
         CategoryChips (Browser& b) : br (b) {}
         juce::StringArray cats() const;
+        static juce::String chipLabel (const juce::String& c) { return T (c.startsWith ("g") ? c.fromFirstOccurrenceOf (":", false, false) : c); }
         bool isAddChip (int i) const { return i == cats().size() - 1; }
+        bool canDrop (int i) const { return i == 1 || (i > 1 && ! isAddChip (i) && ! cats()[i].startsWith ("g")); }
         std::vector<juce::Rectangle<int>> layoutChips (int width) const
         {
             std::vector<juce::Rectangle<int>> r; int x = 0, y = 0;
             const juce::Font f (juce::FontOptions (13.0f));
             for (auto& c : cats())
             {
-                const int w = juce::GlyphArrangement::getStringWidthInt (f, T (c)) + 14;
+                const int w = juce::GlyphArrangement::getStringWidthInt (f, chipLabel (c)) + 14;
                 if (x + w > width && x > 0) { x = 0; y += 26; }
                 r.push_back ({ x, y, w, 22 }); x += w + 5;
             }
@@ -1912,7 +2292,7 @@ namespace
         void mouseUp (const juce::MouseEvent& e) override;
         void mouseDown (const juce::MouseEvent& e) override;
         bool isInterestedInDragSource (const SourceDetails& d) override { return d.description.toString().startsWith ("preset:"); }
-        void itemDragMove (const SourceDetails& d) override { const int i = chipAt (d.localPosition.toInt()); hoverDrop = isAddChip (i) ? -1 : i; repaint(); }
+        void itemDragMove (const SourceDetails& d) override { const int i = chipAt (d.localPosition.toInt()); hoverDrop = canDrop (i) ? i : -1; repaint(); }
         void itemDragExit (const SourceDetails&) override { hoverDrop = -1; repaint(); }
         void itemDropped (const SourceDetails& d) override;
         int chipAt (juce::Point<int> p) const { auto r = layoutChips (getWidth()); for (int i = 0; i < (int) r.size(); ++i) if (r[(size_t) i].contains (p)) return i; return -1; }
@@ -1943,18 +2323,20 @@ namespace
             search.addListener (this);
             search.setFont (juce::FontOptions (13.5f));
             addAndMakeVisible (search);
-            importBtn.setButtonText (T ("Import zvuku…"));
-            importBtn.setTooltip (T ("Pridať zvuk zo súboru .knova (napr. z iného počítača)"));
+            importBtn.setTooltip (T ("Import zvuku – pridať zvuk zo súboru .knova (napr. z iného počítača)"));
             importBtn.onClick = [this] { importDialog(); };
-            folderBtn.setButtonText (T ("+ Pridať"));
-            folderBtn.setTooltip (T ("Nový priečinok na zvuky, nový zvuk, zvuk z WAV, import zvukov"));
+            folderBtn.setTooltip (T ("Pridať – nový priečinok na zvuky, nový zvuk, zvuk z WAV"));
             folderBtn.onClick = [this] { addMenu(); };
             addAndMakeVisible (importBtn); addAndMakeVisible (folderBtn);
-            // dve casti ako v jednoduchej verzii: Nastroje (nahrate) a Syntezator
-            if (section() < 0) section() = juce::jmax (0, categorySection (p.currentCategory));
+            helpB.setTooltip (T ("Pomoc k zoznamu zvukov"));
+            helpB.onClick = [] { juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Inspiria",
+                T ("Ťahaním myšou meníš poradie, pustením na priečinok ho tam presunieš. ☆ = obľúbený. Pravé tlačidlo = ďalšie možnosti.")); };
+            addAndMakeVisible (helpB);
+            // dve casti ako v jednoduchej verzii: Prirodne (nahrate nastroje) a Synteticke
+            if (section() < 0) section() = juce::jmax (0, currentSection (p));
             for (int i = 0; i < 2; ++i)
             {
-                secB[i].setButtonText (T (i == 0 ? "Nástroje" : "Syntezátor"));
+                secB[i].setButtonText (T (i == 0 ? "Prírodné" : "Syntetické"));
                 secB[i].setClickingTogglesState (false);
                 secB[i].onClick = [this, i] { setSection (i); };
                 addAndMakeVisible (secB[i]);
@@ -1962,9 +2344,6 @@ namespace
             addAndMakeVisible (chips);
             vp.setViewedComponent (&list, false); vp.setScrollBarsShown (true, false); vp.setScrollBarThickness (8);
             addAndMakeVisible (vp);
-            hint.setText (T ("Ťahaním myšou meníš poradie, pustením na priečinok ho tam presunieš. ☆ = obľúbený. Pravé tlačidlo = ďalšie možnosti."), juce::dontSendNotification);
-            hint.setFont (juce::FontOptions (11.5f)); hint.setColour (juce::Label::textColourId, dim); hint.setJustificationType (juce::Justification::topLeft);
-            addAndMakeVisible (hint);
             refresh();
         }
         static juce::String& filterCat() { static juce::String c; return c; }
@@ -1973,7 +2352,8 @@ namespace
         {
             if (i < 0 || i > 1) return;
             section() = i;
-            if (filterCat().isNotEmpty() && categorySection (filterCat()) >= 0 && categorySection (filterCat()) != i) filterCat() = {};
+            const auto& fc = filterCat();
+            if ((fc.startsWith ("g") && ! fc.startsWith ("g" + juce::String (i) + ":")) || (fc.isNotEmpty() && ! fc.startsWith ("g") && categorySection (fc) >= 0)) filterCat() = {};
             resized();
         }
         void textEditorTextChanged (juce::TextEditor&) override { refresh(); }
@@ -1984,11 +2364,13 @@ namespace
             const auto q = search.getText().trim().toLowerCase();
             for (auto& e : p.presets.entries())
             {
-                if (section() >= 0 && categorySection (e.category) >= 0 && categorySection (e.category) != section()) continue;   // druha cast
+                int es = -1; const auto grp = entryGroup (e, es);
+                if (section() >= 0 && es >= 0 && es != section()) continue;   // druha cast
                 if (filterCat() == juce::String::charToString (0x2605)) { if (! p.presets.isFav (e.key)) continue; }
+                else if (filterCat().startsWith ("g")) { if (es < 0 || groupKey (es, grp) != filterCat()) continue; }
                 else if (filterCat().isNotEmpty() && e.category != filterCat()) continue;
-                if (q.isNotEmpty() && ! e.name.toLowerCase().contains (q) && ! e.category.toLowerCase().contains (q)
-                    && ! T (e.name).toLowerCase().contains (q) && ! T (e.category).toLowerCase().contains (q)) continue;
+                if (q.isNotEmpty() && ! e.name.toLowerCase().contains (q) && ! grp.toLowerCase().contains (q)
+                    && ! T (e.name).toLowerCase().contains (q) && ! T (grp).toLowerCase().contains (q)) continue;
                 shown.push_back (e);
             }
             list.setSize (juce::jmax (10, vp.getMaximumVisibleWidth()), (int) shown.size() * PresetList::rowH + 4);
@@ -2077,7 +2459,7 @@ namespace
             {
                 if (sp == nullptr || r == 0) return;
                 auto& b = *sp;
-                const auto cat = (filterCat().isNotEmpty() && filterCat() != juce::String::charToString (0x2605)) ? filterCat() : categories()[categories().size() - 1];
+                const auto cat = (filterCat().isNotEmpty() && filterCat() != juce::String::charToString (0x2605) && ! filterCat().startsWith ("g")) ? filterCat() : categories()[categories().size() - 1];
                 if (r == 1) b.newFolderDialog();
                 else if (r == 2) { b.p.newSound (cat); b.refresh(); }
                 else if (r == 3) b.wavDialog (cat);
@@ -2174,26 +2556,29 @@ namespace
         void resized() override
         {
             auto r = getLocalBounds().reduced (10, 0);
-            r.removeFromTop (32);
-            {
+            {   // vedla nadpisu: import, pridat, pomoc
+                auto tr = r.withY (6).withHeight (22);
+                helpB.setBounds (tr.removeFromRight (26)); tr.removeFromRight (4);
+                folderBtn.setBounds (tr.removeFromRight (26)); tr.removeFromRight (4);
+                importBtn.setBounds (tr.removeFromRight (26));
+            }
+            r.removeFromTop (34);
+            search.setBounds (r.removeFromTop (26)); r.removeFromTop (8);
+            {   // Synteticke vlavo, Prirodne vpravo
                 auto sr = r.removeFromTop (28);
                 const int w = (sr.getWidth() - 6) / 2;
-                secB[0].setBounds (sr.removeFromLeft (w)); secB[1].setBounds (sr.removeFromRight (w));
+                secB[1].setBounds (sr.removeFromLeft (w)); secB[0].setBounds (sr.removeFromRight (w));
                 r.removeFromTop (8);
             }
-            search.setBounds (r.removeFromTop (26)); r.removeFromTop (6);
-            auto br = r.removeFromTop (24);
-            hint.setBounds (br.removeFromRight (24)); br.removeFromRight (4);
-            importBtn.setBounds (br.removeFromLeft (br.getWidth() / 2 + 20).withTrimmedRight (3)); folderBtn.setBounds (br.withTrimmedLeft (3));
-            r.removeFromTop (8);
             const int ch = chips.heightFor (r.getWidth());
             chips.setBounds (r.removeFromTop (ch)); r.removeFromTop (8);
             vp.setBounds (r.withTrimmedBottom (4));
             refresh();
         }
         NovaProcessor& p;
-        juce::TextEditor search; juce::TextButton importBtn, folderBtn, secB[2];
-        CategoryChips chips; PresetList list; juce::Viewport vp; HelpBtn hint;
+        juce::TextEditor search; juce::TextButton secB[2];
+        IconBtn importBtn { IconBtn::importK }, folderBtn { IconBtn::addK }, helpB { IconBtn::helpK };
+        CategoryChips chips; PresetList list; juce::Viewport vp;
         std::vector<PresetStore::Entry> shown;
         std::unique_ptr<juce::FileChooser> chooser;
     };
@@ -2201,8 +2586,10 @@ namespace
     juce::StringArray CategoryChips::cats() const
     {
         juce::StringArray c; c.add (T ("Všetko")); c.add (juce::String::charToString (0x2605));
-        for (auto& k : br.p.presets.allCategories())   // kategorie zvolenej casti + vlastne priecinky
-            if (categorySection (k) < 0 || categorySection (k) == Browser::section()) c.add (k);
+        const int sct = juce::jmax (0, Browser::section());
+        for (auto& g : soundGroups (sct)) c.add (groupKey (sct, g));   // skupiny zvolenej casti
+        for (auto& k : br.p.presets.allCategories())                   // vlastne priecinky
+            if (categorySection (k) < 0) c.add (k);
         c.add ("+");
         return c;
     }
@@ -2220,7 +2607,7 @@ namespace
             g.setColour (i == hoverDrop && i > 0 ? amber : (sel ? steelHi : steel));
             g.fillRoundedRectangle (r[(size_t) i].toFloat(), 3.0f);
             g.setColour (sel ? juce::Colours::white : text.withAlpha (0.85f)); g.setFont (juce::FontOptions (13.0f));
-            g.drawText (T (c[i]), r[(size_t) i], juce::Justification::centred);
+            g.drawText (chipLabel (c[i]), r[(size_t) i], juce::Justification::centred);
         }
     }
     void CategoryChips::mouseUp (const juce::MouseEvent& e)
@@ -2236,7 +2623,7 @@ namespace
         const int i = chipAt (d.localPosition.toInt()); hoverDrop = -1;
         const auto key = d.description.toString().fromFirstOccurrenceOf ("preset:", false, false);
         if (i == 1) { br.p.presets.setFav (key, true); br.refresh(); }
-        else if (i > 1 && ! isAddChip (i)) { br.p.presets.setCategory (key, cats()[i]); br.refresh(); }
+        else if (canDrop (i)) { br.p.presets.setCategory (key, cats()[i]); br.refresh(); }
         repaint();
     }
 
@@ -2254,7 +2641,8 @@ namespace
             g.setColour (sel ? juce::Colours::white : text); g.setFont (juce::FontOptions (14.0f));
             g.drawText (T (e.name), r.reduced (8, 0).withTrimmedLeft (16), juce::Justification::centredLeft);
             g.setColour (sel ? text : dim); g.setFont (juce::FontOptions (11.5f));
-            g.drawText (T (e.category), r.reduced (8, 0), juce::Justification::centredRight);
+            int es = -1;
+            g.drawText (T (entryGroup (e, es)), r.reduced (8, 0), juce::Justification::centredRight);
         }
         if (dropRow >= 0) { g.setColour (amber); g.fillRect (0, juce::jmin (dropRow, (int) br.shown.size()) * rowH - 2, getWidth(), 3); }
     }
@@ -2319,7 +2707,7 @@ namespace
             undoB.setButtonText (T ("Späť")); redoB.setButtonText (T ("Znova"));
             undoB.onClick = [this] { p.undo.undo(); }; redoB.onClick = [this] { p.undo.redo(); };
             setupSurprise (p, surprise, surCat, mutateB, [this] { br.list.repaint(); });
-            setupFx (p, fxB, fxAtt); setupPreview (p, pvB);
+            setupPreview (p, pvB);   // FX zap / vyp je ikona v paneli efektov
             for (int s : { 75, 90, 100, 110, 125, 150 }) size.addItem (juce::String (s) + " %", s);
             size.setWantsKeyboardFocus (false);
             size.setSelectedId (juce::roundToInt (p.uiScale * 100.0f), juce::dontSendNotification);
@@ -2328,7 +2716,7 @@ namespace
             vol.setSliderStyle (juce::Slider::LinearHorizontal); vol.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             volAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.params, "volume", vol);
             vol.setDoubleClickReturnValue (true, 0.0);
-            for (auto* c : std::initializer_list<juce::Component*> { &advanced, &pvB, &fxB, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &learnB, &size, &vol }) addAndMakeVisible (c);
+            for (auto* c : std::initializer_list<juce::Component*> { &advanced, &pvB, &prev, &next, &save, &undoB, &redoB, &surprise, &surCat, &mutateB, &learnB, &size, &vol }) addAndMakeVisible (c);
             tick();
         }
         void saveDialog()
@@ -2364,7 +2752,7 @@ namespace
             if (p.currentKey != lastKey)
             {
                 lastKey = p.currentKey;
-                const int sc = categorySection (p.currentCategory);
+                const int sc = currentSection (p);
                 if (sc >= 0 && sc != Browser::section()) br.setSection (sc);
             }
             {
@@ -2394,7 +2782,7 @@ namespace
         {
             const int y = 12, h = 28;
             advanced.setBounds (12, y, 96, h);
-            fxB.setBounds (176, y, 40, h); pvB.setBounds (146, y, 28, h); kbB.setBounds (116, y, 28, h);
+            pvB.setBounds (176, y, 28, h); kbB.setBounds (146, y, 28, h);
             prev.setBounds (220, y, 30, h);
             nameBox = { 254, y, 220, h };
             next.setBounds (478, y, 30, h);
@@ -2441,8 +2829,8 @@ namespace
         {
             top.setBounds (0, 0, getWidth(), 52);
             const int x0 = 12, y0 = 52 + 10;
-            browser.setBounds (x0, y0, 240, getHeight() - y0 - 12 - 48);
-            insp.setBounds (x0, getHeight() - 12 - 40, 240, 40);
+            browser.setBounds (x0, y0, 240, getHeight() - y0 - 12 - 88);
+            insp.setBounds (x0, getHeight() - 12 - 80, 240, 80);
             const int mx = x0 + 240 + 12;
             la.setBounds (mx, y0, 440, 410);
             tube.setBounds (mx + 448, y0, 150, 410);
@@ -2483,6 +2871,18 @@ NovaEditor::~NovaEditor()
     proc.onPatchChanged = nullptr;
     view = nullptr;
     setLookAndFeel (nullptr);
+}
+
+void NovaEditor::openInspireWindow (juce::Component* fromButton)
+{
+    if (view == nullptr) return;
+    juce::Component::SafePointer<NovaEditor> sp (this);
+    auto close = [sp] { juce::MessageManager::callAsync ([sp] { if (sp != nullptr) sp->overlay = nullptr; }); };
+    auto* w = new InspireWindow (proc, juce::Component::SafePointer<InspireButton> (dynamic_cast<InspireButton*> (fromButton)), close);
+    overlay.reset (w);
+    view->addAndMakeVisible (*w);
+    w->setBounds (view->getLocalBounds());
+    w->grabKeyboardFocus();
 }
 
 void NovaEditor::openWavBrowser (int layer, std::function<void (const juce::File&, int)> onLoad)

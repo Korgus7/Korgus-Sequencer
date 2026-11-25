@@ -1263,6 +1263,22 @@ nova::CapPhrase NovaProcessor::lastPhrase() const
     return nova::CaptureBuffer::extractPhrase (capBuf.snapshot(), (double) capSamples.load() / sr);
 }
 
+std::vector<nova::CapNote> NovaProcessor::capturedNotes (double& now) const
+{
+    const double sr = curRate > 0 ? curRate : 48000.0;
+    now = (double) capSamples.load() / sr;
+    const auto all = capBuf.snapshot();
+    std::vector<nova::CapEvent> ev;
+    ev.reserve (all.size());
+    for (auto& e : all) if (e.t >= now - nova::CaptureBuffer::keepSeconds) ev.push_back (e);
+    return nova::CaptureBuffer::pairNotes (ev, now);
+}
+
+int NovaProcessor::lastPhraseCount() const
+{
+    return (int) lastPhrase().notes.size();
+}
+
 void NovaProcessor::publishCapture (const nova::CapPhrase& ph)
 {
     auto* prm = params.getParameter ("capture_seq");

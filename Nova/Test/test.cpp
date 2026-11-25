@@ -398,6 +398,11 @@ int main (int argc, char** argv)
             std::unique_ptr<AudioProcessorEditor> ed (q.createEditor()); Thread::sleep (150);
             auto img = ed->createComponentSnapshot (ed->getLocalBounds());
             File f (dir.getChildFile (m ? "ed_adv.png" : "ed_simple.png")); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
+            // okno Inspiracie s celym MIDI
+            if (auto* ne = dynamic_cast<NovaEditor*> (ed.get())) { ne->openInspireWindow (nullptr); Thread::sleep (50);
+                auto im2 = ed->createComponentSnapshot (ed->getLocalBounds());
+                File f2 (dir.getChildFile (m ? "insp_adv.png" : "insp_simple.png")); f2.deleteFile(); FileOutputStream o2 (f2); PNGImageFormat().writeImageToStream (im2, o2); }
+            { double nw = 0; const auto all = q.capturedNotes (nw); check (all.size() >= 22 && q.lastPhraseCount() > 0 && q.lastPhraseCount() <= (int) all.size(), "cele MIDI obsahuje obe frazy, posledna je na konci"); }
         }
         printf (fails == 0 ? "INSPIRE: vsetko v poriadku\n" : "INSPIRE: %d chyb\n", fails);
         return fails;
