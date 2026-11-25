@@ -359,6 +359,8 @@ namespace nova
     {
         const auto& s = st.L[li];
         auto& lv = v.lv[li];
+        // upravy v editore samplu platia hned aj pre znejuci ton
+        if (lv.user != nullptr && lv.active) lv.ued = getSmpEdit (li);
         // analogove plavanie: najviac +-4 centy (nie na klavirnych samploch)
         const bool sampleSrc = lv.wave == 7 && lv.smp != nullptr;
         const float shift = s.oct * 12.0f + s.semi + s.fine * 0.01f + bend + (sampleSrc ? 0.0f : v.drift * 0.01f * st.fx.tube);

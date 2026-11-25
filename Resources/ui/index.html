@@ -3600,7 +3600,7 @@ function aedRender(){
     <span class="tg"><span class="tgl">Zoom</span><button id="aeZo" class="ico" title="Oddialiť">−</button><button id="aeZi" class="ico" title="Priblížiť">+</button><button id="aeZf" title="Celý zvuk">Celý</button></span>
     <span class="hint">Koliesko = zoom · Shift+koliesko = posun · ťahanie vo vlne = výber L–R · klik = ukazovateľ · štvorčeky hore = nábeh, hlasitosť, stíšenie · okraje klipu = orezanie</span>`;
   aed.pObj=p; $('edBody').onscroll=()=>{ if(aed&&!aed.drag) aedDraw(); };
-  $('edBody').innerHTML='<div id="aeWrap" style="position:relative;height:100%;min-height:120px"><canvas id="aeCv" style="display:block"></canvas><div id="audPH" class="ph"></div></div>';
+  $('edBody').innerHTML='<div id="aeWrap" style="position:relative;height:100%;min-height:120px"><canvas id="aeCv" style="display:block;position:absolute;left:0;top:0"></canvas><div id="audPH" class="ph"></div></div>';
   const upd=()=>{ drawArrange(); save(); };
   const gi=$('aeGain');
   gi.onpointerdown=()=>pushUndo();
@@ -3658,8 +3658,12 @@ function aedDraw(){
   if(!aed.pps){ if(body.clientWidth<60){ requestAnimationFrame(()=>{ if(aed&&!aed.pps) aedDraw(); }); return; } aed.pps=aedFitPps(p); }   // az ked ma okno sirku
   const G=aedGeo(p);
   const full=aedFull(p), W=Math.max(body.clientWidth,Math.ceil(full*aed.pps)+20), H=Math.max(120,body.clientHeight-(W>body.clientWidth?14:2)), dpr=window.devicePixelRatio||1;
-  if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){ cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr); cv.style.width=W+'px'; cv.style.height=H+'px'; }
-  const c=cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0);
+  // platno len na viditelnu sirku (pri velkom zoome by cele bolo prilis siroke a ostalo biele); obal drzi sirku pre posuvnik
+  const wrap=$('aeWrap'), sl=Math.min(body.scrollLeft,Math.max(0,W-body.clientWidth)), CW=Math.min(W,body.clientWidth);
+  if(wrap){ wrap.style.width=W+'px'; wrap.style.height=H+'px'; }
+  if(cv.width!==Math.round(CW*dpr)||cv.height!==Math.round(H*dpr)){ cv.width=Math.round(CW*dpr); cv.height=Math.round(H*dpr); cv.style.width=CW+'px'; cv.style.height=H+'px'; }
+  cv.style.left=sl+'px';
+  const c=cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,-sl*dpr,0);
   c.fillStyle='#161d27'; c.fillRect(0,0,W,H);
   const y0=AE_RUL, h=H-y0, mid=y0+h/2, g=p.gain==null?1:p.gain;
   c.fillStyle='#212b38'; c.fillRect(G.x0,y0,G.x1-G.x0,h);
@@ -3669,7 +3673,7 @@ function aedDraw(){
   c.fillStyle='#1c2430'; c.fillRect(0,0,W,AE_RUL); c.fillStyle='#2d4362'; c.fillRect(0,AE_RUL-1,W,1);
   c.font='10px Tahoma,Arial,sans-serif'; c.textBaseline='middle';
   const sStep=[.01,.05,.1,.25,.5,1,2,5,10,30,60].find(s=>s*aed.pps>=70)||120;
-  c.fillStyle='#56606e'; for(let t=0;t<=full;t+=sStep){ const x=Math.round(G.x(t))+.5; c.fillRect(x,AE_RUL-5,1,4); c.fillText((sStep<1?t.toFixed(sStep<.1?2:1):Math.round(t))+' s',x+3,6); }
+  c.fillStyle='#56606e'; for(let t=Math.floor(sl/aed.pps/sStep)*sStep;t<=Math.min(full,(sl+CW)/aed.pps+sStep);t+=sStep){ const x=Math.round(G.x(t))+.5; c.fillRect(x,AE_RUL-5,1,4); c.fillText((sStep<1?t.toFixed(sStep<.1?2:1):Math.round(t))+' s',x+3,6); }
   const bPx=G.bd*aed.pps, bEvery=bPx>=26?1:bPx>=10?4:16;
   for(let b=Math.ceil(p.start);b<=p.start+p.len+1e-6;b++){ if((b-Math.ceil(p.start))%bEvery) continue; const x=Math.round(G.x(G.st2t(b*SPB)))+.5; if(x<G.x0-1||x>G.x1+1) continue;
     c.fillStyle='rgba(143,169,198,.18)'; c.fillRect(x,y0,1,h); c.fillStyle='#8fa9c6'; c.fillText(String(b+1),x+3,AE_RUL-6); }
@@ -3699,7 +3703,7 @@ function aedDraw(){
   aed.geo={x0:G.x0,x1:G.x1,fiX:Math.max(G.x0+HS/2,fiX),foX:Math.min(G.x1-HS/2,foX),gx,gy,HS,y0,H};
   const ph=$('audPH'); if(ph) ph.style.height=H+'px'; natPH();
 }
-function aedHit(e){ const cv=$('aeCv'), r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top, g=aed&&aed.geo; if(!g) return {x,y,t:null,cur:''};
+function aedHit(e){ const cv=$('aeWrap'), r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top, g=aed&&aed.geo; if(!g) return {x,y,t:null,cur:''};
   const top=y>=g.y0&&y<=g.y0+g.HS+4;
   if(top&&Math.abs(x-g.fiX)<=6) return {x,y,t:'fi',cur:'ew-resize'};
   if(top&&Math.abs(x-g.foX)<=6) return {x,y,t:'fo',cur:'ew-resize'};
@@ -3711,7 +3715,7 @@ function aedDown(e){
   if(e.button!==0) return; const r=aedGet(); if(!r) return; e.preventDefault(); const {tr,p}=r, h=aedHit(e), G=aedGeo(p);
   const d={t:h.t,x0:h.x,y0:h.y,fi0:p.fi||0,fo0:p.fo||0,g0:p.gain==null?1:p.gain,s0:p.start,off0:p.off,dur0:p.dur,moved:false,undo:false};
   aed.drag=d;
-  const mv=ev=>{ const cv=$('aeCv'); if(!cv||!aed||aed.drag!==d) return; const rc=cv.getBoundingClientRect(), x=ev.clientX-rc.left, y=ev.clientY-rc.top;
+  const mv=ev=>{ const cv=$('aeWrap'); if(!cv||!aed||aed.drag!==d) return; const rc=cv.getBoundingClientRect(), x=ev.clientX-rc.left, y=ev.clientY-rc.top;
     if(!d.moved&&Math.abs(x-d.x0)<3&&Math.abs(y-d.y0)<3) return; d.moved=true;
     if(!d.undo&&d.t!=='sel'){ pushUndo(); d.undo=true; }
     const dt=(x-d.x0)/aed.pps, maxS=p.len*barDur();

@@ -109,6 +109,7 @@ private:
     std::atomic<bool> autoRecOn { false };
     void runBootStep();
     void bootStatus (const juce::String& text, double progress);
+    bool trackInSong (const juce::String& key) const;
     void onAiRequest (const juce::var&);
     void sendAiState();
     void onImportAudio (const juce::var&);

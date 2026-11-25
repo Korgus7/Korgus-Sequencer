@@ -2447,6 +2447,13 @@ namespace
             search.addListener (this);
             search.setFont (juce::FontOptions (13.5f));
             addAndMakeVisible (search);
+            // krizik: vymaze hladanie
+            clearQ.setButtonText (juce::String::fromUTF8 ("✕")); clearQ.setTooltip (T ("Vymazať hľadanie"));
+            clearQ.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+            clearQ.setColour (juce::TextButton::textColourOffId, dim);
+            clearQ.onClick = [this] { search.setText ({}, true); search.grabKeyboardFocus(); };
+            addChildComponent (clearQ);
+            search.setBorder (juce::BorderSize<int> (1, 1, 1, 26));
             importBtn.setTooltip (T ("Import zvuku – pridať zvuk zo súboru .knova (napr. z iného počítača)"));
             importBtn.onClick = [this] { importDialog(); };
             folderBtn.setTooltip (T ("Pridať – nový priečinok na zvuky, nový zvuk, zvuk z WAV"));
@@ -2480,7 +2487,8 @@ namespace
             if ((fc.startsWith ("g") && ! fc.startsWith ("g" + juce::String (i) + ":")) || (fc.isNotEmpty() && ! fc.startsWith ("g") && categorySection (fc) >= 0)) filterCat() = {};
             resized();
         }
-        void textEditorTextChanged (juce::TextEditor&) override { refresh(); }
+        void textEditorTextChanged (juce::TextEditor&) override { clearQ.setVisible (search.getText().isNotEmpty()); refresh(); }
+        void textEditorEscapeKeyPressed (juce::TextEditor&) override { if (search.getText().isNotEmpty()) search.setText ({}, true); }
         void refresh()
         {
             p.presets.refresh();
@@ -2688,6 +2696,7 @@ namespace
             }
             r.removeFromTop (34);
             search.setBounds (r.removeFromTop (26)); r.removeFromTop (8);
+            clearQ.setBounds (search.getRight() - 26, search.getY() + 1, 24, 24); clearQ.toFront (false);
             {   // Synteticke vlavo, Prirodne vpravo
                 auto sr = r.removeFromTop (28);
                 const int w = (sr.getWidth() - 6) / 2;
@@ -2700,7 +2709,7 @@ namespace
             refresh();
         }
         NovaProcessor& p;
-        juce::TextEditor search; juce::TextButton secB[2];
+        juce::TextEditor search; juce::TextButton clearQ, secB[2];
         IconBtn importBtn { IconBtn::importK }, folderBtn { IconBtn::addK }, helpB { IconBtn::helpK };
         CategoryChips chips; PresetList list; juce::Viewport vp;
         std::vector<PresetStore::Entry> shown;

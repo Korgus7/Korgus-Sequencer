@@ -1756,6 +1756,19 @@ void MainView::sendDevices()
     emit ("devices", o);
 }
 
+bool MainView::trackInSong (const juce::String& key) const
+{
+    const auto id = key.upToFirstOccurrenceOf ("#", false, false);
+    if (id.startsWith ("__")) return true;   // master a spolocne efekty
+    const juce::var sj = lastSong.isString() ? juce::JSON::parse (lastSong.toString()) : lastSong;
+    if (const auto* tr = sj["tracks"].getArray())
+    {
+        for (const auto& t : *tr) if (t["id"].toString() == id) return true;
+        return false;
+    }
+    return true;   // piesen este nie je znama - radsej nacitat
+}
+
 void MainView::bootStatus (const juce::String& text, double progress)
 {
     auto o = obj();
@@ -1919,7 +1932,15 @@ void MainView::onReady()
                 juce::String name;
                 if (auto x = juce::parseXML (prop.value["desc"].toString())) name = x->getStringAttribute ("name");
                 if (name.isEmpty()) name = sk ("efekty stopy");
-                step (sk ("Načítavam nástroj: ") + name + sk ("…"), [this, one] { restorePluginStates (one); });
+                const auto trackId = prop.name.toString();
+                // len stopy, ktore v piesni naozaj su (stare zaznamy z inych piesni sa preskocia)
+                auto use = std::make_shared<bool> (false);
+                step ({}, [this, trackId, name, use]
+                {
+                    *use = trackInSong (trackId);
+                    if (*use) bootStatus (sk ("Načítavam nástroj: ") + name + sk ("…"), -1);
+                });
+                step ({}, [this, one, use] { if (*use) restorePluginStates (one); });
             }
         step ({}, [this]
         {
@@ -1950,7 +1971,7 @@ void MainView::runBootStep()
 {
     if (bootIndex >= bootSteps.size()) return;
     auto& st = bootSteps[bootIndex];
-    bootStatus (st.first, (double) bootIndex / (double) bootSteps.size());
+    if (st.first.isNotEmpty()) bootStatus (st.first, (double) bootIndex / (double) bootSteps.size());
     juce::Component::SafePointer<MainView> sp (this);
     // kratka pauza, aby sa text stihol zobrazit
     juce::Timer::callAfterDelay (booting ? 30 : 1, [sp]
