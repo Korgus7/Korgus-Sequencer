@@ -205,9 +205,6 @@ def _muldjord():
 I = [x for x in I if x['id'] != 41]
 I.append(dict(id=41, name='Bicia suprava', sus=False, maxlen=5, notune=1, kit=1, items=_muldjord()))
 
-# Celesta (pjcohen, Freesound, CC BY 4.0): chromaticky G2-G6, nazvy krizikov chybaju -> tony podla vysky
-I.append(dict(id=48, name='Celesta', src=[('celesta/*.wav', 'DETECT')], vel=[None], sus=False, maxlen=6))
-
 def collect(ins):
     if 'items' in ins:
         res = []
@@ -311,6 +308,16 @@ def find_loop(x, sr, a, b, maxlen):
             score = corr - 3.0 * lev + 0.15 * (L / Lmax)
             if best is None or score > best[0]: best = (score, s, e, corr)
     return best
+
+# Celesta (pjcohen, Freesound, CC BY 4.0): chromaticky G2-G6, nazvy krizikov chybaju -> tony podla vysky
+def _celesta():
+    # tony podla skutocnej vysky; hra len vo vlastnom rozsahu (pod nim by najnizsia vzorka znela ako bubon)
+    out = {}
+    for f in sorted(glob.glob(os.path.join(S, 'celesta/*.wav'))):
+        x, sr = sf.read(f, dtype='float32', always_2d=True); hz, _ = f0(x.mean(axis=1), sr)
+        if hz: out.setdefault(int(round(12 * np.log2(hz / 440.0) + 69)), os.path.relpath(f, S))
+    return [(n, 0, f, 0, 0, 0) for n, f in sorted(out.items())]
+I.append(dict(id=48, name='Celesta', sus=False, maxlen=6, kit=1, items=_celesta()))
 
 def process(ins, outdir):
     items = collect(ins)
