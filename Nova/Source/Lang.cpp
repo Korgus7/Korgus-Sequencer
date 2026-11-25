@@ -276,6 +276,7 @@ namespace nova
                 { "Ručné bubny", "Hand drums" }, { "Perkusie", "Percussion" }, { " (sťahujem ", " (downloading " },
                 { " (nedá sa stiahnuť – skontroluj internet)", " (can't download – check the internet)" },
                 { "Sťahujem nástroj… ", "Downloading instrument… " }, { "Nástroj sa nedá stiahnuť – skontroluj internet", "The instrument can't be downloaded – check the internet" },
+                { "Akordeón", "Accordion" }, { "Gajdy", "Bagpipe" }, { "Klasická gitara", "Classical guitar" },
                 { "Vymazať", "Clear" }, { "Vymazať zachytené hranie – Inšpirácia bude počúvať od ďalšieho tónu", "Clear what was captured – Inspiration listens from the next note" },
                 { "Vymazané – počúvam od ďalšieho tónu", "Cleared – listening from the next note" },
                 { "Zavrieť", "Close" }, { "Celé", "All" }, { "Ukázať celé hranie", "Show everything you played" }, { "Posledná fráza", "Last phrase" },

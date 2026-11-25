@@ -16,7 +16,8 @@ namespace
         { "Klarinet", "Clarinet" }, { "Vibrafón", "Vibraphone" }, { "Marimba", "Marimba" }, { "Zvonkohra", "Glockenspiel" },
         { "Pizzicato sláčiky", "Pizzicato strings" }, { "Ústna harmonika", "Harmonica" }, { "Harfa", "Harp" }, { "Píšťalový organ", "Pipe organ" }, { "Lesný roh", "French horn" }, { "Hoboj", "Oboe" }, { "Fagot", "Bassoon" }, { "Tuba", "Tuba" }, { "Sláčiky tremolo", "Tremolo strings" }, { "Sláčiky staccato", "Staccato strings" }, { "Kalimba", "Kalimba" }, { "Rúrkové zvony", "Tubular bells" }, { "Xylofón", "Xylophone" }, { "Elektrická gitara", "Electric guitar" }, { "Okarína", "Ocarina" }, { "Zobcová flauta", "Recorder" },
         { "Pôvodný klavír", "Original piano" }, { "Viola", "Viola" }, { "Pikola", "Piccolo" }, { "Banjo", "Banjo" }, { "Tympany", "Timpani" },
-        { "Bicia súprava", "Drum kit" }, { "Ručné bubny", "Hand drums" }, { "Perkusie", "Percussion" } };
+        { "Bicia súprava", "Drum kit" }, { "Ručné bubny", "Hand drums" }, { "Perkusie", "Percussion" },
+        { "Akordeón", "Accordion" }, { "Ukulele", "Ukulele" }, { "Gajdy", "Bagpipe" }, { "Klasická gitara", "Classical guitar" } };
     const char* kManifest = "https://raw.githubusercontent.com/Korgus7/Korgus-Download/main/instr/instruments.json";
     const char* kBase = "https://raw.githubusercontent.com/Korgus7/Korgus-Download/main/instr/";
     juce::String sha256 (const juce::File& f) { juce::FileInputStream in (f); return in.openedOk() ? juce::SHA256 (in).toHexString() : juce::String(); }
@@ -240,12 +241,12 @@ bool InstrBank::parse (int id, const juce::MemoryBlock& mb)
     float g = 1.0f; std::memcpy (&g, b + 8, 4);
     I->gain = juce::jlimit (0.05f, 20.0f, g);   // zosilnenie nad ulozene vzorky (vyrovnana hlasitost nastrojov)
     size_t hdr = 12, dataAt = 12 + (size_t) n * 16;
-    std::vector<int> layers;
+    std::vector<int> layers, spans;   // spans: bicie - kolko klaves pod (dolne 4 bity) a nad (horne 4 bity) zvuk pokryva
     juce::OggVorbisAudioFormat ogg;
     I->samples.reserve (n);
     for (int k = 0; k < n && ! quit; ++k)
     {
-        const int note = b[hdr], layer = b[hdr + 1]; const int8_t cents = (int8_t) b[hdr + 2];
+        const int note = b[hdr], layer = b[hdr + 1], span = b[hdr + 3]; const int8_t cents = (int8_t) b[hdr + 2];
         uint32_t ls, le, sz; std::memcpy (&ls, b + hdr + 4, 4); std::memcpy (&le, b + hdr + 8, 4); std::memcpy (&sz, b + hdr + 12, 4);
         hdr += 16;
         if (dataAt + sz > size) break;
@@ -267,6 +268,7 @@ bool InstrBank::parse (int id, const juce::MemoryBlock& mb)
         }
         I->samples.push_back (std::move (s));
         layers.push_back (layer);
+        spans.push_back (span);
     }
     if (I->samples.empty() || quit) return false;
     // kazdej note a vrstve najblizsia vzorka; ked vo vrstve chyba, vezme susednu vrstvu
@@ -276,7 +278,7 @@ bool InstrBank::parse (int id, const juce::MemoryBlock& mb)
             const Sample* best = nullptr; int bs = 1 << 30;
             for (size_t i = 0; i < I->samples.size(); ++i)
             {
-                if (I->kit && I->samples[i].root != nt) continue;   // bicie: len klavesy so zvukom
+                if (I->kit && (nt < I->samples[i].root - (spans[i] & 15) || nt > I->samples[i].root + (spans[i] >> 4))) continue;   // bicie / tympany: len vlastne klavesy
                 const int d = std::abs (I->samples[i].root - nt), dl = std::abs (layers[i] - l);
                 const int score = d * 4 + dl * 13 + (I->samples[i].root < nt ? 1 : 0);   // radsej vzorka nad notou
                 if (score < bs) { bs = score; best = &I->samples[i]; }

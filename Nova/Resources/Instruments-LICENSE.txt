@@ -11,5 +11,10 @@ Jazzová a elektrická gitara / jazz and electric guitar: Karoryfer Samples – 
 Basgitara / bass guitar: Karoryfer Samples – Black And Blue Basses (Darkblack) – CC0 1.0
 Kontrabas / double bass: Karoryfer Samples – Meatbass (1958 Otto Rubner, D. Smolken) – CC0 1.0
 
+Viola, pikola, bicia súprava, perkusie / viola, piccolo, drum kit, percussion: VSCO 2 Community Edition a VCSL, Versilian Studios LLC – CC0 1.0
+Banjo: ganjo, itsclipping – CC0 1.0
+Tympany, akordeón (Hohner, J. Stauffer), ukulele (M. Dąbrowski), gajdy (G. Sadowski), klasická gitara, svetové perkusie / timpani, accordion, ukulele, bagpipe, classical guitar, world percussion:
+  FreePats project (freepats.zenvoid.org) – CC0 1.0
+
 Vzorky boli orezané, zaslučkované, vyrovnané v hlasitosti a skomprimované (OGG) pre Korgus Inspiria.
 The samples were trimmed, looped, level-matched and compressed (OGG) for Korgus Inspiria.

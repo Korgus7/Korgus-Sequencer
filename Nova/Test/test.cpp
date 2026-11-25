@@ -436,7 +436,7 @@ int main (int argc, char** argv)
             auto syn = std::make_unique<nova::Synth>(); syn->prepare (sr, bs); syn->requestInstr (inst);
             for (int i = 0; i < 400 && ! syn->instrReady (inst); ++i) Thread::sleep (25);
             std::vector<int> ch { 48, 55, 60, 64 };
-            if (inst == 41) ch = { 36, 38, 42 }; else if (inst == 42) ch = { 60, 63, 66 }; else if (inst == 43) ch = { 54, 75, 81 };
+            if (inst == 41) ch = { 36, 38, 42 }; else if (inst == 42) ch = { 52, 57, 62 }; else if (inst == 40) ch = { 38, 45, 53 }; else if (inst == 43) ch = { 54, 75, 81 };
             std::vector<float> sq; AudioBuffer<float> b (2, bs);
             const int total = (int) (2.0 * sr);
             for (int pos = 0; pos < total; pos += bs)

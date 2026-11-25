@@ -81,10 +81,50 @@ I += [
  dict(id=35, name='Zobcova flauta', src=[('vcsl/Aerophones/Edge-blown Aerophones/Baroque Alto Recorder/Sustain/*.wav', r'_Sus_([A-G]#?\d)_rr1')], vel=[None], sus=True, maxlen=4, oct=1),
 ]
 
+# --- citanie jednoduchych SFZ (FreePats): polozky (nota, vrstva, subor, centy, klavesy pod, klavesy nad)
+def _note(v):
+    v = v.strip()
+    if re.match(r'^-?\d+$', v): return int(v)
+    return midi(v.lower())
+def sfz_items(path, layers=None):
+    base = os.path.dirname(path); txt = open(path, encoding='utf-8', errors='replace').read()
+    txt = re.sub(r'//[^\n]*', '', txt)
+    scopes = {'global': {}, 'master': {}, 'group': {}, 'control': {}}
+    cur = None; regs = []
+    for tok in re.split(r'(<[a-z]+>)', txt):
+        m = re.match(r'<([a-z]+)>', tok)
+        if m:
+            h = m.group(1)
+            if h in ('global', 'master', 'group', 'control'):
+                scopes[h] = {}; cur = scopes[h]
+                if h == 'global': scopes['master'] = {}; scopes['group'] = {}
+                if h == 'master': scopes['group'] = {}
+            elif h == 'region':
+                cur = {}; regs.append((dict(scopes['global'], **scopes['master'], **scopes['group']), cur))
+            continue
+        if cur is None: continue
+        for k, v in re.findall(r'([a-z_0-9]+)=(.*?)(?=\s+[a-z_0-9]+=|\s*$)', tok.replace('\n', ' ')):
+            cur[k] = v.strip()
+    out = []
+    for inh, r in regs:
+        o = dict(inh, **r)
+        if 'sample' not in o: continue
+        if o.get('seq_position', '1') != '1' or float(o.get('lorand', '0')) > 0.001: continue
+        if 'key' in o: lo = hi = kc = _note(o['key'])
+        else:
+            lo = _note(o.get('lokey', '0')); hi = _note(o.get('hikey', '127')); kc = _note(o.get('pitch_keycenter', str(lo)))
+        lv = int(o.get('lovel', '1'))
+        f = os.path.join(base, scopes['control'].get('default_path', ''), o['sample'].replace('\\', '/'))
+        out.append([kc, lv, f, -int(round(float(o.get('tune', '0')))), max(0, kc - lo), max(0, hi - kc)])
+    vels = sorted(set(x[1] for x in out)); vm = {v: i for i, v in enumerate(vels)}
+    res = []
+    for kc, lv, f, c, b, a in out: res.append((kc, vm[lv], os.path.relpath(f, S), c, b, a))
+    return res
+
 # --- nove nastroje (stahuju sa zvlast): VSCO 2 CE, VCSL, ganjo (itsclipping) - vsetko CC0
 VC = 'vcsl/Membranophones/Struck Membranophones/'; VI = 'vcsl/Idiophones/Struck Idiophones/'
 def K(note, *files, cents=0):   # bici nastroj: nota a subory po vrstvach (od najjemnejsej)
-    return [(note, l, f, cents) for l, f in enumerate(files)]
+    return [(note, l, f, cents, 0, 0) for l, f in enumerate(files)]
 I += [
  dict(id=37, name='Viola', src=[('VSCO-2-CE/Strings/Viola Section/susvib/*.wav', r'_susvib_([A-G]#?\d)_v(\d)_1')], vel=['1','2'], sus=True, maxlen=5, oct=1),
  dict(id=38, name='Pikola', src=[('VSCO-2-CE/Woodwinds/Piccolo/Sus/*.wav', r'piccolo_([A-G]#?\d)_sustain1')], vel=[None], sus=True, maxlen=4, oct=1),
@@ -130,10 +170,25 @@ I += [
       K(81, *[VI + 'Triangles/Triangle1_Hit_v%d_rr1_Mid.wav' % v for v in (1, 2)])),
 ]
 
+FP = 'fp/'
+def fpsfz(rel): return os.path.join(S, FP, rel)
+def _fp_items(rel):
+    p = fpsfz(rel)
+    return sfz_items(p) if os.path.exists(p) else []
+I = [x for x in I if x['id'] not in (40, 42)]   # tympany a rucne bubny z FreePats (lepsie mapovanie)
+I += [
+ dict(id=40, name='Tympany', sus=False, maxlen=5, notune=1, kit=1, items=_fp_items('Timpani-SFZ+FLAC-20240810/Timpani SFZ+FLAC-20240810/Timpani 20240809.sfz')),
+ dict(id=42, name='Rucne bubny', sus=False, maxlen=3, notune=1, kit=1, items=_fp_items('WorldPercussion-SFZ+FLAC-20200905/WorldPercussion SFZ+FLAC-20200905/WorldPercussion 20200905.sfz')),
+ dict(id=44, name='Akordeon', sus=True, maxlen=5, notune=1, items=_fp_items('ButtonAccordionHN-SFZ+FLAC-20240329/Button Accordion HN SFZ+FLAC-20240329/PRESET Button Accordion HN tuned.sfz')),
+ dict(id=45, name='Ukulele', sus=False, maxlen=4, notune=1, items=_fp_items('Ukulele-SFZ+FLAC-20260811/Ukulele SFZ+FLAC-20260811/Ukulele 20260811.sfz')),
+ dict(id=46, name='Gajdy', sus=True, maxlen=5, notune=1, items=_fp_items('Bagpipe-small-SFZ+FLAC-20260806/Bagpipe small SFZ+FLAC-20260806/Bagpipe small 20260806.sfz')),
+ dict(id=47, name='Klasicka gitara', sus=False, maxlen=5, notune=1, items=_fp_items('scg/SpanishClassicalGuitar-20190618.sfz')),
+]
+
 def collect(ins):
     if 'items' in ins:
         res = []
-        for n, l, f, _ in ins['items']:
+        for n, l, f, *_ in ins['items']:
             ff = os.path.join(S, f)
             if os.path.exists(ff): res.append((n, l, ff))
             else: print('  chyba subor', f)
@@ -259,7 +314,10 @@ def process(ins, outdir):
         pk = np.abs(mono).max() + 1e-9
         # ladenie
         cents = 0
-        if 'items' in ins: cents = next((c for nn, ll, ff, c in ins['items'] if nn == n and os.path.join(S, ff) == f), 0)
+        span = 0
+        if 'items' in ins:
+            it = next((t for t in ins['items'] if t[0] == n and os.path.join(S, t[2]) == f), None)
+            if it: cents = it[3]; span = (min(15, it[4]) & 15) | ((min(15, it[5]) & 15) << 4)
         if ins['name'] != 'Zvonkohra' and not ins.get('notune'):
             hz, conf = f0(mono, sr)
             if hz:
@@ -304,7 +362,7 @@ def process(ins, outdir):
             x[-fl:] *= (np.linspace(1, 0, fl) ** 2)[:, None]
             body = mono[:min(len(mono), int(0.4 * sr))]
         rms = np.sqrt(np.mean(body ** 2)) + 1e-9
-        recs.append(dict(n=n, l=lmap[l], cents=cents, x=x, sr=sr, loop=loop, rms=rms, f=f))
+        recs.append(dict(n=n, l=lmap[l], cents=cents, x=x, sr=sr, loop=loop, rms=rms, f=f, span=span if 'items' in ins else 0))
     # hlasitost: rovnaka po klaviature, medzi vrstvami prirodzeny pomer
     top = max(r['l'] for r in recs)
     byn = {}
@@ -336,10 +394,10 @@ def process(ins, outdir):
         og = os.path.join(outdir, '%d_%d_%d.ogg' % (ins['id'], r['n'], r['l']))
         subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', tmp, '-c:a', 'libvorbis', '-q:a', '4', og], check=True)
         d = open(og, 'rb').read(); tot += len(d)
-        ents.append((r['n'], r['l'], r['cents'], r['loop'][0], r['loop'][1], d))
+        ents.append((r['n'], r['l'], r['cents'], r['span'], r['loop'][0], r['loop'][1], d))
     print('%-18s %3d vzoriek, vrstvy %d, %.1f MB, zisk %.1f dB' % (ins['name'], len(ents), top + 1, tot / 1e6, 20 * np.log10(extra)))
     blob = b'INST' + struct.pack('<BBHf', (1 if ins['sus'] else 0) | (2 if ins.get('kit') else 0), top + 1, len(ents), extra)
-    for n, l, c, ls, le, d in ents: blob += struct.pack('<BBbBIII', n, l, c, 0, ls, le, len(d))
+    for n, l, c, sp, ls, le, d in ents: blob += struct.pack('<BBbBIII', n, l, c, sp, ls, le, len(d))
     for *_, d in ents: blob += d
     return blob
 
