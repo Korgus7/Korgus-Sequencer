@@ -25,7 +25,7 @@
 // ktory by Windows mohol zablokovat). Pouzije sa len ak je novsi ako vstavane rozhranie a ma rovnake API.
 namespace
 {
-    constexpr int kUiApi = 1;   // zvysit spolu s <meta name="korgus-api"> v index.html, ked sa zmenia udalosti medzi C++ a UI
+    constexpr int kUiApi = 2;   // zvysit spolu s <meta name="korgus-api"> v index.html, ked sa zmenia udalosti medzi C++ a UI
     juce::File uiFile()    { return juce::File::getSpecialLocation (juce::File::currentExecutableFile).getSiblingFile ("korgus-ui.html"); }
     juce::File uiVerFile() { return juce::File::getSpecialLocation (juce::File::currentExecutableFile).getSiblingFile ("korgus-ui.ver"); }
     juce::Array<int> verNums (juce::String v)
@@ -734,6 +734,13 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
         .withEventListener ("importAudio", [this] (const juce::var& v) { onImportAudio (v); })
         .withEventListener ("audioChunk",  [this] (const juce::var& v) { onAudioChunk (v); })
         .withEventListener ("needPeaks",   [this] (const juce::var& v) { onNeedPeaks (v); })
+        .withEventListener ("peaksDetail", [this] (const juce::var& v)
+                            {   // editor klipu pri zoome: jemny tvar vlny viditelneho useku
+                                auto pk = store->peaksRange (v["id"].toString(), (double) v["t0"], (double) v["t1"], (int) v["n"]);
+                                if (! pk.isObject()) return;
+                                if (auto* d = pk.getDynamicObject()) d->setProperty ("req", v["req"]);
+                                emit ("peaksDetail", pk);
+                            })
         .withEventListener ("recAudio",    [this] (const juce::var& v) { onRecAudio (v); })
         .withEventListener ("exportWav",   [this] (const juce::var& v) { onExportWav (v); })
         .withEventListener ("aiSetKey",    [this] (const juce::var& v)

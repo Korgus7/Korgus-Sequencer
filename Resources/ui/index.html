@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="korgus-api" content="1">
+<meta name="korgus-api" content="2">
 <title>Korgus Sequencer</title>
 <style>
 *{box-sizing:border-box}
@@ -889,6 +889,8 @@ function setupNative(){
   $('bWav').onclick=()=>{ const r=exportRange(); stopIfPlaying(); toast('Export WAV: '+r.txt); nat('exportWav',{start:r.start,end:r.end}); };
   onNat('busy',e=>{ dialog('Import audio','<p>'+esc(e.text)+'</p>'); });
   onNat('audioPeaks',natPeaks);
+  onNat('peaksDetail',e=>{ if(!aed||e.req!==aed.detReq) return; const dec=b=>{const t=atob(b), a=new Float32Array(t.length); for(let i=0;i<t.length;i++){let v=t.charCodeAt(i); if(v>127) v-=256; a[i]=v/127;} return a;};
+    aed.det={id:e.id,t0:+e.t0,t1:+e.t1,n:+e.n,mn:dec(e.mn),mx:dec(e.mx)}; if(!aed.drag) aedDraw(); });
   onNat('aiProgress',e=>{ const b=$('aiBar'), m=$('aiMsg'); if(!b||!m) return; b.style.width=(e.pct||0)+'%';
     m.textContent=e.stage==='download'?'Sťahujem model AI (len prvýkrát)… '+(e.pct||0)+' %':e.stage==='load'?'Načítavam model…':'AI píše pokračovanie… '+(e.pct||0)+' %'; });
   onNat('aiResult',e=>aiFinish(e));
@@ -3624,7 +3626,7 @@ function aedRender(){
     ['✦ Doprovod k tomuto kúsku…',()=>doprovodFor(tr,p)],
     ['Rozpoznať akordy → akordová stopa',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'chords'}; nat('analyze',{req,id:p.aid,off:p.off||0,dur:p.dur,what:3}); }],
     ['Bicie z nahrávky → krokový sekvencer',()=>{ const req=uid(); clipReq[req]={tr,p,kind:'drums'}; nat('analyze',{req,id:p.aid,off:p.off||0,dur:p.dur,what:5}); }]]); };
-  const zoomBy=(k,cx)=>{ const body=$('edBody'), t=(body.scrollLeft+(cx==null?body.clientWidth/2:cx))/aed.pps; aed.pps=clamp(aed.pps*k,aedFitPps(p)*.5,4000); aedDraw();
+  const zoomBy=(k,cx)=>{ const body=$('edBody'), t=(body.scrollLeft+(cx==null?body.clientWidth/2:cx))/aed.pps; aed.pps=clamp(aed.pps*k,aedFitPps(p)*.5,20000); aedDraw();
     body.scrollLeft=t*aed.pps-(cx==null?body.clientWidth/2:cx); };
   $('aeZi').onclick=()=>zoomBy(1.5); $('aeZo').onclick=()=>zoomBy(1/1.5); $('aeZf').onclick=()=>{ aed.pps=aedFitPps(p); aedDraw(); $('edBody').scrollLeft=0; };
   const cv=$('aeCv');
@@ -3632,6 +3634,14 @@ function aedRender(){
   cv.onmousedown=aedDown; cv.onmousemove=e=>{ if(!aed.drag) cv.style.cursor=aedHit(e).cur; };
   aedSync(); aedDraw();
 }
+// pri velkom zoome je hruby tvar vlny (256 vzoriek na stlpec) kockaty - program posle jemny pre viditelny usek
+function aedDetail(p,body){
+  const pk=audioPeaks[p.aid]; if(!NATIVE||!pk||pk.B/pk.sr*aed.pps<1.5) return null;
+  const ta=Math.max(0,body.scrollLeft/aed.pps), tb=(body.scrollLeft+body.clientWidth)/aed.pps, d=aed.det;
+  const same=d&&d.id===p.aid&&Math.abs((d.t1-d.t0)/d.n*aed.pps-1)<.05;
+  if(!(same&&d.t0<=ta+1e-6&&d.t1>=tb-1e-6)){ clearTimeout(aed.detT); aed.detT=setTimeout(()=>{ if(!aed) return; const w=tb-ta, t0=Math.max(0,ta-w*.5), t1=tb+w*.5;
+    aed.detReq=uid(); nat('peaksDetail',{req:aed.detReq,id:p.aid,t0,t1,n:Math.max(1,Math.round((t1-t0)*aed.pps))}); },60); }
+  return same?d:null; }
 function aedFitPps(p){ const w=Math.max(200,($('edBody')||{clientWidth:800}).clientWidth-20); return w/aedFull(p); }
 // hodnoty v liste podla klipu (po Ctrl+Z, normalizacii a pod.), okrem prave upravovaneho pola
 function aedSync(){ const r=aedGet(); if(!r) return; const p=r.p, k=clipK(p), g=p.gain==null?1:p.gain, ae=document.activeElement;
@@ -3664,10 +3674,12 @@ function aedDraw(){
     c.fillStyle='rgba(143,169,198,.18)'; c.fillRect(x,y0,1,h); c.fillStyle='#8fa9c6'; c.fillText(String(b+1),x+3,AE_RUL-6); }
   c.fillStyle='rgba(143,169,198,.15)'; c.fillRect(0,mid,W,1);
   // vlna: mimo klipu tlmena, v klipe so ziskom a nabehom / stisenim
-  const pk=audioPeaks[p.aid], amp=(h/2-4);
+  const pk=audioPeaks[p.aid], amp=(h/2-4), det=aedDetail(p,body);
   if(pk){ const x0=Math.max(0,Math.floor(body.scrollLeft)-50), x1=Math.min(W,x0+body.clientWidth+100), fiF=(p.fi||0)/G.k, foF=(p.fo||0)/G.k;
-    for(let px=x0;px<x1;px++){ const t0=G.t(px), t1=G.t(px+1); if(t0>full) break; const i0=Math.floor(t0*pk.sr/pk.B), i1=Math.max(i0+1,Math.floor(t1*pk.sr/pk.B)); let a=0,b=0;
-      for(let i=i0;i<i1&&i<pk.mn.length;i+=Math.max(1,Math.floor((i1-i0)/64))){ if(pk.mn[i]<a) a=pk.mn[i]; if(pk.mx[i]>b) b=pk.mx[i]; }
+    for(let px=x0;px<x1;px++){ const t0=G.t(px), t1=G.t(px+1); if(t0>full) break; let a=0,b=0;
+      if(det&&t0>=det.t0&&t0<det.t1){ const i=Math.min(det.n-1,Math.floor((t0-det.t0)/(det.t1-det.t0)*det.n)); a=det.mn[i]; b=det.mx[i]; }   // jemna vlna pri zoome
+      else { const i0=Math.floor(t0*pk.sr/pk.B), i1=Math.max(i0+1,Math.floor(t1*pk.sr/pk.B));
+        for(let i=i0;i<i1&&i<pk.mn.length;i+=Math.max(1,Math.floor((i1-i0)/64))){ if(pk.mn[i]<a) a=pk.mn[i]; if(pk.mx[i]>b) b=pk.mx[i]; } }
       const inC=t0>=p.off&&t0<p.off+p.dur; let s=1; if(inC){ s=Math.min(1.6,g); const lt=t0-p.off; if(fiF>0&&lt<fiF) s*=lt/fiF; const rt=p.off+p.dur-t0; if(foF>0&&rt<foF) s*=rt/foF; }
       c.fillStyle=inC?'#c9d4e2':'#3e4b5d'; const yA=mid-b*amp*s, yB=mid-a*amp*s; c.fillRect(px,yA,1,Math.max(1,yB-yA)); } }
   else { c.fillStyle='#56606e'; c.fillText('Načítavam vlnu…',G.x0+8,mid-10); }

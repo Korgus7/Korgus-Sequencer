@@ -34,6 +34,8 @@ public:
     AudioBufPtr peek (const juce::String& id) const { auto it = cache.find (id); return it != cache.end() ? it->second : nullptr; }
     juce::File fileFor (const juce::String& id);
     juce::var peaksFor (const juce::String& id);   // tvar vlny pre rozhranie
+    // jemny tvar vlny pre zoom v editore klipu: n stlpcov (min / max) z useku t0 - t1 sekund
+    juce::var peaksRange (const juce::String& id, double t0, double t1, int n);
     bool detectTempo (const juce::String& id, double& bpm, double& phase);
 
     // nahravka natiahnuta / skratena na iny cas bez zmeny vysky tonu (alpha = nova dlzka / povodna)

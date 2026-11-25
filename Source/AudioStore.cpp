@@ -125,6 +125,47 @@ AudioBufPtr AudioStore::get (const juce::String& id)
     return b;
 }
 
+juce::var AudioStore::peaksRange (const juce::String& id, double t0, double t1, int n)
+{
+    auto b = get (id);
+    if (b == nullptr || n <= 0 || ! (t1 > t0)) return {};
+    n = juce::jmin (n, 8192);
+    const int len = b->getNumSamples();
+    juce::MemoryBlock mn ((size_t) n), mx ((size_t) n);
+    auto* pn = static_cast<juce::int8*> (mn.getData());
+    auto* px = static_cast<juce::int8*> (mx.getData());
+    const float* c0 = b->getReadPointer (0);
+    const float* c1 = b->getNumChannels() > 1 ? b->getReadPointer (1) : nullptr;
+    const double spb = (t1 - t0) * sampleRate / n;   // vzoriek na stlpec (aj menej ako 1)
+    for (int i = 0; i < n; ++i)
+    {
+        const double fa = t0 * sampleRate + i * spb;
+        int a = (int) std::floor (fa), e = juce::jmax (a + 1, (int) std::floor (fa + spb));
+        float lo = 1, hi = -1;
+        if (spb < 1.0)
+        {   // menej ako vzorka na stlpec: hodnota medzi vzorkami (ciara)
+            const int k = juce::jlimit (0, juce::jmax (0, len - 2), a);
+            const float fr = (float) juce::jlimit (0.0, 1.0, fa - k);
+            auto v = [&] (int j) { return c1 != nullptr ? (c0[j] + c1[j]) * 0.5f : c0[j]; };
+            lo = hi = len > 1 ? v (k) + (v (k + 1) - v (k)) * fr : 0.0f;
+        }
+        else
+        {
+            a = juce::jlimit (0, len, a); e = juce::jlimit (a, len, e);
+            for (int j = a; j < e; ++j) { const float v = c1 != nullptr ? (c0[j] + c1[j]) * 0.5f : c0[j]; lo = juce::jmin (lo, v); hi = juce::jmax (hi, v); }
+            if (e <= a) lo = hi = 0.0f;
+        }
+        pn[i] = (juce::int8) juce::jlimit (-127, 127, (int) std::floor (lo * 127.0f));
+        px[i] = (juce::int8) juce::jlimit (-127, 127, (int) std::ceil (hi * 127.0f));
+    }
+    auto* o = new juce::DynamicObject();
+    o->setProperty ("id", id);
+    o->setProperty ("t0", t0); o->setProperty ("t1", t1); o->setProperty ("n", n);
+    o->setProperty ("mn", juce::Base64::toBase64 (mn.getData(), mn.getSize()));
+    o->setProperty ("mx", juce::Base64::toBase64 (mx.getData(), mx.getSize()));
+    return juce::var (o);
+}
+
 juce::var AudioStore::peaksFor (const juce::String& id)
 {
     auto it = peaks.find (id);
