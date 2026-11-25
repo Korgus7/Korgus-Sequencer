@@ -164,6 +164,7 @@ void Engine::Slot::prepare (double rate, int bs)
 
 Engine::Engine()
 {
+    for (auto& a : padMap) a.store (-1);
     cmds.reserve (64);
     order.reserve (512);
     trigs.reserve (64);
@@ -174,8 +175,53 @@ Engine::Engine()
     auxSlot[1] = getOrCreateSlot ("__aux2");
 }
 
+void Engine::setSync (int mode, const juce::String& outId)
+{
+    syncMode.store (0);
+    if (clockThread != nullptr) { clockThread->stopThread (500); clockThread.reset(); }
+    {
+        const juce::ScopedLock l (clockOutLock);
+        clockOut.reset();
+        if (mode == 1 && outId.isNotEmpty()) clockOut = juce::MidiOutput::openDevice (outId);
+    }
+    clkFifo.reset();
+    if (mode == 1 && clockOut != nullptr)
+    {
+        clockThread = std::make_unique<ClockSender> (*this);
+        clockThread->startThread (juce::Thread::Priority::highest);
+    }
+    inIntN = 0; inIntSum = 0; inLastTick = 0; inLastBpm = 0;
+    syncMode.store (mode == 1 && clockOut == nullptr ? 0 : mode);
+}
+
+void Engine::ClockSender::run()
+{
+    std::vector<ClockMsg> pend;
+    while (! threadShouldExit())
+    {
+        {
+            const auto sc = en.clkFifo.read (en.clkFifo.getNumReady());
+            for (int k = 0; k < sc.blockSize1; ++k) pend.push_back (en.clkBuf[(size_t) (sc.startIndex1 + k)]);
+            for (int k = 0; k < sc.blockSize2; ++k) pend.push_back (en.clkBuf[(size_t) (sc.startIndex2 + k)]);
+        }
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        size_t i = 0;
+        for (; i < pend.size() && pend[i].atMs <= now; ++i)
+        {
+            const auto& c = pend[i];
+            juce::MidiMessage m = c.status == 0xf2 ? juce::MidiMessage::songPositionPointer (juce::jlimit (0, 16383, (int) c.spp))
+                                                   : juce::MidiMessage (c.status);
+            const juce::ScopedLock l (en.clockOutLock);
+            if (en.clockOut != nullptr) en.clockOut->sendMessageNow (m);
+        }
+        pend.erase (pend.begin(), pend.begin() + (std::ptrdiff_t) i);
+        wait (1);
+    }
+}
+
 Engine::~Engine()
 {
+    if (clockThread != nullptr) { clockThread->stopThread (500); clockThread.reset(); }
     const juce::ScopedLock sl (slotLock);
     forEachPlugin ([] (juce::AudioPluginInstance& p) { p.releaseResources(); });
 }
@@ -361,9 +407,47 @@ void Engine::liveNote (int slot, int pitch, float vel, bool on)
 void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMessage& mIn)
 {
     // citlivost kláves (0 = lahky uder, 1 = normalna, 2 = tvrdy uder) - plati pre vsetky nastroje aj nahravanie
+    if (mIn.getRawDataSize() == 1 || mIn.isSongPositionPointer())
+    {   // synchronizacia (MIDI Clock, start, stop) - nehra, len pri rezime "ovladac vedie"
+        if (syncMode.load() == 2)
+        {
+            auto send = [this] (int k, double v) { juce::MessageManager::callAsync ([this, k, v] { if (onSyncIn) onSyncIn (k, v); }); };
+            if (mIn.isMidiClock())
+            {
+                const double t = juce::Time::getMillisecondCounterHiRes();
+                if (inLastTick > 0 && t - inLastTick < 500) { inIntSum += t - inLastTick; ++inIntN; }
+                inLastTick = t;
+                if (inIntN >= 24)
+                {
+                    const double bpm = 60000.0 / (inIntSum / inIntN * 24.0);
+                    inIntSum = 0; inIntN = 0;
+                    if (std::abs (bpm - inLastBpm) > 0.25 && bpm > 20 && bpm < 400) { inLastBpm = bpm; send (0, bpm); }
+                }
+            }
+            else if (mIn.isMidiStart()) send (1, 0);
+            else if (mIn.isMidiContinue()) send (2, 0);
+            else if (mIn.isMidiStop()) send (3, 0);
+            else if (mIn.isSongPositionPointer()) send (4, mIn.getSongPositionPointerMidiBeat());
+        }
+        return;
+    }
     juce::MidiMessage m (mIn);
     if (const int vc = velCurve.load(); vc != 1 && m.isNoteOn())
         m.setVelocity (juce::jlimit (0.01f, 1.0f, std::pow (m.getFloatVelocity(), vc == 0 ? 0.6f : 1.6f)));
+    if (m.isNoteOnOrOff() && m.getChannel() >= 1)
+    {   // noty priradene funkciam (pad ako tlacidlo Play, Stop…) alebo MIDI learn: nehraju, idu do rozhrania
+        const int key = 2048 + (m.getChannel() - 1) * 128 + m.getNoteNumber();
+        if (learnNotes.load() || ccMapped[(size_t) key].load())
+        {
+            const CcIn c { (uint8_t) m.getChannel(), (uint8_t) (128 + m.getNoteNumber()), (uint8_t) (m.isNoteOn() ? juce::jmax (1, (int) m.getVelocity()) : 0) };
+            const auto sc = ccFifo.write (1);
+            if (sc.blockSize1 > 0) ccBuf[(size_t) sc.startIndex1] = c;
+            else if (sc.blockSize2 > 0) ccBuf[(size_t) sc.startIndex2] = c;
+            return;
+        }
+        // pady MPC na bicej stope: nota padu -> nota bicich
+        if (const int pm = padMap[(size_t) m.getNoteNumber()].load(); pm >= 0 && pm < 128) m.setNoteNumber (pm);
+    }
     if (m.isNoteOnOrOff())
     {   // transpozicia vstupu vybranej stopy; pustenie klavesy ide na ten ton, ktory zacal hrat
         const int n = m.getNoteNumber();
@@ -847,6 +931,28 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             state = playing;
         }
         countSamples += n;
+    }
+
+    if (syncMode.load() == 1 && forced == nullptr && sd != nullptr)
+    {   // Korgus vedie: start / stop a 24 tikov na stvrtovu notu, posunute o oneskorenie zvukovky
+        const double nowMs = juce::Time::getMillisecondCounterHiRes() + outLatSec.load() * 1000.0;
+        const int st = state.load();
+        if (st == playing && clkLastState != playing)
+        {
+            clockPush (0xf2, (int) std::lround (pos), nowMs);
+            clockPush (pos < 0.5 ? 0xfa : 0xfb, 0, nowMs + startOffset * 1000.0 / sampleRate);
+            clkPhase = 0;
+        }
+        if (st != playing && clkLastState == playing) clockPush (0xfc, 0, nowMs);
+        clkLastState = st;
+        if (st == playing)
+        {
+            const double tps = head.bpm * 24.0 / 60.0, blockSec = (n - startOffset) / sampleRate, t0 = startOffset / sampleRate;
+            double ph = clkPhase;
+            for (double next = std::ceil (ph - 1.0e-9); next < ph + blockSec * tps; next += 1.0)
+                clockPush (0xf8, 0, nowMs + (t0 + (next - ph) / tps) * 1000.0);
+            clkPhase = ph + blockSec * tps;
+        }
     }
 
     if (state == playing && sd != nullptr)

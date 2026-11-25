@@ -25,7 +25,7 @@
 // ktory by Windows mohol zablokovat). Pouzije sa len ak je novsi ako vstavane rozhranie a ma rovnake API.
 namespace
 {
-    constexpr int kUiApi = 2;   // zvysit spolu s <meta name="korgus-api"> v index.html, ked sa zmenia udalosti medzi C++ a UI
+    constexpr int kUiApi = 3;   // zvysit spolu s <meta name="korgus-api"> v index.html, ked sa zmenia udalosti medzi C++ a UI
     juce::File uiFile()    { return juce::File::getSpecialLocation (juce::File::currentExecutableFile).getSiblingFile ("korgus-ui.html"); }
     juce::File uiVerFile() { return juce::File::getSpecialLocation (juce::File::currentExecutableFile).getSiblingFile ("korgus-ui.ver"); }
     juce::Array<int> verNums (juce::String v)
@@ -579,6 +579,11 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
 
     store = std::make_unique<AudioStore> (dataDir.getChildFile ("audio"));
 
+    engine.onSyncIn = [this] (int kind, double v)
+    {
+        auto* o = new juce::DynamicObject(); o->setProperty ("kind", kind); o->setProperty ("v", v);
+        emit ("midiSyncIn", juce::var (o));
+    };
     engine.onMidiIn = [this] (int pitch, float vel, bool on, double pos)
     {
         auto o = obj();
@@ -820,6 +825,22 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 juce::Array<int> keys;
                                 if (auto* a = v["keys"].getArray()) for (auto& k : *a) keys.add ((int) k);
                                 engine.setCcMapped (keys);
+                            })
+        .withEventListener ("midiLearnNotes", [this] (const juce::var& v) { engine.learnNotes.store ((bool) v["on"]); })
+        .withEventListener ("midiOutputs", [this] (const juce::var&)
+                            {   // zoznam MIDI vystupov a vstupov (synchronizacia s MPC)
+                                juce::Array<juce::var> outs, ins;
+                                for (const auto& d : juce::MidiOutput::getAvailableDevices()) { auto* o = new juce::DynamicObject(); o->setProperty ("id", d.identifier); o->setProperty ("name", d.name); outs.add (juce::var (o)); }
+                                for (const auto& d : juce::MidiInput::getAvailableDevices()) { auto* o = new juce::DynamicObject(); o->setProperty ("id", d.identifier); o->setProperty ("name", d.name); ins.add (juce::var (o)); }
+                                auto* r = new juce::DynamicObject(); r->setProperty ("outs", outs); r->setProperty ("ins", ins);
+                                emit ("midiOutputs", juce::var (r));
+                            })
+        .withEventListener ("midiSync",    [this] (const juce::var& v) { engine.setSync ((int) v["mode"], v["out"].toString()); })
+        .withEventListener ("padMap",      [this] (const juce::var& v)
+                            {
+                                juce::Array<int> m;
+                                if (auto* a = v["map"].getArray()) for (auto& k : *a) m.add ((int) k);
+                                engine.setPadMap (m);
                             })
         .withEventListener ("setParam",    [this] (const juce::var& v)
                             {

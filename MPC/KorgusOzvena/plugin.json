@@ -1,0 +1,26 @@
+{
+  "name": "Korgus Ozvena",
+  "manufacturer": "Korgus",
+  "version": "1.0.0",
+  "format": "vst2",
+  "kind": "effect",
+  "uid": "KgOz",
+  "numInputs": 2,
+  "numOutputs": 2,
+  "category": "Effect",
+  "shortName": "Korgus Echo",
+  "knobs": [
+    { "parameter": 0, "label": "Delenie" },
+    { "parameter": 2, "label": "Opakov" },
+    { "parameter": 4, "label": "Mix" }
+  ],
+  "shiftKnobs": [
+    { "parameter": 1, "label": "Cas" },
+    { "parameter": 3, "label": "Farba" },
+    { "parameter": 5, "label": "PingPong" }
+  ],
+  "file32": "VST/korgus-ozvena-arm32.so",
+  "file64": "VST/korgus-ozvena-arm64.so",
+  "description": "Ozvena z Korgus Sequencera: podla tempa alebo volne, opakovanie, farba, mix a ping-pong.",
+  "license": "MIT"
+}

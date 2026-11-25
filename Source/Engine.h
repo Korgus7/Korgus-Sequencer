@@ -245,6 +245,10 @@ public:
 
     // MIDI z klaves - zavolane na hlavnom vlakne (pre nahravanie a krokovy vstup)
     std::function<void (int pitch, float vel, bool on, double pos)> onMidiIn;
+    // synchronizacia MIDI Clock: 0 vypnuta, 1 Korgus vedie (posiela clock, start, stop), 2 ovladac vedie (Korgus nasleduje)
+    void setSync (int mode, const juce::String& outId);
+    // prichadzajuca synchronizacia: kind 0 tempo (v = BPM), 1 start, 2 pokracovat, 3 stop, 4 pozicia (v = 16-tiny)
+    std::function<void (int kind, double v)> onSyncIn;
 
     //== AudioIODeviceCallback
     void audioDeviceIOCallbackWithContext (const float* const*, int, float* const*, int, int,
@@ -263,14 +267,44 @@ public:
         for (int k = 0; k < sc.blockSize2; ++k) out[n++] = ccBuf[(size_t) (sc.startIndex2 + k)];
         return n;
     }
+    // kluce: (kanal-1)*128 + CC; noty (pady ako tlacidla) 2048 + (kanal-1)*128 + nota
     void setCcMapped (const juce::Array<int>& keys)
     {
         for (auto& a : ccMapped) a.store (false);
-        for (int k : keys) if (juce::isPositiveAndBelow (k, 16 * 128)) ccMapped[(size_t) k].store (true);
+        for (int k : keys) if (juce::isPositiveAndBelow (k, 2 * 16 * 128)) ccMapped[(size_t) k].store (true);
+    }
+    // pady MPC -> bicie: nota z ovladaca -> nota bicich (-1 = bez zmeny); prazdne = vypnute
+    void setPadMap (const juce::Array<int>& m)
+    {
+        for (int k = 0; k < 128; ++k) padMap[(size_t) k].store (k < m.size() ? m[k] : -1);
     }
     juce::AbstractFifo ccFifo { 512 };
     std::array<CcIn, 512> ccBuf {};
-    std::array<std::atomic<bool>, 16 * 128> ccMapped {};
+    std::array<std::atomic<bool>, 2 * 16 * 128> ccMapped {};
+    std::atomic<bool> learnNotes { false };   // pocas MIDI learn idu aj noty do rozhrania (nehraju)
+    // MIDI Clock von: audio vlakno zapise spravy s casom, vlakno ich posle presne v case
+    struct ClockMsg { uint8_t status; int16_t spp; double atMs; };
+    struct ClockSender : juce::Thread
+    {
+        ClockSender (Engine& e) : juce::Thread ("Korgus MIDI Clock"), en (e) {}
+        void run() override;
+        Engine& en;
+    };
+    juce::AbstractFifo clkFifo { 1024 };
+    std::array<ClockMsg, 1024> clkBuf {};
+    std::unique_ptr<juce::MidiOutput> clockOut;
+    std::unique_ptr<ClockSender> clockThread;
+    juce::CriticalSection clockOutLock;
+    std::atomic<int> syncMode { 0 };
+    double clkPhase = 0; int clkLastState = 0;
+    double inLastTick = 0, inIntSum = 0; int inIntN = 0; double inLastBpm = 0;
+    void clockPush (uint8_t st, int spp, double atMs)
+    {
+        const auto sc = clkFifo.write (1);
+        if (sc.blockSize1 > 0) clkBuf[(size_t) sc.startIndex1] = { st, (int16_t) spp, atMs };
+        else if (sc.blockSize2 > 0) clkBuf[(size_t) sc.startIndex2] = { st, (int16_t) spp, atMs };
+    }
+    std::array<std::atomic<int>, 128> padMap {};
 
 private:
     enum State { stopped, counting, playing };

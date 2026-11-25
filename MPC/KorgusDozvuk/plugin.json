@@ -1,0 +1,26 @@
+{
+  "name": "Korgus Dozvuk",
+  "manufacturer": "Korgus",
+  "version": "1.0.0",
+  "format": "vst2",
+  "kind": "effect",
+  "uid": "KgDz",
+  "numInputs": 2,
+  "numOutputs": 2,
+  "category": "Effect",
+  "shortName": "Korgus Dozv",
+  "knobs": [
+    { "parameter": 0, "label": "Velkost" },
+    { "parameter": 1, "label": "Tlmenie" },
+    { "parameter": 2, "label": "Mix" }
+  ],
+  "shiftKnobs": [
+    { "parameter": 3, "label": "Predozv" },
+    { "parameter": 4, "label": "Sirka" },
+    { "parameter": 5, "label": "Orez bas" }
+  ],
+  "file32": "VST/korgus-dozvuk-arm32.so",
+  "file64": "VST/korgus-dozvuk-arm64.so",
+  "description": "Dozvuk z Korgus Sequencera: velkost miestnosti, tlmenie, mix, predozvuk, sirka a orezanie basov.",
+  "license": "MIT"
+}

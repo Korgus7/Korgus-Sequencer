@@ -1,0 +1,26 @@
+{
+  "name": "Korgus Kompresor",
+  "manufacturer": "Korgus",
+  "version": "1.0.0",
+  "format": "vst2",
+  "kind": "effect",
+  "uid": "KgKo",
+  "numInputs": 2,
+  "numOutputs": 2,
+  "category": "Effect",
+  "shortName": "Korgus Komp",
+  "knobs": [
+    { "parameter": 0, "label": "Prah" },
+    { "parameter": 1, "label": "Pomer" },
+    { "parameter": 4, "label": "Zisk" }
+  ],
+  "shiftKnobs": [
+    { "parameter": 2, "label": "Nabeh" },
+    { "parameter": 3, "label": "Navrat" },
+    { "parameter": 5, "label": "Mix" }
+  ],
+  "file32": "VST/korgus-kompresor-arm32.so",
+  "file64": "VST/korgus-kompresor-arm64.so",
+  "description": "Kompresor z Korgus Sequencera: prah, pomer, nabeh, navrat, zisk a mix (paralelna kompresia).",
+  "license": "MIT"
+}

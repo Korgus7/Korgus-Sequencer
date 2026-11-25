@@ -2,3 +2,5 @@ build/
 out/
 ext/
 .vs/
+MPC/*/build/
+MPC/*/dist/
