@@ -145,7 +145,7 @@ namespace
     {
         InspireButton (NovaProcessor& pr) : p (pr)
         {
-            setTooltip (T ("Inšpirácia: zachytí, čo si zahral (aj bez nahrávania). Klik otvorí celé MIDI – vyberieš úsek a vložíš ho do stopy alebo uložíš ako MIDI / WAV"));
+            setTooltip (T ("Inšpirácia: zachytí, čo si zahral (aj bez nahrávania). Klik otvorí celé MIDI – vyberieš úsek a vložíš ho do stopy alebo uložíš ako MIDI / WAV. ↺ v rohu = vymazať a počúvať od ďalšieho tónu"));
             setMouseCursor (juce::MouseCursor::PointingHandCursor);
             startTimerHz (12);
         }
@@ -194,10 +194,28 @@ namespace
             if (msg.isNotEmpty() && tall) tr = getLocalBounds().reduced (6, 4);
             if (recent.empty() || msg.isNotEmpty() || tall)
                 g.drawFittedText (msg.isEmpty() ? T ("✦ Inšpirácia") : msg, tr, juce::Justification::centred, 2);
+            if (tall)
+            {   // reset: vymazat zachytene hranie
+                auto rr = resetBox().toFloat();
+                if (hoverReset) { g.setColour (gold.withAlpha (0.2f)); g.fillRoundedRectangle (rr, 3.0f); }
+                const auto c = rr.getCentre(); const float R = 5.0f;
+                juce::Path a; a.addCentredArc (c.x, c.y, R, R, 0.0f, 0.6f, juce::MathConstants<float>::twoPi - 0.2f, true);
+                g.setColour (gold.withAlpha (hoverReset ? 1.0f : 0.7f)); g.strokePath (a, juce::PathStrokeType (1.4f));
+                const float ax = c.x + R * std::sin (0.6f), ay = c.y - R * std::cos (0.6f);
+                juce::Path h; h.addTriangle (ax - 3.0f, ay - 2.5f, ax + 2.0f, ay - 0.5f, ax - 1.5f, ay + 2.5f); g.fillPath (h);
+            }
         }
+        juce::Rectangle<int> resetBox() const { return { getWidth() - 24, 3, 20, 20 }; }
+        void mouseMove (const juce::MouseEvent& e) override { const bool h = getHeight() > 50 && resetBox().contains (e.getPosition()); if (h != hoverReset) { hoverReset = h; repaint(); } }
+        void reset() { p.clearCapture(); recent.clear(); flash (T ("Vymazané – počúvam od ďalšieho tónu")); }
         void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
-        void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
-        void mouseUp (const juce::MouseEvent& e) override { if (e.mouseWasClicked() && contains (e.getPosition()) && ! busy) openWindow(); }
+        void mouseExit (const juce::MouseEvent&) override { hover = false; hoverReset = false; repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override
+        {
+            if (! e.mouseWasClicked() || ! contains (e.getPosition()) || busy) return;
+            if (getHeight() > 50 && resetBox().contains (e.getPosition())) { reset(); return; }
+            openWindow();
+        }
         void openWindow();
 
         void save (const nova::CapPhrase& ph, bool wav)
@@ -232,7 +250,7 @@ namespace
             });
         }
         NovaProcessor& p;
-        juce::String msg; bool hover = false, busy = false, hadRecent = false;
+        juce::String msg; bool hover = false, hoverReset = false, busy = false, hadRecent = false;
         juce::uint32 msgUntil = 0;
         static constexpr double kWin = 8.0;   // tlacidlo ukazuje poslednych 8 s
         std::vector<nova::CapNote> recent; double lastNow = 0;
@@ -265,6 +283,8 @@ namespace
             setup (fitB, T ("Celé"), T ("Ukázať celé hranie"), [this] { fit(); repaint(); });
             setup (lastB, T ("Posledná fráza"), T ("Vybrať to, čo si hral naposledy (po poslednej dlhšej pauze)"), [this] { selectLast(); repaint(); updateButtons(); });
             setup (allB, T ("Vybrať všetko"), T ("Vybrať celé hranie"), [this] { if (! notes.empty()) { s0 = notes.front().t; s1 = endOf (notes); } repaint(); updateButtons(); });
+            setup (clrB, T ("Vymazať"), T ("Vymazať zachytené hranie – Inšpirácia bude počúvať od ďalšieho tónu"), [this]
+            { p.clearCapture(); reload(); s0 = s1 = 0; fit(); updateButtons(); repaint(); if (btn != nullptr) btn->flash (T ("Vymazané – počúvam od ďalšieho tónu")); });
             setup (zoB, juce::String::fromUTF8 ("−"), T ("Oddialiť"), [this] { zoomAt (0.5f * (float) (roll().getX() + roll().getRight()), 1.5); });
             setup (ziB, "+", T ("Priblížiť"), [this] { zoomAt (0.5f * (float) (roll().getX() + roll().getRight()), 1.0 / 1.5); });
             if (NovaProcessor::hostedInKorgus())
@@ -280,7 +300,7 @@ namespace
         void reload()
         {
             const auto n = p.capturedNotes (now);
-            const bool grow = n.size() != notes.size();
+            const bool grow = n.size() != notes.size() || (! n.empty() && ! notes.empty() && n.front().t != notes.front().t);
             notes = n;
             lo = 127; hi = 0;
             for (auto& x : notes) { lo = juce::jmin (lo, x.k); hi = juce::jmax (hi, x.k); }
@@ -318,13 +338,14 @@ namespace
         {
             closeB.setBounds (getWidth() - 14 - 30, 12, 30, 26);
             auto row = juce::Rectangle<int> (14, 46, getWidth() - 28, 26);
-            fitB.setBounds (row.removeFromLeft (58)); row.removeFromLeft (4);
+            fitB.setBounds (row.removeFromLeft (50)); row.removeFromLeft (4);
             zoB.setBounds (row.removeFromLeft (28)); row.removeFromLeft (2); ziB.setBounds (row.removeFromLeft (28)); row.removeFromLeft (10);
-            lastB.setBounds (row.removeFromLeft (120)); row.removeFromLeft (4);
-            allB.setBounds (row.removeFromLeft (110));
-            wavB.setBounds (row.removeFromRight (110)); row.removeFromRight (4);
-            midB.setBounds (row.removeFromRight (110)); row.removeFromRight (4);
-            if (insB.isVisible()) insB.setBounds (row.removeFromRight (130));
+            lastB.setBounds (row.removeFromLeft (104)); row.removeFromLeft (4);
+            allB.setBounds (row.removeFromLeft (96)); row.removeFromLeft (10);
+            clrB.setBounds (row.removeFromLeft (70));
+            wavB.setBounds (row.removeFromRight (100)); row.removeFromRight (4);
+            midB.setBounds (row.removeFromRight (100)); row.removeFromRight (4);
+            if (insB.isVisible()) insB.setBounds (row.removeFromRight (116));
             infoR = { 180, 12, juce::jmax (10, closeB.getX() - 190), 26 };
         }
         void paint (juce::Graphics& g) override
@@ -502,7 +523,7 @@ namespace
         double now = 0, v0 = 0, v1 = 10, s0 = 0, s1 = 0, dv0 = 0, dv1 = 0, dT = 0;
         int lo = 48, hi = 72, drag = 0;
         juce::Rectangle<int> infoR;
-        juce::TextButton closeB, fitB, lastB, allB, zoB, ziB, insB, midB, wavB;
+        juce::TextButton closeB, fitB, lastB, allB, clrB, zoB, ziB, insB, midB, wavB;
     };
 
     void InspireButton::openWindow()

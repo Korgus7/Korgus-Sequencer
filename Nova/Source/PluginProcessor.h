@@ -141,7 +141,8 @@ public:
     // Inspiracia
     nova::CapPhrase lastPhrase() const;                  // posledna zahrana fraza (prazdna = nic nezahral)
     std::vector<nova::CapNote> capturedNotes (double& now) const;   // vsetko zahrane za poslednych 10 minut (absolutne casy)
-    int lastPhraseCount() const;                         // kolko not ma posledna fraza (su na konci capturedNotes)
+    int lastPhraseCount() const;
+    void clearCapture() { capBuf.clear(); }                // Inspiracia od zaciatku: zabudne doterajsie hranie                         // kolko not ma posledna fraza (su na konci capturedNotes)
     void publishCapture (const nova::CapPhrase& ph);
     // "Nauc sa zvuk": v Korgus Sequenceri poziada hostitela o okno ucenia; inde vrati false
     bool requestLearn();

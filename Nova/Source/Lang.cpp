@@ -270,8 +270,10 @@ namespace nova
                 { "Import zvuku – pridať zvuk zo súboru .knova (napr. z iného počítača)", "Import sound – add a sound from a .knova file (e.g. from another computer)" },
                 { "Pridať – nový priečinok na zvuky, nový zvuk, zvuk z WAV", "Add – new sound folder, new sound, sound from WAV" }, { "Pomoc k zoznamu zvukov", "Help for the sound list" },
                 // okno Inspiracie
-                { "Inšpirácia: zachytí, čo si zahral (aj bez nahrávania). Klik otvorí celé MIDI – vyberieš úsek a vložíš ho do stopy alebo uložíš ako MIDI / WAV",
-                  "Inspiration: captures what you played (even without recording). Click opens the whole MIDI – pick a section and insert it into the track or save it as MIDI / WAV" },
+                { "Inšpirácia: zachytí, čo si zahral (aj bez nahrávania). Klik otvorí celé MIDI – vyberieš úsek a vložíš ho do stopy alebo uložíš ako MIDI / WAV. ↺ v rohu = vymazať a počúvať od ďalšieho tónu",
+                  "Inspiration: captures what you played (even without recording). Click opens the whole MIDI – pick a section and insert it into the track or save it as MIDI / WAV. ↺ in the corner = clear and listen from the next note" },
+                { "Vymazať", "Clear" }, { "Vymazať zachytené hranie – Inšpirácia bude počúvať od ďalšieho tónu", "Clear what was captured – Inspiration listens from the next note" },
+                { "Vymazané – počúvam od ďalšieho tónu", "Cleared – listening from the next note" },
                 { "Zavrieť", "Close" }, { "Celé", "All" }, { "Ukázať celé hranie", "Show everything you played" }, { "Posledná fráza", "Last phrase" },
                 { "Vybrať to, čo si hral naposledy (po poslednej dlhšej pauze)", "Select what you played last (after the last longer pause)" },
                 { "Vybrať všetko", "Select all" }, { "Vybrať celé hranie", "Select everything you played" }, { "Oddialiť", "Zoom out" }, { "Priblížiť", "Zoom in" },
