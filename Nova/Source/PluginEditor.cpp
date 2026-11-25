@@ -1220,7 +1220,14 @@ namespace
                 });
             };
             showScan();
-            setSize (620, 324);
+            for (auto* b : { &play, &rev, &loopB, &scanB, &more })
+            {
+                b->setColour (juce::TextButton::buttonColourId, b == &play ? steel : panel);
+                b->setColour (juce::TextButton::buttonOnColourId, steel);
+                b->setColour (juce::TextButton::textColourOffId, juce::Colour (0xffc9d2dc));
+                b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+            }
+            setSize (860, 440);
         }
         void showScan() { for (juce::Component* c : { (juce::Component*) &scanRate, (juce::Component*) &scanRange, (juce::Component*) &scanRateL, (juce::Component*) &scanRangeL, (juce::Component*) &scanShape }) c->setVisible (ed.scan); }
         ~SampleEditor() override { if (playing) p.keyboard.noteOff (1, playNote, 0.0f); }
@@ -1282,7 +1289,11 @@ namespace
                 peaks[(size_t) x] = { lo, hi };
             }
         }
-        juce::Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (12.0f).withTrimmedTop (24.0f).withTrimmedBottom (ed.scan ? 98.0f : 62.0f); }
+        int btnY() const { return getHeight() - 16 - 34; }
+        int scanY() const { return btnY() - 10 - 30; }
+        int ovY() const { return (ed.scan ? scanY() : btnY()) - 14 - 6; }
+        juce::Rectangle<float> ovArea() const { return { 18.0f, (float) ovY(), (float) getWidth() - 36.0f, 6.0f }; }
+        juce::Rectangle<float> waveArea() const { return { 18.0f, 44.0f, (float) getWidth() - 36.0f, (float) (ovY() - 8 - 44) }; }
         // zoom: zobrazeny usek v0..v1 (koliesko mysi = zoom okolo kurzora, Shift + koliesko = posun)
         float v0 = 0.0f, v1 = 1.0f;
         float pxPerF() const { return waveArea().getWidth() / (v1 - v0); }
@@ -1313,79 +1324,100 @@ namespace
         void paint (juce::Graphics& g) override
         {
             g.fillAll (bg);
-            g.setColour (text); g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-            g.drawText (T ("Editor samplu") + "  " + (smp != nullptr ? smp->name : juce::String()), 12, 4, getWidth() - 24, 20, juce::Justification::centredLeft);
-            const auto r = waveArea();
-            g.setColour (panel); g.fillRoundedRectangle (r, 3.0f);
-            if (peaks.empty()) { g.setColour (dim); g.drawText (T ("Žiadny sampel"), r, juce::Justification::centred); return; }
-            const float cy = r.getCentreY(), hh = r.getHeight() * 0.46f;
-            juce::Graphics::ScopedSaveState clipSt (g);
-            g.reduceClipRegion (r.toNearestInt().expanded (0, 0));
-            // slucka
-            if (loopOn()) { g.setColour (steelHi.withAlpha (0.25f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (ed.ls), r.getY(), xOf (ed.le), r.getBottom())); }
-            if (loopOn() && ed.scan)
-            {   // kam az sa slucka pri skenovani posunie
-                const float x0 = xOf (ed.le), x1 = xOf (ed.le + (ed.end - ed.le) * ed.scanRange);
-                g.setColour (amber.withAlpha (0.12f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (x0, r.getY(), juce::jmax (x0, x1), r.getBottom()));
-                g.setColour (amber.withAlpha (0.6f)); g.drawLine (x0, r.getY() + 8, juce::jmax (x0, x1), r.getY() + 8, 1.0f);
-            }
-            // vlna (vybrana cast jasnejsie) - pocita sa pre zobrazeny usek
+            const float d = (float) durSec();
+            auto ms = [] (double sec) { return sec < 1.0 ? juce::String (juce::roundToInt (sec * 1000.0)) + " ms" : juce::String (sec, 2) + " s"; };
+            // hlavicka: nazov vlavo, casy vpravo
             {
-                const int n = smp->buf.getNumSamples(), W = juce::jmax (1, (int) r.getWidth());
-                for (int x = 0; x < W; ++x)
+                juce::Font ft (juce::FontOptions (15.0f, juce::Font::bold)); g.setFont (ft);
+                const juce::String t1 = T ("Editor samplu");
+                g.setColour (text); g.drawText (t1, 18, 12, 300, 22, juce::Justification::centredLeft);
+                float x = 18.0f + juce::GlyphArrangement::getStringWidth (ft, t1) + 10.0f;
+                g.setFont (juce::FontOptions (14.0f)); g.setColour (dim);
+                g.drawText ((smp != nullptr ? smp->name : juce::String()) + (info.isNotEmpty() ? "   ·   " + info : juce::String()), (int) x, 12, juce::jmax (10, getWidth() / 2 + 60 - (int) x), 22, juce::Justification::centredLeft);
+                std::vector<std::pair<juce::String, juce::String>> ch { { T ("Začiatok"), ms (ed.start * d) }, { T ("Koniec"), ms (ed.end * d) }, { T ("Nábeh"), ms (ed.fin) } };
+                if (! loopOn()) ch.push_back ({ T ("Doznenie"), ms (ed.fout) });
+                juce::Font fl (juce::FontOptions (12.5f)), fv (juce::FontOptions (12.5f, juce::Font::bold));
+                float rx = (float) getWidth() - 18.0f;
+                for (int k = (int) ch.size() - 1; k >= 0; --k)
                 {
-                    const float fa = v0 + (float) x / pxPerF(), fb = v0 + (float) (x + 1) / pxPerF(), f = (fa + fb) * 0.5f;
-                    const int a = juce::jlimit (0, n - 1, (int) (fa * n)), b = juce::jlimit (a + 1, n, (int) (fb * n) + 1);
-                    float lo = 0, hi = 0;
-                    for (int c = 0; c < smp->buf.getNumChannels(); ++c)
-                    { const auto mm = smp->buf.findMinMax (c, a, b - a); lo = juce::jmin (lo, mm.getStart()); hi = juce::jmax (hi, mm.getEnd()); }
-                    g.setColour (f >= ed.start && f <= ed.end ? arc : dim.withAlpha (0.35f));
-                    g.drawVerticalLine ((int) r.getX() + x, cy - hi * hh, cy - lo * hh + 1.0f);
+                    const float wv = juce::GlyphArrangement::getStringWidth (fv, ch[(size_t) k].second), wl = juce::GlyphArrangement::getStringWidth (fl, ch[(size_t) k].first);
+                    g.setFont (fv); g.setColour (text); g.drawText (ch[(size_t) k].second, juce::Rectangle<float> (rx - wv, 12, wv + 1, 22), juce::Justification::centredLeft);
+                    g.setFont (fl); g.setColour (dim); g.drawText (ch[(size_t) k].first, juce::Rectangle<float> (rx - wv - 5 - wl, 12, wl + 1, 22), juce::Justification::centredLeft);
+                    rx -= wv + 5 + wl + 18;
                 }
             }
-            // stmavenie mimo vyberu
-            g.setColour (bg.withAlpha (0.55f));
-            g.fillRect (juce::Rectangle<float>::leftTopRightBottom (r.getX(), r.getY(), xOf (ed.start), r.getBottom()));
-            g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (ed.end), r.getY(), r.getRight(), r.getBottom()));
-            // nabeh a doznenie (ciara hlasitosti)
-            const float d = (float) durSec(), xs = xOf (ed.start), xe = xOf (ed.end);
-            const float xi = juce::jmin (xe, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xe - (loopOn() ? 0.0f : (ed.fout / d) * pxPerF()));
-            juce::Path env; env.startNewSubPath (xs, r.getBottom()); env.lineTo (xi, r.getY() + 3); env.lineTo (xo, r.getY() + 3); env.lineTo (xe, loopOn() ? r.getY() + 3 : r.getBottom());
-            g.setColour (amber); g.strokePath (env, juce::PathStrokeType (1.6f));
-            auto knob = [&] (float x, float y) { g.setColour (amber); g.fillRect (x - 4, y - 4, 8.0f, 8.0f); };
-            knob (xi, r.getY() + 3); if (! loopOn()) knob (xo, r.getY() + 3);
-            // znacky
-            auto mark = [&] (float x, juce::Colour c, const juce::String& t)
+            const auto r = waveArea();
+            g.setColour (juce::Colour (0xff161c23)); g.fillRoundedRectangle (r, 3.0f);
+            if (peaks.empty()) { g.setColour (dim); g.drawText (T ("Žiadny sampel"), r, juce::Justification::centred); return; }
+            const juce::Colour loopCol = accentB.brighter (0.5f);
             {
-                g.setColour (c); g.fillRect (x - 1.0f, r.getY(), 2.0f, r.getHeight());
-                g.fillRect (x - 9.0f, r.getBottom() - 14.0f, 18.0f, 14.0f);
-                g.setColour (bg); g.setFont (juce::FontOptions (10.0f, juce::Font::bold)); g.drawText (t, (int) x - 9, (int) r.getBottom() - 14, 18, 14, juce::Justification::centred);
-            };
-            mark (xs, text, "Z"); mark (xe, text, "K");
-            if (loopOn()) { mark (xOf (ed.ls), steelHi.brighter (0.4f), "L"); mark (xOf (ed.le), steelHi.brighter (0.4f), "L"); }
-            g.restoreState(); g.saveState();   // udaje uz mimo orezania
-            // udaje
-            g.setColour (dim); g.setFont (juce::FontOptions (11.5f));
-            auto ms = [] (double sec) { return sec < 1.0 ? juce::String (juce::roundToInt (sec * 1000.0)) + " ms" : juce::String (sec, 2) + " s"; };
-            juce::String t = T ("Začiatok ") + ms (ed.start * d) + "   " + T ("Koniec ") + ms (ed.end * d) + "   " + T ("Nábeh ") + ms (ed.fin) + (loopOn() ? juce::String() : "   " + T ("Doznenie ") + ms (ed.fout));
-            if (info.isNotEmpty()) t += "   ·   " + info;
-            g.drawText (t, 12, (int) waveArea().getBottom() + 3, getWidth() - 24, 18, juce::Justification::centredLeft);
+                juce::Graphics::ScopedSaveState clipSt (g);
+                g.reduceClipRegion (r.toNearestInt());
+                const float xs = xOf (ed.start), xe = xOf (ed.end);
+                g.setColour (steelHi.withAlpha (0.13f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xs, r.getY(), xe, r.getBottom()));
+                if (loopOn()) { g.setColour (accentB.withAlpha (0.22f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (ed.ls), r.getY(), xOf (ed.le), r.getBottom())); }
+                if (loopOn() && ed.scan)
+                {   // kam az sa slucka pri skenovani posunie
+                    const float x0 = xOf (ed.le), x1 = xOf (ed.le + (ed.end - ed.le) * ed.scanRange);
+                    g.setColour (accentB.withAlpha (0.10f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (x0, r.getY(), juce::jmax (x0, x1), r.getBottom()));
+                }
+                // vlna: vybrana cast svetla, zvysok tlmeny
+                {
+                    const float cy = r.getCentreY(), hh = r.getHeight() * 0.46f;
+                    const int n = smp->buf.getNumSamples(), W = juce::jmax (1, (int) r.getWidth());
+                    const juce::Colour inC (0xffa9bdd6), outC (0xff4a5868);
+                    for (int x = 0; x < W; ++x)
+                    {
+                        const float fa = v0 + (float) x / pxPerF(), fb = v0 + (float) (x + 1) / pxPerF(), f = (fa + fb) * 0.5f;
+                        const int a = juce::jlimit (0, n - 1, (int) (fa * n)), b = juce::jlimit (a + 1, n, (int) (fb * n) + 1);
+                        float lo = 0, hi = 0;
+                        for (int c = 0; c < smp->buf.getNumChannels(); ++c)
+                        { const auto mm = smp->buf.findMinMax (c, a, b - a); lo = juce::jmin (lo, mm.getStart()); hi = juce::jmax (hi, mm.getEnd()); }
+                        g.setColour (f >= ed.start && f <= ed.end ? inC : outC);
+                        g.drawVerticalLine ((int) r.getX() + x, cy - hi * hh, cy - lo * hh + 1.0f);
+                    }
+                }
+                // nabeh a doznenie
+                const float ty = r.getY() + 22.0f, by = r.getBottom() - 2.0f;
+                const float xi = juce::jmin (xe, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xe - (loopOn() ? 0.0f : (ed.fout / d) * pxPerF()));
+                juce::Path env; env.startNewSubPath (xs, by); env.lineTo (xi, ty); env.lineTo (xo, ty); env.lineTo (xe, loopOn() ? ty : by);
+                g.setColour (amber.withAlpha (0.85f)); g.strokePath (env, juce::PathStrokeType (1.5f));
+                g.setColour (amber);
+                g.fillRoundedRectangle (xi - 5, ty - 5, 10, 10, 2.0f);
+                if (! loopOn()) g.fillRoundedRectangle (xo - 5, ty - 5, 10, 10, 2.0f);
+                // znacky: ciara a stitok (Z, K hore; slucka dole)
+                auto mark = [&] (float x, juce::Colour c, const juce::String& t, bool top)
+                {
+                    g.setColour (c); g.fillRect (x - 0.75f, r.getY(), 1.5f, r.getHeight());
+                    const float yy = top ? r.getY() : r.getBottom() - 16.0f;
+                    g.fillRoundedRectangle (x - 9.0f, yy, 18.0f, 16.0f, 3.0f);
+                    g.setColour (bg); g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+                    g.drawText (t, juce::Rectangle<float> (x - 9.0f, yy, 18.0f, 16.0f), juce::Justification::centred);
+                };
+                if (loopOn()) { mark (xOf (ed.ls), loopCol, "L", false); mark (xOf (ed.le), loopCol, "L", false); }
+                mark (xs, arc, "Z", true); mark (xe, arc, "K", true);
+            }
+            // prehlad: ktora cast je zobrazena (da sa tahat)
+            const auto o = ovArea();
+            g.setColour (panel); g.fillRoundedRectangle (o, 3.0f);
+            g.setColour (steelHi); g.fillRoundedRectangle (juce::Rectangle<float>::leftTopRightBottom (o.getX() + o.getWidth() * v0, o.getY(), o.getX() + o.getWidth() * v1, o.getBottom()), 3.0f);
         }
         void resized() override
         {
-            int x = 12; const int y = getHeight() - 38, h = 28;
-            for (auto* b : { &play, &rev, &loopB, &scanB }) { b->setBounds (x, y, 104, h); x += 110; }
-            more.setBounds (getWidth() - 12 - 44, y, 44, h);
-            const int y2 = getHeight() - 74;
-            scanRateL.setBounds (12, y2, 60, h); scanRate.setBounds (72, y2, 170, h);
-            scanRangeL.setBounds (256, y2, 52, h); scanRange.setBounds (308, y2, 170, h);
-            scanShape.setBounds (getWidth() - 12 - 100, y2 + 2, 100, h - 4);
+            const int y = btnY(), h = 34; int x = 18;
+            const int ws[] = { 116, 110, 104, 124 }; int k = 0;
+            for (auto* b : { &play, &rev, &loopB, &scanB }) { b->setBounds (x, y, ws[k++], h); x += b->getWidth() + 8; }
+            more.setBounds (getWidth() - 18 - 46, y, 46, h);
+            const int y2 = scanY();
+            scanRateL.setBounds (18, y2, 64, 30); scanRate.setBounds (82, y2, 220, 30);
+            scanRangeL.setBounds (322, y2, 56, 30); scanRange.setBounds (378, y2, 220, 30);
+            scanShape.setBounds (getWidth() - 18 - 130, y2 + 2, 130, 26);
         }
         int hit (juce::Point<float> m) const
         {
             const auto r = waveArea(); const float d = (float) durSec();
             const float xs = xOf (ed.start), xe = xOf (ed.end), xi = juce::jmin (xe, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xe - (ed.fout / d) * pxPerF());
-            if (m.y < r.getY() + 14)
+            if (std::abs (m.y - (r.getY() + 22.0f)) < 10.0f)
             {
                 if (std::abs (m.x - xi) < 9) return 4;
                 if (! loopOn() && std::abs (m.x - xo) < 9) return 5;
@@ -1412,9 +1444,20 @@ namespace
                           : bodyHit (e.position) >= 0 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
         }
         float panFrom = 0.0f; nova::SmpEdit edFrom;
-        void mouseDown (const juce::MouseEvent& e) override { drag = hit (e.position); if (drag < 0) drag = bodyHit (e.position); panFrom = v0; edFrom = ed; }
+        bool ovHit (juce::Point<float> m) const { return ovArea().expanded (0.0f, 6.0f).contains (m); }
+        void ovSet (float x)
+        {
+            const auto o = ovArea(); const float span = v1 - v0;
+            v0 = juce::jlimit (0.0f, 1.0f - span, (x - o.getX()) / o.getWidth() - span * 0.5f); v1 = v0 + span; repaint();
+        }
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (ovHit (e.position)) { drag = 8; ovSet (e.position.x); return; }
+            drag = hit (e.position); if (drag < 0) drag = bodyHit (e.position); panFrom = v0; edFrom = ed;
+        }
         void mouseDrag (const juce::MouseEvent& e) override
         {
+            if (drag == 8) { ovSet (e.position.x); return; }
             if (drag < 0)
             {   // pri zoome tahanie prazdneho miesta posuva pohlad
                 const float span = v1 - v0;
@@ -1581,7 +1624,8 @@ namespace
                 if (p.synth.getUserSample (li) == nullptr) return;
                 juce::Component::SafePointer<LayerPanel> sp (this);
                 auto c = std::make_unique<SampleEditor> (p, li, [sp] { if (sp != nullptr) sp->update(); });
-                juce::Component* top = getTopLevelComponent();
+                juce::Component* top = this;   // obsah pluginu (vzhlad aj mierka okna)
+                while (top->getParentComponent() != nullptr && dynamic_cast<juce::AudioProcessorEditor*> (top->getParentComponent()) == nullptr) top = top->getParentComponent();
                 juce::CallOutBox::launchAsynchronously (std::move (c), top != nullptr ? top->getLocalArea (nullptr, editB.getScreenBounds()) : editB.getScreenBounds(), top);
             };
             addChildComponent (editB);
