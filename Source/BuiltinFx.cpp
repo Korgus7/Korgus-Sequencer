@@ -2059,14 +2059,17 @@ private:
     void timerCallback() override;
     void choose();
     Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (10, 0).withTrimmedTop (38).withTrimmedBottom (44); }
-    int hitEdge (float x) const;
+    int hitEdge (float x, float fadeY = -1.0f) const;
     SamplerInst& sm;
     TextButton load, loopB, scanB, help { "?" };
     Slider rateS { Slider::LinearBar, Slider::TextBoxLeft }, rangeS { Slider::LinearBar, Slider::TextBoxLeft };
     ComboBox shapeC;
     std::unique_ptr<FileChooser> chooser;
-    int dragMode = 0;            // 1 = zaciatok, 2 = koniec, 3 = cela slucka
-    float dLs = 0, dLe = 0;
+    int dragMode = 0;            // 1 = zaciatok, 2 = koniec, 3 = cela slucka, 6 = nabeh, 7 = stisenie
+    float dLs = 0, dLe = 0, dFi = 0, dFo = 0;
+    bool hadSample = false;
+    // stvorceky nabehu / stisenia slucky (hore v slucke)
+    Rectangle<float> fadeBox (bool out) const;
 };
 
 class SamplerInst final : public FxBase
@@ -2095,10 +2098,13 @@ public:
         sShape = add ("scanShape", "Tvar skenovania", 0, 2, 0, "", 1.0f, 0);
         sShape->range.interval = 1.0f;
         sShape->choices = StringArray { sk ("Tam a späť"), sk ("Dopredu"), sk ("Náhodne") };
-        for (auto* q : { loopP, lsP, leP, scanP, sRate, sRange, sShape }) q->inEditor = false;
+        // nabeh a stisenie slucky (cast dlzky slucky): stvorceky hore v grafe; prekryvaju sa ako prelinanie
+        lfiP   = add ("loopFadeIn", "Nábeh slučky", 0, 0.5f, 0, "", 1.0f, 3);
+        lfoP   = add ("loopFadeOut", "Stíšenie slučky", 0, 0.5f, 0, "", 1.0f, 3);
+        for (auto* q : { loopP, lsP, leP, scanP, sRate, sRange, sShape, lfiP, lfoP }) q->inEditor = false;
     }
     int displayHeight() const override { return 206; }
-    FxParam *loopP, *lsP, *leP, *scanP, *sRate, *sRange, *sShape;
+    FxParam *loopP, *lsP, *leP, *scanP, *sRate, *sRange, *sShape, *lfiP, *lfoP;
 
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<SamplerDisplay> (*this); }
     bool isBusesLayoutSupported (const BusesLayout& l) const override
@@ -2182,6 +2188,8 @@ public:
         const double leS = jlimit (lsS + 4.0, sl - 3.0, (double) leP->get() * sl);
         const double xfS = 0.008 * sampleRate;                 // prelinanie konca slucky (8 ms)
         const double scanRateHz = sRate->get(), scanInc = scanRateHz / rate, range = sRange->get() * 0.01;
+        const double lfi = lfiP->get(), lfo = lfoP->get();
+        const bool fades = loopOn && (lfi > 0.0005 || lfo > 0.0005);   // vlastny nabeh / stisenie slucky
         const int shape = roundToInt (sShape->get());
         int pos = 0;
         auto rd = [&] (int c, double p)
@@ -2202,37 +2210,55 @@ public:
                 for (int i = from; i < to; ++i)
                 {
                     double a = lsS, b = leS;
-                    if (loopOn)
+                    auto scanJump = [&]
+                    {   // okno slucky sa posunie pri kazdom prechode; skok podla rychlosti (pomaly = vyska drzi ton)
+                        const double room = jmax (0.0, (sl - 3.0) - leS) * range;
+                        double f;
+                        if (shape == 0) { const double q = std::fmod (v.scanPh, 1.0); f = q < 0.5 ? q * 2.0 : 2.0 - q * 2.0; }
+                        else if (shape == 1) f = std::fmod (v.scanPh, 1.0);
+                        else { const int st = (int) v.scanPh; if (st != v.scanStep) { v.scanStep = st; v.scanRnd = rng.nextFloat(); } f = v.scanRnd; }
+                        const double maxStep = (leS - lsS) * (0.005 + 0.08 * scanRateHz);
+                        const double nOff = v.o0 + jlimit (-maxStep, maxStep, room * f - v.o0);
+                        v.pos += nOff - v.o0; a += nOff - v.o0; b += nOff - v.o0; v.o0 = nOff;
+                    };
+                    float fadeG = 1.0f;
+                    if (loopOn && fades)
+                    {   // stisenie na konci slucky dohra druha hlava, hlavna zacne od zaciatku slucky s nabehom
+                        if (scanOn) { v.scanPh += scanInc; a += v.o0; b += v.o0; }
+                        const double L = b - a, foS = lfo * L, fiS = lfi * L;
+                        if (v.pos >= b - foS)
+                        {
+                            if (foS > 1.0) { v.tailOn = true; v.tailPos = v.pos; v.tailLeft = b - v.pos; v.tailLen = foS; }
+                            v.pos = a + (v.pos - (b - foS));
+                            v.inLoop = true;
+                            if (scanOn) scanJump();
+                        }
+                        if (v.inLoop && fiS > 1.0) fadeG = (float) jlimit (0.0, 1.0, (v.pos - a) / fiS);
+                    }
+                    else if (loopOn)
                     {
                         if (scanOn) { v.scanPh += scanInc; a += v.o0; b += v.o0; }
                         if (v.pos >= b)
                         {
                             v.pos -= (b - a);
-                            if (scanOn)
-                            {   // okno slucky sa posunie pri kazdom prechode; skok podla rychlosti (pomaly = vyska drzi ton)
-                                const double room = jmax (0.0, (sl - 3.0) - leS) * range;
-                                double f;
-                                if (shape == 0) { const double q = std::fmod (v.scanPh, 1.0); f = q < 0.5 ? q * 2.0 : 2.0 - q * 2.0; }
-                                else if (shape == 1) f = std::fmod (v.scanPh, 1.0);
-                                else { const int st = (int) v.scanPh; if (st != v.scanStep) { v.scanStep = st; v.scanRnd = rng.nextFloat(); } f = v.scanRnd; }
-                                const double maxStep = (leS - lsS) * (0.005 + 0.08 * scanRateHz);
-                                const double nOff = v.o0 + jlimit (-maxStep, maxStep, room * f - v.o0);
-                                v.pos += nOff - v.o0; a += nOff - v.o0; b += nOff - v.o0; v.o0 = nOff;
-                            }
+                            if (scanOn) scanJump();
                         }
                     }
                     else if (v.pos >= sl - 2) { v.on = false; break; }
                     float e;
                     if (v.releasing) { v.env *= rCoef; e = v.env; if (e < 1.0e-4f) { v.on = false; break; } }
                     else { v.env = jmin (1.0f, v.env + 1.0f / aS); e = v.env; }
-                    const double X = loopOn ? jmin (xfS, (b - a) * 0.5) : 0.0;
+                    const double X = loopOn && ! fades ? jmin (xfS, (b - a) * 0.5) : 0.0;
                     const float w = (X > 1.0 && v.pos > b - X) ? (float) ((v.pos - (b - X)) / X) : 0.0f;
                     for (int c = 0; c < ch; ++c)
                     {
                         float y = rd (c, v.pos);
                         if (w > 0.0f) y += w * (rd (c, v.pos - (b - a)) - y);   // bez svu na konci slucky
+                        y *= fadeG;
+                        if (v.tailOn) y += rd (c, v.tailPos) * (float) jlimit (0.0, 1.0, v.tailLeft / v.tailLen);
                         buf.getWritePointer (c)[i] += y * e * v.gain;
                     }
+                    if (v.tailOn) { v.tailPos += v.step; v.tailLeft -= v.step; if (v.tailLeft <= 0.0) v.tailOn = false; }
                     v.pos += v.step;
                 }
             }
@@ -2250,7 +2276,7 @@ public:
                 if (v == nullptr) { v = &voices[0]; for (auto& x : voices) if (x.age < v->age) v = &x; }
                 const double semis = m.getNoteNumber() - root->get() + tune->get() / 100.0;
                 v->on = true; v->releasing = false; v->note = m.getNoteNumber(); v->pos = 0; v->env = 0;
-                v->scanPh = 0; v->scanStep = -1; v->inLoop = false; v->ph = 0; v->o0 = v->o1 = 0; v->xw = 1.0f;
+                v->scanPh = 0; v->scanStep = -1; v->inLoop = false; v->ph = 0; v->o0 = v->o1 = 0; v->xw = 1.0f; v->tailOn = false;
                 v->step = std::pow (2.0, semis / 12.0) * sampleRate / rate;
                 v->gain = g * (1.0f - vs + vs * m.getFloatVelocity());
                 v->age = ++counter;
@@ -2273,7 +2299,8 @@ private:
     void prepare() override { for (auto& v : voices) v.on = false; }
     void process (AudioBuffer<float>&) override {}
 
-    struct Voice { bool on = false, releasing = false; int note = 60; double pos = 0, step = 1, scanPh = 0, ph = 0, o0 = 0, o1 = 0; float env = 0, gain = 1, scanRnd = 0, xw = 1.0f; int scanStep = -1; bool inLoop = false; uint32 age = 0; };
+    struct Voice { bool on = false, releasing = false; int note = 60; double pos = 0, step = 1, scanPh = 0, ph = 0, o0 = 0, o1 = 0; float env = 0, gain = 1, scanRnd = 0, xw = 1.0f; int scanStep = -1; bool inLoop = false; uint32 age = 0;
+                   bool tailOn = false; double tailPos = 0, tailLeft = 0, tailLen = 1; };
     Random rng;
     std::array<Voice, 24> voices;
     uint32 counter = 0;
@@ -2283,6 +2310,14 @@ private:
     MemoryBlock fileData;
     mutable SpinLock lock;
 };
+
+Rectangle<float> SamplerDisplay::fadeBox (bool out) const
+{
+    const float xs = xOf (sm.lsP->get()), xe = xOf (sm.leP->get()), L = xe - xs;
+    const float x = out ? xe - sm.lfoP->get() * L : xs + sm.lfiP->get() * L;
+    const float cx = out ? jmin (x, xe - 9.0f) : jmax (x, xs + 9.0f);
+    return { cx - 4.5f, waveArea().getY() + 9.0f, 9.0f, 9.0f };
+}
 
 SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
 {
@@ -2343,6 +2378,7 @@ SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
             sk ("Slučka: zapni ju a na obrázku vyber časť zvuku, ktorá sa bude opakovať, kým držíš klávesu. "
                 "Ťahaním okrajov meníš začiatok a koniec, ťahaním stredu posúvaš celú slučku, kliknutím mimo nej vyberieš novú. "
                 "So Shiftom sa ťahá jemne (na veľmi krátku slučku). Veľmi krátka slučka dáva bzučivý tón.\n\n"
+                "Biele štvorčeky hore v slučke: ľavým ťahaním nastavíš nábeh, pravým stíšenie na konci slučky. Keď nastavíš oba, slučka sa plynulo prelína.\n\n"
                 "Zoom: koliesko myši priblíži zvuk okolo kurzora, Shift + koliesko ho posúva, dvojklik ukáže celý zvuk.\n\n"
                 "Skenovať: slučka sa sama pomaly posúva po zvuku, takže sa mení farba zvuku, ale výška ostáva podľa tónu. "
                 "Rýchlosť = ako rýchlo sa posúva (pomaly výška presne drží tón, rýchlo je pohyb divokejší), Rozsah = kam až za slučku zájde (zlaté pole), "
@@ -2355,7 +2391,10 @@ SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
 
 void SamplerDisplay::resized()
 {
-    load.setBounds (getWidth() - 132, 6, 124, 24);
+    // bez zvuku je tlacidlo v strede plochy na zvuk, so zvukom hore v strede (vpravo hore je ikona velkosti okna)
+    hadSample = sm.getSample() != nullptr;
+    if (hadSample) load.setBounds (getWidth() / 2 - 62, 6, 124, 24);
+    else load.setBounds (waveArea().toNearestInt().withSizeKeepingCentre (150, 28).translated (0, -12));
     auto row = getLocalBounds().reduced (10, 0).removeFromBottom (36).withTrimmedBottom (8);
     loopB.setBounds (row.removeFromLeft (74)); row.removeFromLeft (6);
     scanB.setBounds (row.removeFromLeft (100));
@@ -2370,6 +2409,7 @@ void SamplerDisplay::resized()
 
 void SamplerDisplay::timerCallback()
 {
+    if (hadSample != (sm.getSample() != nullptr)) resized();
     loopB.setToggleState (sm.loopP->get() > 0.5f, dontSendNotification);
     scanB.setToggleState (sm.scanP->get() > 0.5f, dontSendNotification);
     if (! rateS.isMouseButtonDown()) rateS.setValue (sm.sRate->get(), dontSendNotification);
@@ -2380,10 +2420,15 @@ void SamplerDisplay::timerCallback()
     repaint();
 }
 
-int SamplerDisplay::hitEdge (float x) const
+int SamplerDisplay::hitEdge (float x, float fadeY) const
 {
     if (sm.loopP->get() < 0.5f || sm.getSample() == nullptr) return 0;
     const float xs = xOf (sm.lsP->get()), xe = xOf (sm.leP->get());
+    if (fadeY >= 0.0f)
+    {
+        if (fadeBox (true).expanded (3.0f).contains (x, fadeY)) return 7;
+        if (fadeBox (false).expanded (3.0f).contains (x, fadeY)) return 6;
+    }
     if (std::abs (x - xe) <= 6.0f) return 2;
     if (std::abs (x - xs) <= 6.0f) return 1;
     if (x > xs && x < xe) return 3;
@@ -2392,8 +2437,8 @@ int SamplerDisplay::hitEdge (float x) const
 
 void SamplerDisplay::mouseMove (const MouseEvent& e)
 {
-    const int h = waveArea().contains (e.position) ? hitEdge (e.position.x) : 0;
-    setMouseCursor (h == 1 || h == 2 ? MouseCursor::LeftRightResizeCursor : h == 3 ? MouseCursor::DraggingHandCursor : MouseCursor::NormalCursor);
+    const int h = waveArea().contains (e.position) ? hitEdge (e.position.x, e.position.y) : 0;
+    setMouseCursor (h == 1 || h == 2 || h == 6 || h == 7 ? MouseCursor::LeftRightResizeCursor : h == 3 ? MouseCursor::DraggingHandCursor : MouseCursor::NormalCursor);
 }
 
 void SamplerDisplay::mouseDown (const MouseEvent& e)
@@ -2403,8 +2448,9 @@ void SamplerDisplay::mouseDown (const MouseEvent& e)
     dragMode = 0; panFrom = v0;
     if (! a.contains (e.position)) return;
     if (sm.loopP->get() < 0.5f) { dragMode = 5; return; }   // bez slucky tahanie posuva pohlad
-    dLs = sm.lsP->get(); dLe = sm.leP->get();
-    dragMode = hitEdge (e.position.x);
+    dLs = sm.lsP->get(); dLe = sm.leP->get(); dFi = sm.lfiP->get(); dFo = sm.lfoP->get();
+    dragMode = hitEdge (e.position.x, e.position.y);
+    if (dragMode == 6 || dragMode == 7) { (dragMode == 6 ? sm.lfiP : sm.lfoP)->beginChangeGesture(); return; }
     if (dragMode == 0)
     {   // nova slucka od miesta kliknutia
         dLs = dLe = fOf (e.position.x);
@@ -2420,6 +2466,15 @@ void SamplerDisplay::mouseDrag (const MouseEvent& e)
     {
         const float span = v1 - v0;
         v0 = jlimit (0.0f, 1.0f - span, panFrom - (float) e.getDistanceFromDragStartX() / pxPerF()); v1 = v0 + span;
+        repaint(); return;
+    }
+    if (dragMode == 6 || dragMode == 7)
+    {   // nabeh / stisenie ako cast dlzky slucky (spolu najviac cela slucka)
+        const float L = jmax (1.0f, xOf (sm.leP->get()) - xOf (sm.lsP->get()));
+        float d = (float) e.getDistanceFromDragStartX() / L;
+        if (e.mods.isShiftDown()) d *= 0.1f;
+        if (dragMode == 6) sm.lfiP->setFromUi (jlimit (0.0f, 0.5f, dFi + d));
+        else sm.lfoP->setFromUi (jlimit (0.0f, 0.5f, dFo - d));
         repaint(); return;
     }
     const float minGap = 0.00005f;
@@ -2461,7 +2516,8 @@ void SamplerDisplay::mouseWheelMove (const MouseEvent& e, const MouseWheelDetail
 
 void SamplerDisplay::mouseUp (const MouseEvent&)
 {
-    if (dragMode != 0 && dragMode != 5) { sm.lsP->endChangeGesture(); sm.leP->endChangeGesture(); }
+    if (dragMode == 6 || dragMode == 7) (dragMode == 6 ? sm.lfiP : sm.lfoP)->endChangeGesture();
+    else if (dragMode != 0 && dragMode != 5) { sm.lsP->endChangeGesture(); sm.leP->endChangeGesture(); }
     dragMode = 0;
 }
 
@@ -2523,11 +2579,12 @@ void SamplerDisplay::paint (Graphics& g)
     g.drawText (sk ("Tvar"), shapeC.getBounds().translated (-48, 0).withWidth (44), Justification::centredRight);
     if (smp == nullptr)
     {
-        g.drawText (sk ("Pretiahni sem zvuk (wav, mp3…) alebo klikni na „Načítať zvuk…“"), area, Justification::centred);
+        g.setColour (Colour (0xff8a96a6));
+        g.drawText (sk ("alebo sem pretiahni zvuk (wav, mp3…)"), area.withTrimmedTop (area.getHeight() * 0.5f + 8.0f).withHeight (20.0f), Justification::centredTop);
         return;
     }
     g.setFont (FontOptions (12.0f));
-    g.drawText (sm.fileName, r.reduced (10, 6).removeFromTop (18).withTrimmedLeft (70).withTrimmedRight (140), Justification::centredLeft);
+    g.drawText (sm.fileName, r.reduced (10, 6).removeFromTop (18).withTrimmedLeft (70).withRight ((float) load.getX() - 8.0f), Justification::centredLeft);
     const bool loopOn = sm.loopP->get() > 0.5f;
     const float xs = xOf (sm.lsP->get()), xe = xOf (sm.leP->get());
     Graphics::ScopedSaveState clipSt (g);
@@ -2562,6 +2619,13 @@ void SamplerDisplay::paint (Graphics& g)
         g.fillRect (Rectangle<float> (xe - 1.0f, area.getY(), 2.0f, area.getHeight()));
         g.fillRect (Rectangle<float> (xs - 4.0f, area.getY(), 8.0f, 6.0f));
         g.fillRect (Rectangle<float> (xe - 4.0f, area.getY(), 8.0f, 6.0f));
+        // nabeh a stisenie: ciary ako pri klipe a stvorceky na tahanie
+        const float L = xe - xs, fi = sm.lfiP->get() * L, fo = sm.lfoP->get() * L, y0 = area.getY() + 13.5f, y1 = area.getBottom() - 1.0f;
+        g.setColour (Colour (0xffe4e9ef));
+        if (fi > 0.5f) g.drawLine (xs, y1, xs + fi, y0, 1.2f);
+        if (fo > 0.5f) g.drawLine (xe, y1, xe - fo, y0, 1.2f);
+        g.fillRect (fadeBox (false));
+        g.fillRect (fadeBox (true));
     }
 }
 

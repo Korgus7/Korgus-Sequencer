@@ -155,6 +155,7 @@ juce::String skTranslate (const char* utf8)
         { "Počúvať sykavky", "Listen to sibilants" },
         { "Prah", "Threshold" },
         { "Pretiahni sem zvuk (wav, mp3…) alebo klikni na „Načítať zvuk…“", "Drag a sound here (wav, mp3…) or click \"Load sound…\"" },
+        { "alebo sem pretiahni zvuk (wav, mp3…)", "or drag a sound here (wav, mp3…)" }, { "Nábeh slučky", "Loop fade-in" }, { "Stíšenie slučky", "Loop fade-out" },
         { "Projekt je zbalený", "The project is packed" },
         { "Projekt nepotrebuje žiadne ďalšie VST pluginy.\r\n", "The project needs no other VST plugins.\r\n" },
         { "Práve prebieha iný export.", "Another export is running." },
@@ -496,9 +497,12 @@ void KorgusLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b
     auto c = bg;
     if (down)      c = c.darker (0.10f);
     else if (over) c = b.getToggleState() ? c.brighter (0.12f) : c.darker (0.05f);
-    g.setColour (c);
+    g.setColour (b.isEnabled() ? c : c.withMultipliedAlpha (0.5f));
     g.fillRoundedRectangle (r, 3.0f);
-    g.setColour (b.getToggleState() ? Col::steel.darker (0.3f) : Col::border);
+    // okraj podla farby tlacidla: na tmavom pozadi (okna pluginov) jemny svetlejsi, na svetlom tmavsi - nikdy biely
+    const bool dark = bg.getPerceivedBrightness() < 0.45f;
+    if (b.getToggleState()) g.setColour (dark ? c.brighter (0.25f) : Col::steel.darker (0.3f));
+    else g.setColour (dark ? c.brighter (0.12f) : Col::border);
     g.drawRoundedRectangle (r, 3.0f, 1.0f);
 }
 
@@ -559,9 +563,12 @@ void KorgusLookAndFeel::drawAlertBox (juce::Graphics& g, juce::AlertWindow& a, c
 void KorgusLookAndFeel::drawComboBox (juce::Graphics& g, int w, int h, bool, int, int, int, int, juce::ComboBox& box)
 {
     juce::Rectangle<float> r (0.5f, 0.5f, (float) w - 1.0f, (float) h - 1.0f);
-    g.setColour (box.findColour (juce::ComboBox::backgroundColourId));
+    const auto bg = box.findColour (juce::ComboBox::backgroundColourId);
+    g.setColour (bg);
     g.fillRoundedRectangle (r, 3.0f);
-    g.setColour (box.findColour (juce::ComboBox::outlineColourId));
+    auto ol = box.findColour (juce::ComboBox::outlineColourId);
+    if (bg.getPerceivedBrightness() < 0.45f && ol == Col::border) ol = bg.brighter (0.12f);   // tmave okna: bez bieleho okraja
+    g.setColour (ol);
     g.drawRoundedRectangle (r, 3.0f, 1.0f);
     juce::Path p;
     const float ax = (float) w - 16.0f, ay = (float) h * 0.5f;
