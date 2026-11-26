@@ -2290,10 +2290,13 @@ public:
         }
         render (pos, n);
         lastActive = 0;
-        for (auto& v : voices) if (v.on) ++lastActive;
+        const Voice* newest = nullptr;
+        for (auto& v : voices) if (v.on) { ++lastActive; if (newest == nullptr || v.age > newest->age) newest = &v; }
+        playFrac.store (newest != nullptr ? (float) (newest->pos / (double) jmax (1, sl)) : -1.0f);
     }
 
     int lastActive = 0;
+    std::atomic<float> playFrac { -1.0f };   // kde v zvuku prave hra najnovsi ton (ukazovatel v okne)
 
 private:
     void prepare() override { for (auto& v : voices) v.on = false; }
@@ -2386,7 +2389,7 @@ SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
     };
     addAndMakeVisible (help);
     timerCallback();
-    startTimerHz (10);
+    startTimerHz (30);   // aj ukazovatel prehravania
 }
 
 void SamplerDisplay::resized()
@@ -2626,6 +2629,12 @@ void SamplerDisplay::paint (Graphics& g)
         if (fo > 0.5f) g.drawLine (xe, y1, xe - fo, y0, 1.2f);
         g.fillRect (fadeBox (false));
         g.fillRect (fadeBox (true));
+    }
+    // ukazovatel prehravania: kde v zvuku prave hra drzany ton
+    if (const float ph = sm.playFrac.load(); ph >= 0.0f && ph >= v0 && ph <= v1)
+    {
+        g.setColour (Colours::white.withAlpha (0.85f));
+        g.fillRect (Rectangle<float> (xOf (ph) - 0.75f, area.getY(), 1.5f, area.getHeight()));
     }
 }
 
