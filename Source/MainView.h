@@ -196,7 +196,7 @@ private:
     juce::var pendingSession;                                    // pluginy z minulého spustenia
     int tunerTick = 0;                                           // ladicka (posiela vysku tonu 15x za sekundu)
     void sendTuner();
-    void checkForUpdate();
+    void checkForUpdate (bool manual = false);
     void updateByFiles();
     juce::String currentVersion();   // verzia programu alebo novsieho rozhrania korgus-ui.html
     void onLearnSound (const juce::var&);

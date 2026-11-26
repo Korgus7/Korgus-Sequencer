@@ -827,6 +827,8 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 engine.setCcMapped (keys);
                             })
         .withEventListener ("midiLearnNotes", [this] (const juce::var& v) { engine.learnNotes.store ((bool) v["on"]); })
+        .withEventListener ("midiMonitor", [this] (const juce::var& v) { engine.monitorNotes.store ((bool) v["on"]); })
+        .withEventListener ("checkUpdate", [this] (const juce::var&) { checkForUpdate (true); })
         .withEventListener ("midiOutputs", [this] (const juce::var&)
                             {   // zoznam MIDI vystupov a vstupov (synchronizacia s MPC)
                                 juce::Array<juce::var> outs, ins;
@@ -4441,23 +4443,31 @@ namespace
     }
 }
 
-void MainView::checkForUpdate()
+void MainView::checkForUpdate (bool manual)
 {
+    juce::ignoreUnused (manual);
    #if JUCE_WINDOWS
     juce::Component::SafePointer<MainView> sp (this);
     const auto cur = currentVersion();
-    juce::Thread::launch ([sp, cur]
+    juce::Thread::launch ([sp, cur, manual]
     {
+        // rucna kontrola: odpoved aj vtedy, ked nova verzia nie je
+        auto none = [sp, cur, manual] (bool err)
+        {
+            if (! manual) return;
+            juce::MessageManager::callAsync ([sp, cur, err] { if (sp == nullptr) return; auto o = obj(); put (o, "cur", cur); put (o, "error", err); sp->emit ("updateNone", o); });
+        };
         // GitHub (raw) drzi subory v cache az 5 minut - parameter ?t= zaruci cerstvu verziu
         juce::URL u (juce::String (updApi) + "?t=" + juce::String (juce::Time::currentTimeMillis()));
         auto opts = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
                         .withConnectionTimeoutMs (8000)
                         .withExtraHeaders ("User-Agent: KorgusSequencer\r\nCache-Control: no-cache");
         auto in = u.createInputStream (opts);
-        if (in == nullptr) return;
+        if (in == nullptr) { none (true); return; }
         const auto j = juce::JSON::parse (in->readEntireStreamAsString());
         const auto tag = j["version"].toString();
-        if (tag.isEmpty() || ! verNewer (tag, cur)) return;
+        if (tag.isEmpty()) { none (true); return; }
+        if (! verNewer (tag, cur)) { none (false); return; }
         const auto url = j["url"].toString();
         if (! url.startsWith ("https://")) return;
         // popis novej verzie v jazyku programu (notes_en pre anglictinu, inak slovensky)

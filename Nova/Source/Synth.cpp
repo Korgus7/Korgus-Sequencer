@@ -360,7 +360,7 @@ namespace nova
         const auto& s = st.L[li];
         auto& lv = v.lv[li];
         // upravy v editore samplu platia hned aj pre znejuci ton
-        if (lv.user != nullptr && lv.active) lv.ued = getSmpEdit (li);
+        if (lv.user != nullptr && lv.active) { lv.ued = getSmpEdit (li); playTick[li & 1].fetch_add (1, std::memory_order_relaxed); }
         // analogove plavanie: najviac +-4 centy (nie na klavirnych samploch)
         const bool sampleSrc = lv.wave == 7 && lv.smp != nullptr;
         const float shift = s.oct * 12.0f + s.semi + s.fine * 0.01f + bend + (sampleSrc ? 0.0f : v.drift * 0.01f * st.fx.tube);
@@ -728,6 +728,7 @@ namespace nova
                 }
                 else if (lv.pos >= L - 1.0) { lv.active = false; break; }
                 rd (lv.pos, l, r);
+                playPos[li & 1].store ((float) ((e.rev ? (double) s1 - 1.0 - lv.pos : (double) s0 + lv.pos) / (double) len), std::memory_order_relaxed);
                 if (s.loop)
                 {   // prelinanie pred koncom slucky s tonom od jej zaciatku (bez pocutelneho svu)
                     const double X = std::min ((double) e.xf * lv.user->rate, (leO - lsO) * 0.5);

@@ -69,6 +69,9 @@ namespace nova
         UserSamplePtr getUserSample (int layer) const { const juce::SpinLock::ScopedLockType l (smpLock); return userSmp[layer & 1]; }
         void setSmpEdit (int layer, const SmpEdit& e) { const juce::SpinLock::ScopedLockType l (smpLock); smpEd[layer & 1] = e; }
         SmpEdit getSmpEdit (int layer) const { const juce::SpinLock::ScopedLockType l (smpLock); return smpEd[layer & 1]; }
+        // kde vo vlastnom sampli prave hra ton (0..1) – ukazovatel v editore samplu
+        std::atomic<float> playPos[2] { { -1.0f }, { -1.0f } };
+        std::atomic<int> playTick[2] { { 0 }, { 0 } };
         void fadeAll() { fadeRequest = true; }
         bool pianoReady() const { return bank != nullptr && bank->ready(); }
         bool pianoFailed() const { return bank != nullptr && bank->failed(); }

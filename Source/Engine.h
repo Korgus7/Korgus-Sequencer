@@ -281,7 +281,8 @@ public:
     juce::AbstractFifo ccFifo { 512 };
     std::array<CcIn, 512> ccBuf {};
     std::array<std::atomic<bool>, 2 * 16 * 128> ccMapped {};
-    std::atomic<bool> learnNotes { false };   // pocas MIDI learn idu aj noty do rozhrania (nehraju)
+    std::atomic<bool> learnNotes { false };
+    std::atomic<bool> monitorNotes { false };   // okno MIDI ovladacov: udery padov sa ukazu (nota hra normalne)   // pocas MIDI learn idu aj noty do rozhrania (nehraju)
     // MIDI Clock von: audio vlakno zapise spravy s casom, vlakno ich posle presne v case
     struct ClockMsg { uint8_t status; int16_t spp; double atMs; };
     struct ClockSender : juce::Thread

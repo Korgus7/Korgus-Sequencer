@@ -1203,11 +1203,12 @@ namespace
             addAndMakeVisible (scanShape);
             // menej pouzivane funkcie v ponuke
             for (auto* b : { &pitch, &reset, &saveCut }) b->setVisible (false);
-            more.setButtonText (juce::String::fromUTF8 ("⋯")); more.setTooltip (T ("Ďalšie: Zistiť tón, Uložiť výsek, Pôvodné"));
+            more.setButtonText (juce::String::fromUTF8 ("⋯")); more.setTooltip (T ("Ďalšie: Nájsť slučku, Zistiť tón, Uložiť výsek, Pôvodné"));
             addAndMakeVisible (more);
             more.onClick = [this]
             {
                 juce::PopupMenu m;
+                m.addItem (4, juce::String::fromUTF8 ("⟲ ") + T ("Nájsť slučku"));
                 m.addItem (1, juce::String::fromUTF8 ("♪ ") + T ("Zistiť tón"));
                 m.addItem (2, juce::String::fromUTF8 ("⤓ ") + T ("Uložiť výsek"));
                 m.addSeparator();
@@ -1217,6 +1218,7 @@ namespace
                     if (r == 1 && pitch.onClick) pitch.onClick();
                     else if (r == 2) saveSelection();
                     else if (r == 3 && reset.onClick) reset.onClick();
+                    else if (r == 4) findLoop();
                 });
             };
             showScan();
@@ -1228,6 +1230,7 @@ namespace
                 b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
             }
             setSize (690, 352);
+            startTimerHz (30);
         }
         void showScan() { for (juce::Component* c : { (juce::Component*) &scanRate, (juce::Component*) &scanRange, (juce::Component*) &scanRateL, (juce::Component*) &scanRangeL, (juce::Component*) &scanShape }) c->setVisible (ed.scan); }
         ~SampleEditor() override { if (playing) p.keyboard.noteOff (1, playNote, 0.0f); }
@@ -1269,7 +1272,51 @@ namespace
             info = T ("Uložené: ") + f.getFileName() + "  (" + T ("Moje samply") + ")";
             repaint();
         }
-        void timerCallback() override { stopTimer(); }
+        // ukazovatel prehravania: kde vo vzorke prave hra drzany ton
+        float ph = -1.0f; int phTick = 0;
+        void timerCallback() override
+        {
+            const int t = p.synth.playTick[li & 1].load();
+            const float n = t != phTick ? p.synth.playPos[li & 1].load() : -1.0f;
+            phTick = t;
+            if (std::abs (n - ph) > 1.0e-5f) { ph = n; repaint (waveArea().toNearestInt().expanded (2)); }
+        }
+        // automaticka slucka: koniec tesne pred koncom vyberu, zaciatok tam, kde vlna najviac pripomina koniec
+        void findLoop()
+        {
+            if (smp == nullptr) return;
+            const auto& b = smp->buf; const int len = b.getNumSamples(), nch = b.getNumChannels();
+            const int S0 = juce::jlimit (0, len - 1, (int) (ed.start * len)), S1 = juce::jlimit (S0, len - 1, (int) (ed.end * len)), sel = S1 - S0;
+            if (sel < (int) (smp->rate * 0.12)) { info = T ("Výber je na slučku príliš krátky."); repaint(); return; }
+            std::vector<float> m ((size_t) len);
+            for (int i = 0; i < len; ++i) { float v = 0; for (int c = 0; c < nch; ++c) v += b.getSample (c, i); m[(size_t) i] = v / (float) nch; }
+            const int W = juce::jlimit (64, 2048, sel / 10);
+            auto rising = [&] (int i) { return i > 0 && m[(size_t) i - 1] < 0.0f && m[(size_t) i] >= 0.0f; };
+            int le = juce::jmax (S0 + W, S1 - sel / 20 - W);
+            while (le > S0 + W && ! rising (le)) --le;
+            const int lo = juce::jmax (S0 + W, S0 + sel / 4), hi = le - juce::jmax ((int) (smp->rate * 0.05), sel / 5);
+            if (hi <= lo) { info = T ("Výber je na slučku príliš krátky."); repaint(); return; }
+            double eE = 0; for (int k = -W; k < W; ++k) { const double v = m[(size_t) juce::jmin (len - 1, le + k)]; eE += v * v; }
+            const int stride = juce::jmax (1, (hi - lo) / 6000);
+            int best = -1; double bestC = -2.0;
+            for (int i = lo; i < hi; i += stride)
+            {
+                int z = i; while (z < hi && ! rising (z)) ++z;
+                if (z >= hi) break;
+                double xy = 0, xx = 0;
+                for (int k = -W; k < W; k += 2)
+                { const double a = m[(size_t) (z + k)], c = m[(size_t) juce::jmin (len - 1, le + k)]; xy += a * c; xx += a * a; }
+                const double cc = xy / std::sqrt (juce::jmax (1.0e-12, xx * eE * 0.5));
+                if (cc > bestC) { bestC = cc; best = z; }
+                i = z;
+            }
+            if (best < 0) { info = T ("Slučku sa nepodarilo nájsť."); repaint(); return; }
+            ed.ls = (float) best / (float) len; ed.le = (float) le / (float) len;
+            if (! loopOn()) { loopB.setToggleState (true, juce::dontSendNotification); if (loopB.onClick) loopB.onClick(); }
+            apply();
+            info = T ("Slučka nájdená – zhoda ") + juce::String (juce::jlimit (0, 100, juce::roundToInt (bestC * 100.0))) + " %";
+            repaint();
+        }
 
         void buildPeaks()
         {
@@ -1396,6 +1443,7 @@ namespace
                 };
                 if (loopOn()) { mark (xOf (ed.ls), loopCol, "L", false); mark (xOf (ed.le), loopCol, "L", false); }
                 mark (xs, arc, "Z", true); mark (xe, arc, "K", true);
+                if (ph >= 0.0f) { g.setColour (juce::Colours::white.withAlpha (0.85f)); g.fillRect (xOf (ph) - 0.75f, r.getY(), 1.5f, r.getHeight()); }
             }
             // prehlad: ktora cast je zobrazena (da sa tahat)
             const auto o = ovArea();

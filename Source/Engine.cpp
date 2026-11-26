@@ -445,6 +445,13 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
             else if (sc.blockSize2 > 0) ccBuf[(size_t) sc.startIndex2] = c;
             return;
         }
+        if (monitorNotes.load() && m.isNoteOn())
+        {
+            const CcIn c { (uint8_t) (0x80 | m.getChannel()), (uint8_t) (128 + m.getNoteNumber()), (uint8_t) juce::jmax (1, (int) m.getVelocity()) };
+            const auto sc = ccFifo.write (1);
+            if (sc.blockSize1 > 0) ccBuf[(size_t) sc.startIndex1] = c;
+            else if (sc.blockSize2 > 0) ccBuf[(size_t) sc.startIndex2] = c;
+        }
         // pady MPC na bicej stope: nota padu -> nota bicich
         if (const int pm = padMap[(size_t) m.getNoteNumber()].load(); pm >= 0 && pm < 128) m.setNoteNumber (pm);
     }
