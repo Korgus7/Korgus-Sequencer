@@ -325,6 +325,7 @@ bool NovaProcessor::loadPreset (const juce::String& key)
     if (! presets.load (key, p)) return false;
     applyPatch (p);
     currentKey = key;
+    presets.addRecent (key);
     // pri tovarenskom zvuku nastavime aj vyber v jednoduchej verzii (bez opatovneho nacitania)
     if (const auto* e = presets.find (key); e != nullptr && e->factory)
         if (auto* prm = params.getParameter ("preset"))
@@ -1347,6 +1348,6 @@ nova::SmpEdit NovaProcessor::decodeSmpEdit (const juce::String& t)
         e.scan = a[8].getIntValue() != 0; e.scanRate = juce::jlimit (0.01f, 8.0f, a[9].getFloatValue());
         e.scanRange = juce::jlimit (0.0f, 1.0f, a[10].getFloatValue()); e.scanShape = juce::jlimit (0, 2, a[11].getIntValue());
     }
-    if (a.size() >= 13) e.fromStart = a[12].getIntValue() != 0;
+    e.fromStart = a.size() >= 13 ? a[12].getIntValue() != 0 : true;   // starsie ulozenia hrali od zaciatku
     return e;
 }

@@ -1148,7 +1148,16 @@ namespace
             rev.setToggleState (ed.rev, juce::dontSendNotification);
             loopB.setToggleState (p.params.getRawParameterValue (pre + "loop")->load() > 0.5f, juce::dontSendNotification);
             rev.onClick = [this] { ed.rev = rev.getToggleState(); apply(); };
-            loopB.onClick = [this] { if (auto* prm = p.params.getParameter (pre + "loop")) prm->setValueNotifyingHost (loopB.getToggleState() ? 1.0f : 0.0f); fromB.setEnabled (loopB.getToggleState()); repaint(); };
+            loopB.onClick = [this]
+            {
+                if (auto* prm = p.params.getParameter (pre + "loop")) prm->setValueNotifyingHost (loopB.getToggleState() ? 1.0f : 0.0f);
+                fromB.setEnabled (loopB.getToggleState());
+                // ako v Sampleri: slucka cez cely vyber nema zmysel (Od zaciatku by nic nemenilo) – navrhne strednu cast
+                const float sel = ed.end - ed.start;
+                if (loopB.getToggleState() && ed.ls <= ed.start + sel * 0.02f && ed.le >= ed.end - sel * 0.02f)
+                { ed.ls = ed.start + sel * 0.3f; ed.le = ed.start + sel * 0.7f; apply(); }
+                repaint();
+            };
             fromB.setEnabled (loopB.getToggleState());
             reset.onClick = [this] { const bool r = ed.rev; ed = {}; ed.rev = r; scanB.setToggleState (false, juce::dontSendNotification); fromB.setToggleState (ed.fromStart, juce::dontSendNotification); showScan(); resized(); apply(); };
             pitch.onClick = [this]
@@ -2446,9 +2455,10 @@ namespace
     {
         CategoryChips (Browser& b) : br (b) {}
         juce::StringArray cats() const;
-        static juce::String chipLabel (const juce::String& c) { return T (c.startsWith ("g") ? c.fromFirstOccurrenceOf (":", false, false) : c); }
+        static juce::String recentKey() { return juce::String::charToString (0x21BA); }
+        static juce::String chipLabel (const juce::String& c) { if (c == recentKey()) return c + " " + T ("Naposledy"); return T (c.startsWith ("g") ? c.fromFirstOccurrenceOf (":", false, false) : c); }
         bool isAddChip (int i) const { return i == cats().size() - 1; }
-        bool canDrop (int i) const { return i == 1 || (i > 1 && ! isAddChip (i) && ! cats()[i].startsWith ("g")); }
+        bool canDrop (int i) const { return i == 1 || (i > 2 && ! isAddChip (i) && ! cats()[i].startsWith ("g")); }
         std::vector<juce::Rectangle<int>> layoutChips (int width) const
         {
             std::vector<juce::Rectangle<int>> r; int x = 0, y = 0;
@@ -2547,14 +2557,19 @@ namespace
             for (auto& e : p.presets.entries())
             {
                 int es = -1; const auto grp = entryGroup (e, es);
-                if (section() >= 0 && es >= 0 && es != section()) continue;   // druha cast
-                if (filterCat() == juce::String::charToString (0x2605)) { if (! p.presets.isFav (e.key)) continue; }
+                const bool rec = filterCat() == CategoryChips::recentKey();
+                if (rec) { if (p.presets.recentIndex (e.key) < 0) continue; }   // naposledy: z oboch casti
+                else if (section() >= 0 && es >= 0 && es != section()) continue;   // druha cast
+                if (rec) {}
+                else if (filterCat() == juce::String::charToString (0x2605)) { if (! p.presets.isFav (e.key)) continue; }
                 else if (filterCat().startsWith ("g")) { if (es < 0 || groupKey (es, grp) != filterCat()) continue; }
                 else if (filterCat().isNotEmpty() && e.category != filterCat()) continue;
                 if (q.isNotEmpty() && ! e.name.toLowerCase().contains (q) && ! grp.toLowerCase().contains (q)
                     && ! T (e.name).toLowerCase().contains (q) && ! T (grp).toLowerCase().contains (q)) continue;
                 shown.push_back (e);
             }
+            if (filterCat() == CategoryChips::recentKey())
+                std::stable_sort (shown.begin(), shown.end(), [this] (const auto& a, const auto& b) { return p.presets.recentIndex (a.key) < p.presets.recentIndex (b.key); });
             list.setSize (juce::jmax (10, vp.getMaximumVisibleWidth()), (int) shown.size() * PresetList::rowH + 4);
             list.repaint(); chips.repaint();
             for (int i = 0; i < 2; ++i) secB[i].setToggleState (i == section(), juce::dontSendNotification);
@@ -2641,7 +2656,7 @@ namespace
             {
                 if (sp == nullptr || r == 0) return;
                 auto& b = *sp;
-                const auto cat = (filterCat().isNotEmpty() && filterCat() != juce::String::charToString (0x2605) && ! filterCat().startsWith ("g")) ? filterCat() : categories()[categories().size() - 1];
+                const auto cat = (filterCat().isNotEmpty() && filterCat() != juce::String::charToString (0x2605) && filterCat() != CategoryChips::recentKey() && ! filterCat().startsWith ("g")) ? filterCat() : categories()[categories().size() - 1];
                 if (r == 1) b.newFolderDialog();
                 else if (r == 2) { b.p.newSound (cat); b.refresh(); }
                 else if (r == 3) b.wavDialog (cat);
@@ -2768,7 +2783,7 @@ namespace
 
     juce::StringArray CategoryChips::cats() const
     {
-        juce::StringArray c; c.add (T ("Všetko")); c.add (juce::String::charToString (0x2605));
+        juce::StringArray c; c.add (T ("Všetko")); c.add (juce::String::charToString (0x2605)); c.add (recentKey());
         const int sct = juce::jmax (0, Browser::section());
         for (auto& g : soundGroups (sct)) c.add (groupKey (sct, g));   // skupiny zvolenej casti
         for (auto& k : br.p.presets.allCategories())                   // vlastne priecinky

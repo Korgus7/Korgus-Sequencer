@@ -14,10 +14,11 @@ namespace nova
 
     void PresetStore::loadIndex()
     {
-        order.clear(); userCats.clear(); favs.clear(); catOverride.clear(); settings.clear();
+        order.clear(); userCats.clear(); favs.clear(); recent.clear(); catOverride.clear(); settings.clear();
         auto j = juce::JSON::parse (indexFile.loadFileAsString());
         if (auto* a = j["order"].getArray()) for (auto& k : *a) order.add (k.toString());
         if (auto* a = j["fav"].getArray()) for (auto& k : *a) favs.addIfNotAlreadyThere (k.toString());
+        if (auto* a = j["recent"].getArray()) for (auto& k : *a) recent.addIfNotAlreadyThere (k.toString());
         if (auto* a = j["folders"].getArray()) for (auto& k : *a) if (k.toString().trim().isNotEmpty()) userCats.addIfNotAlreadyThere (k.toString().trim());
         if (auto* o = j["cat"].getDynamicObject()) for (auto& p : o->getProperties()) catOverride[p.name.toString()] = p.value.toString();
         if (auto* o = j["settings"].getDynamicObject()) for (auto& p : o->getProperties()) settings[p.name.toString()] = p.value.toString();
@@ -32,6 +33,8 @@ namespace nova
         o->setProperty ("folders", fa);
         juce::Array<juce::var> fv; for (auto& k : favs) fv.add (k);
         o->setProperty ("fav", fv);
+        juce::Array<juce::var> rc; for (auto& k : recent) rc.add (k);
+        o->setProperty ("recent", rc);
         auto* c = new juce::DynamicObject();
         for (auto& [k, v] : catOverride) c->setProperty (k, v);
         o->setProperty ("cat", juce::var (c));
