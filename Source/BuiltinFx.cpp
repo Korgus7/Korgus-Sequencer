@@ -2088,6 +2088,9 @@ public:
         mode = add ("mode", "Hrať", 0, 1, 0, "", 1.0f, 0);
         mode->range.interval = 1.0f;
         mode->choices = StringArray { sk ("Kým držím klávesu"), sk ("Celý zvuk") };
+        // glide (portamento): ton sa plynulo presunie z vysky predchadzajuceho; Mono = jeden ton naraz, legato bez noveho nabehu (808 basy)
+        glideP = add ("glide", "Glide", 0, 1000, 0, "ms", 0.35f, 0);
+        monoP  = add ("mono", "Mono", 0, 1, 0, "", 1.0f, 0);  monoP->toggle = true;
         // slucka a skenovanie - ovladaju sa v grafe
         loopP  = add ("loop", "Slučka", 0, 1, 0, "", 1.0f, 0);          loopP->toggle = true;
         lsP    = add ("loopStart", "Začiatok slučky", 0, 1, 0.30f, "", 1.0f, 3);
@@ -2262,6 +2265,7 @@ public:
                         buf.getWritePointer (c)[i] += y * e * v.gain;
                     }
                     if (v.tailOn) { v.tailPos += v.step; v.tailLeft -= v.step; if (v.tailLeft <= 0.0) v.tailOn = false; }
+                    if (v.step != v.target) { v.step += (v.target - v.step) * v.gl; if (std::abs (v.target - v.step) < 1.0e-7) v.step = v.target; }
                     v.pos += v.step;
                 }
             }
@@ -2274,6 +2278,23 @@ public:
             pos = at;
             if (m.isNoteOn())
             {
+                const double semis0 = m.getNoteNumber() - root->get() + tune->get() / 100.0;
+                const double newStep = std::pow (2.0, semis0 / 12.0) * sampleRate / rate;
+                const double gms = glideP->get();
+                const double glc = gms > 0.5 ? 1.0 - std::exp (-1.0 / (jmax (1.0, gms * 0.001 * sampleRate / 3.0))) : 1.0;   // ~95 % za cas Glide
+                if (monoP->get() > 0.5f)
+                {
+                    Voice* held = nullptr;
+                    for (auto& x : voices) if (x.on && ! x.releasing && (held == nullptr || x.age > held->age)) held = &x;
+                    if (held != nullptr)
+                    {   // legato: ten isty ton sa len presunie na novu vysku (bez noveho nabehu)
+                        for (auto& x : voices) if (&x != held && x.on) x.releasing = true;
+                        held->note = m.getNoteNumber(); held->target = newStep; held->gl = glc; if (glc >= 1.0) held->step = newStep;
+                        held->age = ++counter; lastStep = newStep;
+                        continue;
+                    }
+                    for (auto& x : voices) if (x.on) x.releasing = true;
+                }
                 Voice* v = nullptr;
                 for (auto& x : voices) if (! x.on) { v = &x; break; }
                 if (v == nullptr) { v = &voices[0]; for (auto& x : voices) if (x.age < v->age) v = &x; }
@@ -2282,6 +2303,9 @@ public:
                 v->scanPh = 0; v->scanStep = -1; v->inLoop = false; v->ph = 0; v->o0 = v->o1 = 0; v->xw = 1.0f; v->tailOn = false; v->outLoop = false;
                 if (loopOn && fromP->get() < 0.5f) { v->pos = lsS; v->inLoop = true; }   // hned v slucke
                 v->step = std::pow (2.0, semis / 12.0) * sampleRate / rate;
+                v->target = v->step; v->gl = glc;
+                if (glc < 1.0 && lastStep > 0.0) v->step = lastStep;   // glide z vysky predchadzajuceho tonu
+                lastStep = v->target;
                 v->gain = g * (1.0f - vs + vs * m.getFloatVelocity());
                 v->age = ++counter;
             }
@@ -2310,12 +2334,13 @@ private:
     void prepare() override { for (auto& v : voices) v.on = false; }
     void process (AudioBuffer<float>&) override {}
 
-    struct Voice { bool on = false, releasing = false; int note = 60; double pos = 0, step = 1, scanPh = 0, ph = 0, o0 = 0, o1 = 0; float env = 0, gain = 1, scanRnd = 0, xw = 1.0f; int scanStep = -1; bool inLoop = false, outLoop = false; uint32 age = 0;
+    struct Voice { bool on = false, releasing = false; int note = 60; double pos = 0, step = 1, target = 1, gl = 1, scanPh = 0, ph = 0, o0 = 0, o1 = 0; float env = 0, gain = 1, scanRnd = 0, xw = 1.0f; int scanStep = -1; bool inLoop = false, outLoop = false; uint32 age = 0;
                    bool tailOn = false; double tailPos = 0, tailLeft = 0, tailLen = 1; };
     Random rng;
     std::array<Voice, 24> voices;
     uint32 counter = 0;
-    FxParam *root, *tune, *att, *rel, *velS, *vol, *mode;
+    FxParam *root, *tune, *att, *rel, *velS, *vol, *mode, *glideP, *monoP;
+    double lastStep = 0;   // vyska posledneho tonu (odkial ide glide)
     std::shared_ptr<AudioBuffer<float>> sample;
     double sampleRate = 44100;
     MemoryBlock fileData;
@@ -2395,6 +2420,8 @@ SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
                 "Od začiatku (so slučkou): zapnuté = tón zahrá zvuk od začiatku a potom cykluje, vypnuté = hrá hneď v slučke.\n\n"
                 "Hrať: Kým držím klávesu = pustením klávesy tón dozneje (Uvoľnenie). Celý zvuk = pustenie klávesy tón nezastaví; "
                 "so slučkou ju opustí a dohrá zvuk až do konca.\n\n"
+                "Glide: tón sa plynulo presunie z výšky predchádzajúceho (napr. 808 basy). Mono: hrá jeden tón naraz, "
+                "pri hraní legato sa len posunie výška bez nového nábehu.\n\n"
                 "Zoom: koliesko myši priblíži zvuk okolo kurzora, Shift + koliesko ho posúva, dvojklik ukáže celý zvuk.\n\n"
                 "Skenovať: slučka sa sama pomaly posúva po zvuku, takže sa mení farba zvuku, ale výška ostáva podľa tónu. "
                 "Rýchlosť = ako rýchlo sa posúva (pomaly výška presne drží tón, rýchlo je pohyb divokejší), Rozsah = kam až za slučku zájde (zlaté pole), "
