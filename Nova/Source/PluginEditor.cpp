@@ -1133,7 +1133,11 @@ namespace
             {
                 b.setButtonText (t); b.setTooltip (tip); addAndMakeVisible (b);
             };
-            btn (play, juce::String::fromUTF8 ("▶ ") + T ("Prehrať"), T ("Podrž = zahrá sampel na základnom tóne"));
+            // namiesto Prehrat (hra sa klavesmi): so sluckou zacat od zaciatku zvuku alebo hned v slucke
+            btn (fromB, juce::String::fromUTF8 ("⇤ ") + T ("Od začiatku"), T ("So slučkou: zapnuté = tón zahrá sampel od začiatku a potom cykluje, vypnuté = hrá hneď v slučke"));
+            fromB.setClickingTogglesState (true);
+            fromB.setToggleState (ed.fromStart, juce::dontSendNotification);
+            fromB.onClick = [this] { ed.fromStart = fromB.getToggleState(); apply(); };
             btn (rev, juce::String::fromUTF8 ("⇄ ") + T ("Odzadu"), T ("Prehrávať sampel odzadu"));
             btn (loopB, juce::String::fromUTF8 ("⟲ ") + T ("Slučka"), T ("Pri držaní tónu opakuje označený kúsok (svetlé pole)"));
             btn (pitch, juce::String::fromUTF8 ("♪ ") + T ("Zistiť tón"), T ("Zistí tón vybranej časti a nastaví Zákl. tón a Jemne"));
@@ -1143,18 +1147,10 @@ namespace
             rev.setClickingTogglesState (true); loopB.setClickingTogglesState (true);
             rev.setToggleState (ed.rev, juce::dontSendNotification);
             loopB.setToggleState (p.params.getRawParameterValue (pre + "loop")->load() > 0.5f, juce::dontSendNotification);
-            play.onStateChange = [this]
-            {
-                const bool d = play.isDown();
-                if (d == playing) return;
-                playing = d;
-                const int root = juce::roundToInt (p.params.getRawParameterValue (pre + "root")->load());
-                if (d) { playNote = root; p.keyboard.noteOn (1, playNote, 0.85f); }
-                else p.keyboard.noteOff (1, playNote, 0.0f);
-            };
             rev.onClick = [this] { ed.rev = rev.getToggleState(); apply(); };
-            loopB.onClick = [this] { if (auto* prm = p.params.getParameter (pre + "loop")) prm->setValueNotifyingHost (loopB.getToggleState() ? 1.0f : 0.0f); repaint(); };
-            reset.onClick = [this] { const bool r = ed.rev; ed = {}; ed.rev = r; scanB.setToggleState (false, juce::dontSendNotification); showScan(); resized(); apply(); };
+            loopB.onClick = [this] { if (auto* prm = p.params.getParameter (pre + "loop")) prm->setValueNotifyingHost (loopB.getToggleState() ? 1.0f : 0.0f); fromB.setEnabled (loopB.getToggleState()); repaint(); };
+            fromB.setEnabled (loopB.getToggleState());
+            reset.onClick = [this] { const bool r = ed.rev; ed = {}; ed.rev = r; scanB.setToggleState (false, juce::dontSendNotification); fromB.setToggleState (ed.fromStart, juce::dontSendNotification); showScan(); resized(); apply(); };
             pitch.onClick = [this]
             {
                 if (smp == nullptr) return;
@@ -1209,7 +1205,6 @@ namespace
             {
                 juce::PopupMenu m;
                 m.addItem (4, juce::String::fromUTF8 ("⟲ ") + T ("Nájsť slučku"));
-                m.addItem (5, T ("So slučkou hrať od začiatku"), true, ed.fromStart);
                 m.addItem (1, juce::String::fromUTF8 ("♪ ") + T ("Zistiť tón"));
                 m.addItem (2, juce::String::fromUTF8 ("⤓ ") + T ("Uložiť výsek"));
                 m.addSeparator();
@@ -1220,13 +1215,12 @@ namespace
                     else if (r == 2) saveSelection();
                     else if (r == 3 && reset.onClick) reset.onClick();
                     else if (r == 4) findLoop();
-                    else if (r == 5) { ed.fromStart = ! ed.fromStart; apply(); }
                 });
             };
             showScan();
-            for (auto* b : { &play, &rev, &loopB, &scanB, &more })
+            for (auto* b : { &fromB, &rev, &loopB, &scanB, &more })
             {
-                b->setColour (juce::TextButton::buttonColourId, b == &play ? steel : panel);
+                b->setColour (juce::TextButton::buttonColourId, panel);
                 b->setColour (juce::TextButton::buttonOnColourId, steel);
                 b->setColour (juce::TextButton::textColourOffId, juce::Colour (0xffc9d2dc));
                 b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
@@ -1278,6 +1272,7 @@ namespace
         float ph = -1.0f; int phTick = 0;
         void timerCallback() override
         {
+            if (fromB.isEnabled() != loopOn()) fromB.setEnabled (loopOn());
             const int t = p.synth.playTick[li & 1].load();
             const float n = t != phTick ? p.synth.playPos[li & 1].load() : -1.0f;
             phTick = t;
@@ -1456,8 +1451,8 @@ namespace
         void resized() override
         {
             const int y = btnY(), h = 34; int x = 18;
-            const int ws[] = { 112, 106, 100, 118 }; int k = 0;
-            for (auto* b : { &play, &rev, &loopB, &scanB }) { b->setBounds (x, y, ws[k++], h); x += b->getWidth() + 8; }
+            const int ws[] = { 100, 130, 106, 118 }; int k = 0;
+            for (auto* b : { &loopB, &fromB, &rev, &scanB }) { b->setBounds (x, y, ws[k++], h); x += b->getWidth() + 8; }
             more.setBounds (getWidth() - 18 - 46, y, 46, h);
             const int y2 = scanY();
             scanRateL.setBounds (18, y2, 62, 30); scanRate.setBounds (80, y2, 160, 30);
@@ -1551,7 +1546,7 @@ namespace
 
         NovaProcessor& p; int li; juce::String pre; std::function<void()> onChanged;
         nova::SmpEdit ed; nova::UserSamplePtr smp; std::vector<std::pair<float, float>> peaks;
-        juce::TextButton play, rev, loopB, pitch, reset, scanB, saveCut, more;
+        juce::TextButton fromB, rev, loopB, pitch, reset, scanB, saveCut, more;
         juce::Slider scanRate, scanRange; juce::Label scanRateL, scanRangeL; juce::ComboBox scanShape;
         juce::String info; int drag = -1, playNote = 60; bool playing = false;
     };

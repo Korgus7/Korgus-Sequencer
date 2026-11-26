@@ -184,7 +184,7 @@ namespace nova
                 if (lv.user == nullptr || lv.user->buf.getNumSamples() < 4) return;
                 lv.ued = getSmpEdit (li);
             }
-            lv.pos = 0; lv.scanPh = 0; lv.scanStep = -1; lv.inLoop = false; lv.lph = 0; lv.o0 = lv.o1 = 0; lv.xw = 1.0f;
+            lv.pos = 0; lv.played = 0; lv.scanPh = 0; lv.scanStep = -1; lv.inLoop = false; lv.lph = 0; lv.o0 = lv.o1 = 0; lv.xw = 1.0f;
             if (lv.user != nullptr && st.L[li].loop && ! lv.ued.fromStart)
             {   // hned v slucke
                 const int len = lv.user->buf.getNumSamples();
@@ -747,7 +747,7 @@ namespace nova
                     }
                 }
                 float g = 1.0f;
-                if (e.fin > 0.0005f) g *= (float) std::min (1.0, lv.pos / ((double) e.fin * lv.user->rate));
+                if (e.fin > 0.0005f) g *= (float) std::min (1.0, lv.played / ((double) e.fin * lv.user->rate));   // nabeh od zaciatku tonu (aj ked zacina v slucke)
                 if (! s.loop && e.fout > 0.0005f) g *= (float) std::min (1.0, (L - lv.pos) / ((double) e.fout * lv.user->rate));
                 if (s.loop && e.fout > 0.0005f)
                 {   // so sluckou: stisenie pred koncom slucky a nabeh po kazdom prechode (bez cvaknutia)
@@ -756,7 +756,10 @@ namespace nova
                     if (lv.inLoop) g *= (float) juce::jlimit (0.0, 1.0, (lv.pos - lsO) / F);
                 }
                 l *= g; r *= g;
-                lv.pos += std::pow (2.0, (v.curNote + shift - (float) s.root) / 12.0) * lv.user->rate / sr * pitchMul;
+                {
+                    const double stp = std::pow (2.0, (v.curNote + shift - (float) s.root) / 12.0) * lv.user->rate / sr * pitchMul;
+                    lv.pos += stp; lv.played += stp;
+                }
             }
             if (lv.wave == 7 && tilt != 0.0f) { l += tilt * (l - lv.tiltL.lp (l)); r += tilt * (r - lv.tiltR.lp (r)); }
             if (s.noise > 0.001f && lv.wave != 4) { const float nz = v.rng.next() * 0.45f * s.noise * s.noise; l += nz; r += nz; }   // primiesany sum (dych, trsatko)

@@ -2185,7 +2185,7 @@ public:
         const float rCoef = (float) std::exp (-1.0 / jmax (1.0, rel->get() * 0.001 * rate / 4.6));
         const float g = Decibels::decibelsToGain (vol->get()), vs = velS->get() * 0.01f;
         const bool loopOn = loopP->get() > 0.5f && sl > 64, scanOn = loopOn && scanP->get() > 0.5f;
-        const bool whole = mode->get() > 0.5f && ! loopOn;   // so sluckou zvuk konci pustenim klavesy
+        const bool whole = mode->get() > 0.5f;   // Cely zvuk: pustenie klavesy ton nezastavi (so sluckou ju opusti a dohra zvuk do konca)
         const double lsS = jlimit (0.0, sl - 8.0, (double) lsP->get() * sl);
         const double leS = jlimit (lsS + 4.0, sl - 3.0, (double) leP->get() * sl);
         const double xfS = 0.008 * sampleRate;                 // prelinanie konca slucky (8 ms)
@@ -2209,6 +2209,7 @@ public:
             for (auto& v : voices)
             {
                 if (! v.on) continue;
+                const bool vLoop = loopOn && ! v.outLoop;   // "Cely zvuk": po pusteni klavesy dohra zvuk za sluckou
                 for (int i = from; i < to; ++i)
                 {
                     double a = lsS, b = leS;
@@ -2224,7 +2225,7 @@ public:
                         v.pos += nOff - v.o0; a += nOff - v.o0; b += nOff - v.o0; v.o0 = nOff;
                     };
                     float fadeG = 1.0f;
-                    if (loopOn && fades)
+                    if (vLoop && fades)
                     {   // stisenie na konci slucky dohra druha hlava, hlavna zacne od zaciatku slucky s nabehom
                         if (scanOn) { v.scanPh += scanInc; a += v.o0; b += v.o0; }
                         const double L = b - a, foS = lfo * L, fiS = lfi * L;
@@ -2237,7 +2238,7 @@ public:
                         }
                         if (v.inLoop && fiS > 1.0) fadeG = (float) jlimit (0.0, 1.0, (v.pos - a) / fiS);
                     }
-                    else if (loopOn)
+                    else if (vLoop)
                     {
                         if (scanOn) { v.scanPh += scanInc; a += v.o0; b += v.o0; }
                         if (v.pos >= b)
@@ -2250,7 +2251,7 @@ public:
                     float e;
                     if (v.releasing) { v.env *= rCoef; e = v.env; if (e < 1.0e-4f) { v.on = false; break; } }
                     else { v.env = jmin (1.0f, v.env + 1.0f / aS); e = v.env; }
-                    const double X = loopOn && ! fades ? jmin (xfS, (b - a) * 0.5) : 0.0;
+                    const double X = vLoop && ! fades ? jmin (xfS, (b - a) * 0.5) : 0.0;
                     const float w = (X > 1.0 && v.pos > b - X) ? (float) ((v.pos - (b - X)) / X) : 0.0f;
                     for (int c = 0; c < ch; ++c)
                     {
@@ -2278,15 +2279,19 @@ public:
                 if (v == nullptr) { v = &voices[0]; for (auto& x : voices) if (x.age < v->age) v = &x; }
                 const double semis = m.getNoteNumber() - root->get() + tune->get() / 100.0;
                 v->on = true; v->releasing = false; v->note = m.getNoteNumber(); v->pos = 0; v->env = 0;
-                v->scanPh = 0; v->scanStep = -1; v->inLoop = false; v->ph = 0; v->o0 = v->o1 = 0; v->xw = 1.0f; v->tailOn = false;
+                v->scanPh = 0; v->scanStep = -1; v->inLoop = false; v->ph = 0; v->o0 = v->o1 = 0; v->xw = 1.0f; v->tailOn = false; v->outLoop = false;
                 if (loopOn && fromP->get() < 0.5f) { v->pos = lsS; v->inLoop = true; }   // hned v slucke
                 v->step = std::pow (2.0, semis / 12.0) * sampleRate / rate;
                 v->gain = g * (1.0f - vs + vs * m.getFloatVelocity());
                 v->age = ++counter;
             }
-            else if (m.isNoteOff() && ! whole)
+            else if (m.isNoteOff())
             {
-                for (auto& x : voices) if (x.on && ! x.releasing && x.note == m.getNoteNumber()) x.releasing = true;
+                for (auto& x : voices) if (x.on && ! x.releasing && x.note == m.getNoteNumber())
+                {
+                    if (! whole) x.releasing = true;
+                    else if (loopOn) x.outLoop = true;
+                }
             }
             else if (m.isAllNotesOff() || m.isAllSoundOff())
                 for (auto& x : voices) x.releasing = true;
@@ -2305,7 +2310,7 @@ private:
     void prepare() override { for (auto& v : voices) v.on = false; }
     void process (AudioBuffer<float>&) override {}
 
-    struct Voice { bool on = false, releasing = false; int note = 60; double pos = 0, step = 1, scanPh = 0, ph = 0, o0 = 0, o1 = 0; float env = 0, gain = 1, scanRnd = 0, xw = 1.0f; int scanStep = -1; bool inLoop = false; uint32 age = 0;
+    struct Voice { bool on = false, releasing = false; int note = 60; double pos = 0, step = 1, scanPh = 0, ph = 0, o0 = 0, o1 = 0; float env = 0, gain = 1, scanRnd = 0, xw = 1.0f; int scanStep = -1; bool inLoop = false, outLoop = false; uint32 age = 0;
                    bool tailOn = false; double tailPos = 0, tailLeft = 0, tailLen = 1; };
     Random rng;
     std::array<Voice, 24> voices;
@@ -2387,6 +2392,9 @@ SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
                 "Ťahaním okrajov meníš začiatok a koniec, ťahaním stredu posúvaš celú slučku, kliknutím mimo nej vyberieš novú. "
                 "So Shiftom sa ťahá jemne (na veľmi krátku slučku). Veľmi krátka slučka dáva bzučivý tón.\n\n"
                 "Biele štvorčeky hore v slučke: ľavým ťahaním nastavíš nábeh, pravým stíšenie na konci slučky. Keď nastavíš oba, slučka sa plynulo prelína.\n\n"
+                "Od začiatku (so slučkou): zapnuté = tón zahrá zvuk od začiatku a potom cykluje, vypnuté = hrá hneď v slučke.\n\n"
+                "Hrať: Kým držím klávesu = pustením klávesy tón dozneje (Uvoľnenie). Celý zvuk = pustenie klávesy tón nezastaví; "
+                "so slučkou ju opustí a dohrá zvuk až do konca.\n\n"
                 "Zoom: koliesko myši priblíži zvuk okolo kurzora, Shift + koliesko ho posúva, dvojklik ukáže celý zvuk.\n\n"
                 "Skenovať: slučka sa sama pomaly posúva po zvuku, takže sa mení farba zvuku, ale výška ostáva podľa tónu. "
                 "Rýchlosť = ako rýchlo sa posúva (pomaly výška presne drží tón, rýchlo je pohyb divokejší), Rozsah = kam až za slučku zájde (zlaté pole), "
