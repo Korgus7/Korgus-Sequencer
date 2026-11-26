@@ -185,6 +185,12 @@ namespace nova
                 lv.ued = getSmpEdit (li);
             }
             lv.pos = 0; lv.scanPh = 0; lv.scanStep = -1; lv.inLoop = false; lv.lph = 0; lv.o0 = lv.o1 = 0; lv.xw = 1.0f;
+            if (lv.user != nullptr && st.L[li].loop && ! lv.ued.fromStart)
+            {   // hned v slucke
+                const int len = lv.user->buf.getNumSamples();
+                const double s0 = juce::jlimit (0, len - 4, (int) (lv.ued.start * (float) len));
+                lv.pos = juce::jmax (0.0, (double) lv.ued.ls * len - s0); lv.inLoop = true;
+            }
         }
         lv.active = true;
     }
@@ -712,6 +718,7 @@ namespace nova
                     if (lv.pos >= leO)
                     {
                         lv.pos -= (leO - lsO);
+                        lv.inLoop = true;
                         if (e.scan)
                         {
                             const double room = juce::jmax (0.0, L - (leO - lv.o0)) * (double) e.scanRange;
@@ -742,6 +749,12 @@ namespace nova
                 float g = 1.0f;
                 if (e.fin > 0.0005f) g *= (float) std::min (1.0, lv.pos / ((double) e.fin * lv.user->rate));
                 if (! s.loop && e.fout > 0.0005f) g *= (float) std::min (1.0, (L - lv.pos) / ((double) e.fout * lv.user->rate));
+                if (s.loop && e.fout > 0.0005f)
+                {   // so sluckou: stisenie pred koncom slucky a nabeh po kazdom prechode (bez cvaknutia)
+                    const double F = std::max (1.0, std::min ((double) e.fout * lv.user->rate, (leO - lsO) * 0.5));
+                    g *= (float) juce::jlimit (0.0, 1.0, (leO - lv.pos) / F);
+                    if (lv.inLoop) g *= (float) juce::jlimit (0.0, 1.0, (lv.pos - lsO) / F);
+                }
                 l *= g; r *= g;
                 lv.pos += std::pow (2.0, (v.curNote + shift - (float) s.root) / 12.0) * lv.user->rate / sr * pitchMul;
             }

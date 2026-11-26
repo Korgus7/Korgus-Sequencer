@@ -23,7 +23,9 @@ namespace nova
     // editor samplu (nedestruktivne): zaciatok/koniec a slucka ako cast dlzky 0..1, nabeh/doznenie v sekundach, prelinanie slucky v s, odzadu
     struct SmpEdit { float start = 0, end = 1, fin = 0, fout = 0, ls = 0, le = 1, xf = 0.01f; bool rev = false;
                      // skenovanie: slucka sa sama posuva po sampli (tvar 0 tam a spat, 1 dopredu, 2 nahodne)
-                     bool scan = false; float scanRate = 0.25f, scanRange = 0.5f; int scanShape = 0; };
+                     bool scan = false; float scanRate = 0.25f, scanRange = 0.5f; int scanShape = 0;
+                     bool fromStart = true;   // so sluckou: ton zacne od zaciatku vyberu (inak hned v slucke)
+                   };
 
     struct LayerSettings
     {

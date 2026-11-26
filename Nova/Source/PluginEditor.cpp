@@ -1209,6 +1209,7 @@ namespace
             {
                 juce::PopupMenu m;
                 m.addItem (4, juce::String::fromUTF8 ("⟲ ") + T ("Nájsť slučku"));
+                m.addItem (5, T ("So slučkou hrať od začiatku"), true, ed.fromStart);
                 m.addItem (1, juce::String::fromUTF8 ("♪ ") + T ("Zistiť tón"));
                 m.addItem (2, juce::String::fromUTF8 ("⤓ ") + T ("Uložiť výsek"));
                 m.addSeparator();
@@ -1219,6 +1220,7 @@ namespace
                     else if (r == 2) saveSelection();
                     else if (r == 3 && reset.onClick) reset.onClick();
                     else if (r == 4) findLoop();
+                    else if (r == 5) { ed.fromStart = ! ed.fromStart; apply(); }
                 });
             };
             showScan();
@@ -1380,7 +1382,7 @@ namespace
                 g.setColour (text); g.drawText (t1, 18, 12, 300, 22, juce::Justification::centredLeft);
                 float x = 18.0f + juce::GlyphArrangement::getStringWidth (ft, t1) + 10.0f;
                 std::vector<std::pair<juce::String, juce::String>> ch { { T ("Začiatok"), ms (ed.start * d) }, { T ("Koniec"), ms (ed.end * d) }, { T ("Nábeh"), ms (ed.fin) } };
-                if (! loopOn()) ch.push_back ({ T ("Doznenie"), ms (ed.fout) });
+                ch.push_back ({ T ("Doznenie"), ms (ed.fout) });
                 juce::Font fl (juce::FontOptions (12.5f)), fv (juce::FontOptions (12.5f, juce::Font::bold));
                 float rx = (float) getWidth() - 18.0f;
                 for (int k = (int) ch.size() - 1; k >= 0; --k)
@@ -1426,12 +1428,13 @@ namespace
                 }
                 // nabeh a doznenie
                 const float ty = r.getY() + 22.0f, by = r.getBottom() - 2.0f;
-                const float xi = juce::jmin (xe, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xe - (loopOn() ? 0.0f : (ed.fout / d) * pxPerF()));
-                juce::Path env; env.startNewSubPath (xs, by); env.lineTo (xi, ty); env.lineTo (xo, ty); env.lineTo (xe, loopOn() ? ty : by);
+                const float xr = loopOn() ? juce::jmin (xe, xOf (ed.le)) : xe;   // so sluckou sa stisuje koniec slucky
+                const float xi = juce::jmin (xr, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xr - (ed.fout / d) * pxPerF());
+                juce::Path env; env.startNewSubPath (xs, by); env.lineTo (xi, ty); env.lineTo (xo, ty); env.lineTo (xr, by);
                 g.setColour (amber.withAlpha (0.85f)); g.strokePath (env, juce::PathStrokeType (1.5f));
                 g.setColour (amber);
                 g.fillRoundedRectangle (xi - 5, ty - 5, 10, 10, 2.0f);
-                if (! loopOn()) g.fillRoundedRectangle (xo - 5, ty - 5, 10, 10, 2.0f);
+                g.fillRoundedRectangle (xo - 5, ty - 5, 10, 10, 2.0f);
                 // znacky: ciara a stitok (Z, K hore; slucka dole)
                 auto mark = [&] (float x, juce::Colour c, const juce::String& t, bool top)
                 {
@@ -1464,11 +1467,11 @@ namespace
         int hit (juce::Point<float> m) const
         {
             const auto r = waveArea(); const float d = (float) durSec();
-            const float xs = xOf (ed.start), xe = xOf (ed.end), xi = juce::jmin (xe, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xe - (ed.fout / d) * pxPerF());
+            const float xs = xOf (ed.start), xe = loopOn() ? juce::jmin (xOf (ed.end), xOf (ed.le)) : xOf (ed.end), xi = juce::jmin (xe, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xe - (ed.fout / d) * pxPerF());
             if (std::abs (m.y - (r.getY() + 22.0f)) < 10.0f)
             {
                 if (std::abs (m.x - xi) < 9) return 4;
-                if (! loopOn() && std::abs (m.x - xo) < 9) return 5;
+                if (std::abs (m.x - xo) < 9) return 5;
             }
             struct C { float x; int id; };
             std::vector<C> c { { xs, 0 }, { xe, 1 } };
@@ -1521,7 +1524,11 @@ namespace
                 case 2: ed.ls = juce::jlimit (0.0f, ed.le - minGap, f); break;
                 case 3: ed.le = juce::jlimit (ed.ls + minGap, 1.0f, f); break;
                 case 4: ed.fin = juce::jlimit (0.0f, (ed.end - ed.start) * d, (f - ed.start) * d); break;
-                case 5: ed.fout = juce::jlimit (0.0f, (ed.end - ed.start) * d, (ed.end - f) * d); break;
+                case 5:
+                {
+                    const float re = loopOn() ? juce::jmin (ed.end, ed.le) : ed.end, rs = loopOn() ? juce::jmax (ed.start, ed.ls) : ed.start;
+                    ed.fout = juce::jlimit (0.0f, (re - rs) * d, (re - f) * d); break;
+                }
                 case 6:   // posun celeho vyseku (slucka ide s nim)
                 {
                     const float dx = juce::jlimit (-edFrom.start, 1.0f - edFrom.end, (float) e.getDistanceFromDragStartX() / pxPerF());

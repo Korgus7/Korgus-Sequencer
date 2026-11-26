@@ -2061,7 +2061,7 @@ private:
     Rectangle<float> waveArea() const { return getLocalBounds().toFloat().reduced (10, 0).withTrimmedTop (38).withTrimmedBottom (44); }
     int hitEdge (float x, float fadeY = -1.0f) const;
     SamplerInst& sm;
-    TextButton load, loopB, scanB, help { "?" };
+    TextButton load, loopB, scanB, fromB, help { "?" };
     Slider rateS { Slider::LinearBar, Slider::TextBoxLeft }, rangeS { Slider::LinearBar, Slider::TextBoxLeft };
     ComboBox shapeC;
     std::unique_ptr<FileChooser> chooser;
@@ -2101,10 +2101,12 @@ public:
         // nabeh a stisenie slucky (cast dlzky slucky): stvorceky hore v grafe; prekryvaju sa ako prelinanie
         lfiP   = add ("loopFadeIn", "Nábeh slučky", 0, 0.5f, 0, "", 1.0f, 3);
         lfoP   = add ("loopFadeOut", "Stíšenie slučky", 0, 0.5f, 0, "", 1.0f, 3);
-        for (auto* q : { loopP, lsP, leP, scanP, sRate, sRange, sShape, lfiP, lfoP }) q->inEditor = false;
+        // so sluckou: zapnute = ton zacne od zaciatku zvuku a potom cykluje, vypnute = hra hned v slucke
+        fromP  = add ("loopFromStart", "Od začiatku", 0, 1, 0, "", 1.0f, 0);  fromP->toggle = true;
+        for (auto* q : { loopP, lsP, leP, scanP, sRate, sRange, sShape, lfiP, lfoP, fromP }) q->inEditor = false;
     }
     int displayHeight() const override { return 206; }
-    FxParam *loopP, *lsP, *leP, *scanP, *sRate, *sRange, *sShape, *lfiP, *lfoP;
+    FxParam *loopP, *lsP, *leP, *scanP, *sRate, *sRange, *sShape, *lfiP, *lfoP, *fromP;
 
     std::unique_ptr<Component> makeDisplay() override { return std::make_unique<SamplerDisplay> (*this); }
     bool isBusesLayoutSupported (const BusesLayout& l) const override
@@ -2277,6 +2279,7 @@ public:
                 const double semis = m.getNoteNumber() - root->get() + tune->get() / 100.0;
                 v->on = true; v->releasing = false; v->note = m.getNoteNumber(); v->pos = 0; v->env = 0;
                 v->scanPh = 0; v->scanStep = -1; v->inLoop = false; v->ph = 0; v->o0 = v->o1 = 0; v->xw = 1.0f; v->tailOn = false;
+                if (loopOn && fromP->get() < 0.5f) { v->pos = lsS; v->inLoop = true; }   // hned v slucke
                 v->step = std::pow (2.0, semis / 12.0) * sampleRate / rate;
                 v->gain = g * (1.0f - vs + vs * m.getFloatVelocity());
                 v->age = ++counter;
@@ -2342,6 +2345,8 @@ SamplerDisplay::SamplerDisplay (SamplerInst& s) : sm (s)
         addAndMakeVisible (b);
     };
     tog (loopB, "Slučka", sm.loopP);
+    tog (fromB, "Od začiatku", sm.fromP);
+    fromB.setTooltip (sk ("Zapnuté: tón hrá zvuk od začiatku a potom v slučke. Vypnuté: tón hrá hneď v slučke."));
     tog (scanB, "≋ Skenovať", sm.scanP);
     scanB.onClick = [this]
     {
@@ -2398,6 +2403,7 @@ void SamplerDisplay::resized()
     hadSample = sm.getSample() != nullptr;
     if (hadSample) load.setBounds (getWidth() / 2 - 62, 6, 124, 24);
     else load.setBounds (waveArea().toNearestInt().withSizeKeepingCentre (150, 28).translated (0, -12));
+    fromB.setBounds (load.getRight() + 10, 6, 104, 24);
     auto row = getLocalBounds().reduced (10, 0).removeFromBottom (36).withTrimmedBottom (8);
     loopB.setBounds (row.removeFromLeft (74)); row.removeFromLeft (6);
     scanB.setBounds (row.removeFromLeft (100));
@@ -2414,6 +2420,8 @@ void SamplerDisplay::timerCallback()
 {
     if (hadSample != (sm.getSample() != nullptr)) resized();
     loopB.setToggleState (sm.loopP->get() > 0.5f, dontSendNotification);
+    fromB.setToggleState (sm.fromP->get() > 0.5f, dontSendNotification);
+    fromB.setVisible (sm.getSample() != nullptr && sm.loopP->get() > 0.5f);
     scanB.setToggleState (sm.scanP->get() > 0.5f, dontSendNotification);
     if (! rateS.isMouseButtonDown()) rateS.setValue (sm.sRate->get(), dontSendNotification);
     if (! rangeS.isMouseButtonDown()) rangeS.setValue (sm.sRange->get(), dontSendNotification);

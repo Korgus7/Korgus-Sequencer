@@ -1330,7 +1330,8 @@ juce::String NovaProcessor::encodeSmpEdit (const nova::SmpEdit& e)
 {
     return juce::String (e.start, 5) + "," + juce::String (e.end, 5) + "," + juce::String (e.fin, 4) + "," + juce::String (e.fout, 4) + ","
          + juce::String (e.ls, 5) + "," + juce::String (e.le, 5) + "," + juce::String (e.xf, 4) + "," + (e.rev ? "1" : "0")
-         + "," + (e.scan ? "1" : "0") + "," + juce::String (e.scanRate, 4) + "," + juce::String (e.scanRange, 4) + "," + juce::String (e.scanShape);
+         + "," + (e.scan ? "1" : "0") + "," + juce::String (e.scanRate, 4) + "," + juce::String (e.scanRange, 4) + "," + juce::String (e.scanShape)
+         + "," + (e.fromStart ? "1" : "0");
 }
 nova::SmpEdit NovaProcessor::decodeSmpEdit (const juce::String& t)
 {
@@ -1346,5 +1347,6 @@ nova::SmpEdit NovaProcessor::decodeSmpEdit (const juce::String& t)
         e.scan = a[8].getIntValue() != 0; e.scanRate = juce::jlimit (0.01f, 8.0f, a[9].getFloatValue());
         e.scanRange = juce::jlimit (0.0f, 1.0f, a[10].getFloatValue()); e.scanShape = juce::jlimit (0, 2, a[11].getIntValue());
     }
+    if (a.size() >= 13) e.fromStart = a[12].getIntValue() != 0;
     return e;
 }
