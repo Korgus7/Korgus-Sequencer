@@ -1227,7 +1227,7 @@ namespace
                 b->setColour (juce::TextButton::textColourOffId, juce::Colour (0xffc9d2dc));
                 b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
             }
-            setSize (860, 440);
+            setSize (690, 352);
         }
         void showScan() { for (juce::Component* c : { (juce::Component*) &scanRate, (juce::Component*) &scanRange, (juce::Component*) &scanRateL, (juce::Component*) &scanRangeL, (juce::Component*) &scanShape }) c->setVisible (ed.scan); }
         ~SampleEditor() override { if (playing) p.keyboard.noteOff (1, playNote, 0.0f); }
@@ -1332,8 +1332,6 @@ namespace
                 const juce::String t1 = T ("Editor samplu");
                 g.setColour (text); g.drawText (t1, 18, 12, 300, 22, juce::Justification::centredLeft);
                 float x = 18.0f + juce::GlyphArrangement::getStringWidth (ft, t1) + 10.0f;
-                g.setFont (juce::FontOptions (14.0f)); g.setColour (dim);
-                g.drawText ((smp != nullptr ? smp->name : juce::String()) + (info.isNotEmpty() ? "   ·   " + info : juce::String()), (int) x, 12, juce::jmax (10, getWidth() / 2 + 60 - (int) x), 22, juce::Justification::centredLeft);
                 std::vector<std::pair<juce::String, juce::String>> ch { { T ("Začiatok"), ms (ed.start * d) }, { T ("Koniec"), ms (ed.end * d) }, { T ("Nábeh"), ms (ed.fin) } };
                 if (! loopOn()) ch.push_back ({ T ("Doznenie"), ms (ed.fout) });
                 juce::Font fl (juce::FontOptions (12.5f)), fv (juce::FontOptions (12.5f, juce::Font::bold));
@@ -1345,6 +1343,8 @@ namespace
                     g.setFont (fl); g.setColour (dim); g.drawText (ch[(size_t) k].first, juce::Rectangle<float> (rx - wv - 5 - wl, 12, wl + 1, 22), juce::Justification::centredLeft);
                     rx -= wv + 5 + wl + 18;
                 }
+                g.setFont (juce::FontOptions (14.0f)); g.setColour (dim);
+                g.drawText ((smp != nullptr ? smp->name : juce::String()) + (info.isNotEmpty() ? "   ·   " + info : juce::String()), (int) x, 12, juce::jmax (10, (int) rx - 4 - (int) x), 22, juce::Justification::centredLeft);
             }
             const auto r = waveArea();
             g.setColour (juce::Colour (0xff161c23)); g.fillRoundedRectangle (r, 3.0f);
@@ -1405,12 +1405,12 @@ namespace
         void resized() override
         {
             const int y = btnY(), h = 34; int x = 18;
-            const int ws[] = { 116, 110, 104, 124 }; int k = 0;
+            const int ws[] = { 112, 106, 100, 118 }; int k = 0;
             for (auto* b : { &play, &rev, &loopB, &scanB }) { b->setBounds (x, y, ws[k++], h); x += b->getWidth() + 8; }
             more.setBounds (getWidth() - 18 - 46, y, 46, h);
             const int y2 = scanY();
-            scanRateL.setBounds (18, y2, 64, 30); scanRate.setBounds (82, y2, 220, 30);
-            scanRangeL.setBounds (322, y2, 56, 30); scanRange.setBounds (378, y2, 220, 30);
+            scanRateL.setBounds (18, y2, 62, 30); scanRate.setBounds (80, y2, 160, 30);
+            scanRangeL.setBounds (252, y2, 54, 30); scanRange.setBounds (306, y2, 160, 30);
             scanShape.setBounds (getWidth() - 18 - 130, y2 + 2, 130, 26);
         }
         int hit (juce::Point<float> m) const
