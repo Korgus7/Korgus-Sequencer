@@ -2525,7 +2525,7 @@ namespace
             clearQ.onClick = [this] { search.setText ({}, true); search.grabKeyboardFocus(); };
             addChildComponent (clearQ);
             search.setBorder (juce::BorderSize<int> (1, 1, 1, 26));
-            importBtn.setTooltip (T ("Import zvuku – pridať zvuk zo súboru .knova (napr. z iného počítača)"));
+            importBtn.setTooltip (T ("Import – zvuk zo súboru .knova (napr. z iného počítača) alebo nástroj .knin (napr. Krídlovka, Djembe)"));
             importBtn.onClick = [this] { importDialog(); };
             folderBtn.setTooltip (T ("Pridať – nový priečinok na zvuky, nový zvuk, zvuk z WAV"));
             folderBtn.onClick = [this] { addMenu(); };
@@ -2598,15 +2598,30 @@ namespace
         }
         void importDialog()
         {
-            chooser = std::make_unique<juce::FileChooser> (T ("Import zvuku"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.knova");
+            chooser = std::make_unique<juce::FileChooser> (T ("Import zvuku"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.knova;*.knin");
             juce::Component::SafePointer<Browser> sp (this);
             chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectMultipleItems,
                                   [sp] (const juce::FileChooser& fc)
             {
                 if (sp == nullptr) return;
-                juce::String last;
-                for (auto& f : fc.getResults()) { auto k = sp->p.presets.importFile (f); if (k.isNotEmpty()) last = k; }
-                if (last.isNotEmpty()) { sp->p.loadPreset (last); sp->refresh(); }
+                juce::String last; juce::StringArray added;
+                for (auto& f : fc.getResults())
+                {
+                    if (f.hasFileExtension ("knin"))
+                    {   // nastroj Inspirie (instr_NN.knin): skopiruje sa do priecinka nastrojov
+                        const int id = f.getFileNameWithoutExtension().retainCharacters ("0123456789").getIntValue();
+                        if (! f.getFileName().startsWithIgnoreCase ("instr_") || ! juce::isPositiveAndBelow (id, InstrBank::numInstr))
+                        { juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Inspiria", T ("Súbor nástroja musí mať názov instr_ a číslo, napr. instr_49.knin.") + "\n" + f.getFileName()); continue; }
+                        const auto dir = InstrBank::userDir(); dir.createDirectory();
+                        if (f.copyFileTo (dir.getChildFile (InstrBank::fileName (id)))) added.add (InstrBank::name (id, lang() == 1));
+                        continue;
+                    }
+                    auto k = sp->p.presets.importFile (f); if (k.isNotEmpty()) last = k;
+                }
+                if (last.isNotEmpty()) sp->p.loadPreset (last);
+                sp->refresh();
+                if (! added.isEmpty())
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Inspiria", T ("Pridané nástroje:") + " " + added.joinIntoString (", "));
             });
         }
         void textDialog (const juce::String& title, const juce::String& initial, const juce::String& okText, std::function<void (const juce::String&)> done)
