@@ -66,7 +66,7 @@ namespace nova
                 F (p + "ldelay", "Oneskorenie", 0, 3, 0, "s", 0.5f);
                 C (p + "lsync", "LFO tempo", "Voľne|1/1|1/2|1/4|1/8|1/16|1/4T|1/8T|1/16T", 0);
                 C (p + "src", "Zdroj", "Klavír|Vlastný WAV|Vzorky", 0);
-                C (p + "inst", "Nástroj", "Koncertný klavír|Pianíno|Rhodes|Čembalo|Akustická gitara|Jazzová gitara|Basgitara|Kontrabas|Sláčiková sekcia|Husle|Violončelá|Trúbka s dusítkom|Trúbka|Tenor saxofón|Trombón|Flauta|Klarinet|Vibrafón|Marimba|Zvonkohra|Pizzicato sláčiky|Ústna harmonika|Harfa|Píšťalový organ|Lesný roh|Hoboj|Fagot|Tuba|Sláčiky tremolo|Sláčiky staccato|Kalimba|Rúrkové zvony|Xylofón|Elektrická gitara|Okarína|Zobcová flauta|Pôvodný klavír|Viola|Pikola|Banjo|Tympany|Bicia súprava|Ručné bubny|Perkusie|Akordeón|Ukulele|Gajdy|Klasická gitara|Celesta", 0);
+                C (p + "inst", "Nástroj", "Koncertný klavír|Pianíno|Rhodes|Čembalo|Akustická gitara|Jazzová gitara|Basgitara|Kontrabas|Sláčiková sekcia|Husle|Violončelá|Trúbka s dusítkom|Trúbka|Tenor saxofón|Trombón|Flauta|Klarinet|Vibrafón|Marimba|Zvonkohra|Pizzicato sláčiky|Ústna harmonika|Harfa|Píšťalový organ|Lesný roh|Hoboj|Fagot|Tuba|Sláčiky tremolo|Sláčiky staccato|Kalimba|Rúrkové zvony|Xylofón|Elektrická gitara|Okarína|Zobcová flauta|Pôvodný klavír|Viola|Pikola|Banjo|Tympany|Bicia súprava|Ručné bubny|Perkusie|Akordeón|Ukulele|Gajdy|Klasická gitara|Celesta|Krídlovka|Djembe", 0);
                 F (p + "root", "Základný tón", 0, 127, 60, "note");
                 B (p + "loop", "Opakovať", false);
                 C (p + "wt", "Tabuľka", "Analóg|PWM|Harmonický|Vokál|Digitál|Organ|Sklo|Spev", 0);
@@ -233,10 +233,10 @@ namespace nova
             };
             put (0, "Sláčiky", "Sláčiková sekcia|Sólové husle|Viola|Violončelá|Pizzicato sláčiky|Sláčiky tremolo|Sláčiky staccato|Jazzový kontrabas");
             put (0, "Brnkacie", "Klasická gitara|Akustická gitara|Ukulele|Banjo|Koncertná harfa");
-            put (0, "Bicie", "Tympany|Bicia súprava|Ručné bubny|Perkusie");
+            put (0, "Bicie", "Tympany|Bicia súprava|Ručné bubny|Djembe|Perkusie");
             put (0, "Klavír", "Koncertný klavír|Pôvodný klavír|Pianíno|Čembalo");
             put (0, "Drevené dychy", "Pikola|Priečna flauta|Tenor saxofón|Klarinet|Hoboj|Fagot|Okarína|Zobcová flauta");
-            put (0, "Plechové dychy", "Trúbka s dusítkom|Trúbka|Trombón|Lesný roh|Tuba");
+            put (0, "Plechové dychy", "Trúbka s dusítkom|Trúbka|Krídlovka|Trombón|Lesný roh|Tuba");
             put (0, "Mechové", "Akordeón|Ústna harmonika|Gajdy|Píšťalový organ");
             put (0, "Melodické bicie", "Jazzový vibrafón|Koncertná marimba|Zvonkohra|Africká kalimba|Rúrkové zvony|Xylofón|Koncertná celesta");
             put (1, "Elektrické", "Elektrická gitara|Jazzová gitara|Basgitara");
@@ -639,6 +639,8 @@ namespace nova
             v.push_back (I ("Gajdy", "Dychy", 46, 0.03f, 0.25f).s ("rv_mix", 0.2f).s ("rv_size", 0.6f).s ("rv_damp", 0.45f).s ("p_gain", -3.0f).f);
             v.push_back (I ("Klasická gitara", "Gitary", 47, 0.001f, 0.35f).s ("rv_mix", 0.14f).s ("rv_size", 0.45f).s ("rv_damp", 0.5f).s ("p_gain", -8.8f).f);
             v.push_back (I ("Koncertná celesta", "Zvonky", 48, 0.001f, 0.6f).s ("rv_mix", 0.22f).s ("rv_size", 0.6f).s ("rv_damp", 0.45f).s ("p_gain", -8.7f).f);
+            v.push_back (I ("Krídlovka", "Dychy", 49, 0.03f, 0.3f).s ("rv_mix", 0.2f).s ("rv_size", 0.55f).s ("rv_damp", 0.5f).s ("p_gain", -3.8f).f);
+            v.push_back (I ("Djembe", "Zvonky", 50, 0.001f, 0.3f).s ("rv_mix", 0.1f).s ("rv_size", 0.4f).s ("rv_damp", 0.5f).s ("p_gain", 0.0f).f);
             return v;
         }();
         return list;

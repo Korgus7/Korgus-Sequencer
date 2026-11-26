@@ -27,11 +27,11 @@ namespace
             { "Klávesy", "Keys", { 0, 36, 1, 2, 3, 23 } },
             { "Gitary a basy", "Guitars & basses", { 47, 4, 5, 33, 45, 39, 6, 7 } },
             { "Sláčiky a harfa", "Strings & harp", { 8, 9, 37, 10, 20, 28, 29, 22 } },
-            { "Plechové dychy", "Brass", { 12, 11, 14, 24, 27 } },
+            { "Plechové dychy", "Brass", { 12, 11, 49, 14, 24, 27 } },
             { "Drevené dychy", "Woodwinds", { 38, 15, 35, 16, 25, 26, 13, 34, 21 } },
             { "Melodické bicie a zvony", "Mallets & bells", { 17, 18, 32, 19, 48, 31, 30 } },
             { "Akordeón a gajdy", "Accordion & bagpipe", { 44, 46 } },
-            { "Bicie a perkusie", "Drums & percussion", { 40, 41, 42, 43 } } };
+            { "Bicie a perkusie", "Drums & percussion", { 40, 41, 42, 50, 43 } } };
         return g;
     }
 
@@ -1471,7 +1471,9 @@ namespace
         int hit (juce::Point<float> m) const
         {
             const auto r = waveArea(); const float d = (float) durSec();
-            const float xs = xOf (ed.start), xe = loopOn() ? juce::jmin (xOf (ed.end), xOf (ed.le)) : xOf (ed.end), xi = juce::jmin (xe, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xe - (ed.fout / d) * pxPerF());
+            // xe = znacka K; xr = kde konci doznenie (so sluckou koniec slucky)
+            const float xs = xOf (ed.start), xe = xOf (ed.end), xr = loopOn() ? juce::jmin (xe, xOf (ed.le)) : xe;
+            const float xi = juce::jmin (xr, xs + (ed.fin / d) * pxPerF()), xo = juce::jmax (xi, xr - (ed.fout / d) * pxPerF());
             if (std::abs (m.y - (r.getY() + 22.0f)) < 10.0f)
             {
                 if (std::abs (m.x - xi) < 9) return 4;
@@ -1480,8 +1482,14 @@ namespace
             struct C { float x; int id; };
             std::vector<C> c { { xs, 0 }, { xe, 1 } };
             if (loopOn()) { c.push_back ({ xOf (ed.ls), 2 }); c.push_back ({ xOf (ed.le), 3 }); }
+            // pri prekryti: v hornej polovici Z/K (stitky hore), v dolnej L (stitky dole)
+            const bool lower = m.y > r.getCentreY();
             int best = -1; float bd = 9;
-            for (auto& k : c) if (std::abs (m.x - k.x) < bd) { bd = std::abs (m.x - k.x); best = k.id; }
+            for (auto& k : c)
+            {
+                const float dd = std::abs (m.x - k.x) + (((k.id >= 2) != lower) ? 0.5f : 0.0f);
+                if (dd < bd) { bd = dd; best = k.id; }
+            }
             return best;
         }
         // vnutri vyberu (alebo slucky) sa da cely vysek posuvat
@@ -1523,10 +1531,13 @@ namespace
             const float f = fOf (e.position.x), d = (float) durSec(), minGap = 0.002f * (v1 - v0);
             switch (drag)
             {
-                case 0: ed.start = juce::jlimit (0.0f, ed.end - minGap, f); break;
-                case 1: ed.end = juce::jlimit (ed.start + minGap, 1.0f, f); break;
-                case 2: ed.ls = juce::jlimit (0.0f, ed.le - minGap, f); break;
-                case 3: ed.le = juce::jlimit (ed.ls + minGap, 1.0f, f); break;
+                // slucka (L) ostava vzdy vnutri vyberu Z – K, inak by Od zaciatku nemalo ucinok
+                case 0: ed.start = juce::jlimit (0.0f, ed.end - 2.0f * minGap, f);
+                        if (ed.ls < ed.start) { ed.ls = ed.start; ed.le = juce::jmax (ed.le, ed.ls + minGap); } break;
+                case 1: ed.end = juce::jlimit (ed.start + 2.0f * minGap, 1.0f, f);
+                        if (ed.le > ed.end) { ed.le = ed.end; ed.ls = juce::jmin (ed.ls, ed.le - minGap); } break;
+                case 2: ed.ls = juce::jlimit (ed.start, ed.le - minGap, f); break;
+                case 3: ed.le = juce::jlimit (ed.ls + minGap, ed.end, f); break;
                 case 4: ed.fin = juce::jlimit (0.0f, (ed.end - ed.start) * d, (f - ed.start) * d); break;
                 case 5:
                 {
@@ -1632,7 +1643,7 @@ namespace
                     for (const auto& g : instGroups())
                     {
                         m.addSectionHeader (juce::String::fromUTF8 (lang() == 1 ? g.en : g.sk));
-                        for (int i : g.ids) if (juce::isPositiveAndBelow (i, InstrBank::numMenu)) m.addItem (i + 1, InstrBank::name (i, lang() == 1), true, i == cur);
+                        for (int i : g.ids) if (juce::isPositiveAndBelow (i, InstrBank::numMenu) && InstrBank::available (i)) m.addItem (i + 1, InstrBank::name (i, lang() == 1), true, i == cur);
                     }
                     juce::Component::SafePointer<LayerPanel> sp (this);
                     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&nameBtn), [sp] (int r)
@@ -2556,6 +2567,8 @@ namespace
             const auto q = search.getText().trim().toLowerCase();
             for (auto& e : p.presets.entries())
             {
+                // sukromne nastroje: zvuk sa ukaze len ked ma pouzivatel subor nastroja
+                if (e.factory && ((e.name == juce::String::fromUTF8 ("Krídlovka") && ! InstrBank::available (49)) || (e.name == "Djembe" && ! InstrBank::available (50)))) continue;
                 int es = -1; const auto grp = entryGroup (e, es);
                 const bool rec = filterCat() == CategoryChips::recentKey();
                 if (rec) { if (p.presets.recentIndex (e.key) < 0) continue; }   // naposledy: z oboch casti

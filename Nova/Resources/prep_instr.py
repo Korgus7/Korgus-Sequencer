@@ -319,6 +319,15 @@ def _celesta():
     return [(n, 0, f, 0, 0, 0) for n, f in sorted(out.items())]
 I.append(dict(id=48, name='Celesta', sus=False, maxlen=6, kit=1, items=_celesta()))
 
+
+# SUKROMNE (Pianobook – nesmu sa sirit, nie su v manifeste ani v instalatore): 49 kridlovka, 50 djembe
+def _private():
+    fl = [(int(os.path.basename(f)[:-4]) - 12, 0, os.path.relpath(f, S), 0, 0, 0) for f in glob.glob(os.path.join(S, 'flugel/*.wav'))]
+    dj = [(int(os.path.basename(f)[:-4]), 0, os.path.relpath(f, S), 0, 0, 0) for f in glob.glob(os.path.join(S, 'djembe/*.wav'))]
+    return [dict(id=49, name='Kridlovka', sus=True, maxlen=6, items=sorted(fl)),
+            dict(id=50, name='Djembe', sus=False, maxlen=3, notune=1, kit=1, items=sorted(dj))]
+I.extend(_private())
+
 def process(ins, outdir):
     items = collect(ins)
     lay = sorted(set(l for _, l, _ in items)); lmap = {l: i for i, l in enumerate(lay)}
@@ -395,7 +404,7 @@ def process(ins, outdir):
                 nf = np.percentile(nz, 8)
                 if nf > pk * 10 ** (-80 / 20):
                     g = np.clip((e2 - 1.5 * nf) / (e2 + 1e-9), 0.06, 1.0) ** 0.7
-                    k = max(1, int(0.02 * sr)); g = np.convolve(g, np.ones(k) / k, 'same')
+                    k = max(1, min(int(0.02 * sr), len(g))); g = np.convolve(g, np.ones(k) / k, 'same')[:len(g)]
                     x *= g[:, None]
             fl = min(int(0.35 * sr), len(x) // 3)
             x[-fl:] *= (np.linspace(1, 0, fl) ** 2)[:, None]

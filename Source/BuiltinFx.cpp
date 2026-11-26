@@ -2299,7 +2299,7 @@ public:
         render (pos, n);
         lastActive = 0;
         const Voice* newest = nullptr;
-        for (auto& v : voices) if (v.on) { ++lastActive; if (newest == nullptr || v.age > newest->age) newest = &v; }
+        for (auto& v : voices) if (v.on) { ++lastActive; if (! v.releasing && (newest == nullptr || v.age > newest->age)) newest = &v; }   // ukazovatel len pre drzany ton
         playFrac.store (newest != nullptr ? (float) (newest->pos / (double) jmax (1, sl)) : -1.0f);
     }
 

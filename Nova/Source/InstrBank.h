@@ -14,8 +14,8 @@
 class InstrBank
 {
 public:
-    static constexpr int numInstr = 49, maxLayers = 6;
-    static constexpr int oldPiano = 36, numMenu = 48;   // 36 = povodny klavir (PianoBank 1), mimo suborov nastrojov
+    static constexpr int numInstr = 51, maxLayers = 6;
+    static constexpr int oldPiano = 36, numMenu = 51;   // 36 = povodny klavir (PianoBank 1), mimo suborov nastrojov
     using Sample = PianoBank::Sample;
     struct Inst
     {
@@ -36,6 +36,9 @@ public:
     static juce::File userDir();        // stiahnute nastroje
     static juce::File bundledDir();     // nastroje od instalatora (vedla pluginu)
     static juce::String fileName (int id) { return "instr_" + juce::String (id).paddedLeft ('0', 2) + ".knin"; }
+    // sukromne nastroje (licencia nedovoluje sirit): len ked ma pouzivatel subor u seba
+    static bool localOnly (int id) { return id == 49 || id == 50; }
+    static bool available (int id) { return ! localOnly (id) || userDir().getChildFile (fileName (id)).existsAsFile() || bundledDir().getChildFile (fileName (id)).existsAsFile(); }
 
     static juce::String name (int id, bool english);
     static juce::StringArray names (bool english);

@@ -17,7 +17,7 @@ namespace
         { "Pizzicato sláčiky", "Pizzicato strings" }, { "Ústna harmonika", "Harmonica" }, { "Harfa", "Harp" }, { "Píšťalový organ", "Pipe organ" }, { "Lesný roh", "French horn" }, { "Hoboj", "Oboe" }, { "Fagot", "Bassoon" }, { "Tuba", "Tuba" }, { "Sláčiky tremolo", "Tremolo strings" }, { "Sláčiky staccato", "Staccato strings" }, { "Kalimba", "Kalimba" }, { "Rúrkové zvony", "Tubular bells" }, { "Xylofón", "Xylophone" }, { "Elektrická gitara", "Electric guitar" }, { "Okarína", "Ocarina" }, { "Zobcová flauta", "Recorder" },
         { "Pôvodný klavír", "Original piano" }, { "Viola", "Viola" }, { "Pikola", "Piccolo" }, { "Banjo", "Banjo" }, { "Tympany", "Timpani" },
         { "Bicia súprava", "Drum kit" }, { "Ručné bubny", "Hand drums" }, { "Perkusie", "Percussion" },
-        { "Akordeón", "Accordion" }, { "Ukulele", "Ukulele" }, { "Gajdy", "Bagpipe" }, { "Klasická gitara", "Classical guitar" }, { "Celesta", "Celesta" } };
+        { "Akordeón", "Accordion" }, { "Ukulele", "Ukulele" }, { "Gajdy", "Bagpipe" }, { "Klasická gitara", "Classical guitar" }, { "Celesta", "Celesta" }, { "Krídlovka", "Flugelhorn" }, { "Djembe", "Djembe" } };
     const char* kManifest = "https://raw.githubusercontent.com/Korgus7/Korgus-Download/main/instr/instruments.json";
     const char* kBase = "https://raw.githubusercontent.com/Korgus7/Korgus-Download/main/instr/";
     juce::String sha256 (const juce::File& f) { juce::FileInputStream in (f); return in.openedOk() ? juce::SHA256 (in).toHexString() : juce::String(); }

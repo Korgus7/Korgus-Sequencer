@@ -435,6 +435,34 @@ int main (int argc, char** argv)
         File f ("/tmp/keysnap.png"); f.deleteFile(); FileOutputStream os (f); PNGImageFormat().writeImageToStream (img, os);
         return 0;
     }
+    if (argc > 1 && String (argv[1]) == "looptest")
+    {
+        // vlastny sampel: 0-30 % ton 200 Hz, 30-70 % 1000 Hz, 70-100 % 3000 Hz; slucka 30-70 %; overi Od zaciatku a hned v slucke
+        auto run = [&] (bool fromStart, float ls, float le, float st)
+        {
+            NovaProcessor q; q.setPlayConfigDetails (0, 2, sr, bs); q.prepareToPlay (sr, bs);
+            q.loadPreset ("f:Koncertné piano");
+            auto setP = [&] (const char* id, float v) { if (auto* pr = q.params.getParameter (id)) pr->setValueNotifyingHost (pr->convertTo0to1 (v)); };
+            setP ("a_wave", 7); setP ("a_src", 1); setP ("a_loop", 1); setP ("a_root", 60); setP ("b_on", 0);
+            auto us = std::make_shared<nova::UserSample>(); us->rate = sr; const int len = (int) (2.0 * sr); us->buf.setSize (1, len);
+            for (int i = 0; i < len; ++i) { const double f = i < 0.3 * len ? 200.0 : (i < 0.7 * len ? 1000.0 : 3000.0); us->buf.setSample (0, i, (float) (0.5 * std::sin (2.0 * MathConstants<double>::pi * f * i / sr))); }
+            q.synth.setUserSample (0, us);
+            nova::SmpEdit e; e.start = st; e.ls = ls; e.le = le; e.fromStart = fromStart; e.fin = 0; e.fout = 0; q.synth.setSmpEdit (0, e);
+            std::vector<float> out; AudioBuffer<float> b (2, bs);
+            for (int pos = 0; pos < (int) (2.0 * sr); pos += bs)
+            { MidiBuffer mb; if (pos == 0) mb.addEvent (MidiMessage::noteOn (1, 60, 0.8f), 0); b.clear(); q.processBlock (b, mb); for (int i = 0; i < bs; ++i) out.push_back (b.getSample (0, i)); }
+            String r;   // dominantna frekvencia po 0.1 s (prechody nulou)
+            for (int w = 0; w < 20; ++w)
+            {
+                int zc = 0; const int a0 = (int) (w * 0.1 * sr), a1 = (int) ((w + 1) * 0.1 * sr);
+                for (int i = a0 + 1; i < a1 && i < (int) out.size(); ++i) if ((out[(size_t) i - 1] < 0) != (out[(size_t) i] < 0)) ++zc;
+                r << String (zc * 5) << " ";
+            }
+            printf ("fromStart=%d ls=%.2f le=%.2f start=%.2f: %s\n", (int) fromStart, ls, le, st, r.toRawUTF8());
+        };
+        run (true, 0.3f, 0.7f, 0.0f); run (false, 0.3f, 0.7f, 0.0f); run (true, 0.0f, 1.0f, 0.0f); run (false, 0.3f, 0.7f, 0.2f);
+        return 0;
+    }
     if (argc > 1 && String (argv[1]) == "plevel")
     {
         // hlasitost celeho zvuku (synth + efekty) cez processBlock, ako to pocuje pouzivatel
@@ -449,7 +477,7 @@ int main (int argc, char** argv)
             if (inst > 0) { q.synth.requestInstr (inst); for (int i = 0; i < 400 && ! q.synth.instrReady (inst); ++i) Thread::sleep (25); }
             if (inst == 0) for (int i = 0; i < 400 && ! q.synth.pianoReady(); ++i) Thread::sleep (25);
             std::vector<int> ch { 60 };
-            if (inst == 41) ch = { 38 }; else if (inst == 42) ch = { 52 }; else if (inst == 43) ch = { 54 }; else if (inst == 40) ch = { 45 };
+            if (inst == 41) ch = { 38 }; else if (inst == 42) ch = { 52 }; else if (inst == 43) ch = { 54 }; else if (inst == 40) ch = { 45 }; else if (inst == 50) ch = { 48 };
             std::vector<float> sq; AudioBuffer<float> b (2, bs);
             const int total = (int) (2.5 * sr);
             for (int pos = 0; pos < total; pos += bs)
