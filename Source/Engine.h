@@ -74,7 +74,7 @@ struct TrackData
     float vol = 0.8f, pan = 0;  // zakladna hlasitost a panorama (pre automatizaciu)
     std::vector<AutoLane> autos;
     std::vector<HitEv> hits;    // zoradene podla start
-    std::array<DrumSet, 10> dset {};   // uprava zvuku nastrojov bicich
+    std::array<DrumSet, 16> dset {};   // uprava zvuku nastrojov bicich (16 padov)
     bool isAudio = false;
     bool monitor = false;       // odposluch vstupu (audio stopa)
     int inA = 0, inB = -1;      // vstupne kanaly zvukovky (inB = -1 -> mono)
@@ -342,7 +342,7 @@ private:
         std::unique_ptr<juce::AudioPluginInstance> midiFx;   // MIDI efekt pred nastrojom (Korgus Arp)
         struct Voice { AudioBufPtr buf; juce::int64 pos = 0; float gain = 1; int lane = 0; int fade = -1; int fadeLen = 64;
                        DrumSet ds; double rpos = 0; float t = 0, fc = 0, s1[4] {}, s2[4] {}; float g = 0, k = 2; int cnt = 0; };
-        std::array<DrumSet, 10> dset {};   // aktualne upravy nastrojov (z piesne)
+        std::array<DrumSet, 16> dset {};   // aktualne upravy nastrojov (z piesne)
         std::atomic<bool> killVoices { false };   // "Vsetky noty vyp." z editora zvuku
         double sr = 48000;
         std::vector<Voice> voices;

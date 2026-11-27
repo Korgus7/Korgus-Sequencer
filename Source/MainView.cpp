@@ -1168,18 +1168,19 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                     for (auto& f : dir.findChildFiles (juce::File::findFiles, false))
                                         if (juce::StringArray { "wav", "mp3", "ogg", "flac", "aif", "aiff" }.contains (f.getFileExtension().substring (1).toLowerCase()) && ! f.isHidden()) fs.add (f);
                                 fs.sort();
-                                juce::File lane[10];
+                                juce::File lane[16];
                                 juce::Array<juce::File> rest;
                                 for (auto& f : fs)
                                 {
                                     const auto n = f.getFileNameWithoutExtension();
                                     const int num = n.substring (0, 2).containsOnly ("0123456789") ? n.substring (0, 2).getIntValue() : 0;
-                                    if (num >= 1 && num <= 10 && lane[num - 1] == juce::File()) lane[num - 1] = f; else rest.add (f);
+                                    if (num >= 1 && num <= 16 && lane[num - 1] == juce::File()) lane[num - 1] = f; else rest.add (f);
                                 }
-                                static const char* kw[10] = { "kick|bd|bassdrum|bass drum|kopak", "snare|sd|virbel", "clap|tlesk", "closed|chh|hh|hat",
-                                                              "open|ohh", "low tom|tom low|floor|lt|tom1", "tom|ht|mt", "rim|stick|side", "crash|ride|cymbal|cym|cinel", "cowbell|bell|perc|shaker|tamb" };
-                                static const int order[10] = { 4, 0, 1, 2, 5, 6, 7, 8, 9, 3 };   // otvoreny hi-hat a nizky tom skor nez vseobecne slova
-                                for (int oi = 0; oi < 10; ++oi)
+                                static const char* kw[16] = { "kick|bd|bassdrum|bass drum|kopak", "snare|sd|virbel", "clap|tlesk", "closed|chh|hh|hat",
+                                                              "open|ohh", "low tom|tom low|lt|tom1", "tom|ht|hi tom|high tom", "rim|stick|side", "crash|cymbal|cym|cinel",
+                                                              "ride", "pedal|phh|foot", "mid tom|tom mid|mt|tom2", "floor tom|ft|tom3", "floor|tom4", "crash 2|crash2|china", "splash" };
+                                static const int order[16] = { 15, 9, 10, 14, 4, 12, 13, 11, 0, 1, 2, 5, 6, 7, 8, 3 };   // konkretne slova skor nez vseobecne (hat, tom, crash)
+                                for (int oi = 0; oi < 16; ++oi)
                                 {
                                     const int l = order[oi];
                                     if (lane[l] != juce::File()) continue;
@@ -1192,9 +1193,9 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                         if (hit) { lane[l] = rest[i]; rest.remove (i); break; }
                                     }
                                 }
-                                for (int l = 0; l < 10 && ! rest.isEmpty(); ++l) if (lane[l] == juce::File()) { lane[l] = rest[0]; rest.remove (0); }
+                                for (int l = 0; l < 16 && ! rest.isEmpty(); ++l) if (lane[l] == juce::File()) { lane[l] = rest[0]; rest.remove (0); }
                                 juce::Array<juce::var> ids, names;
-                                for (int l = 0; l < 10; ++l)
+                                for (int l = 0; l < 16; ++l)
                                 {
                                     const auto id = lane[l].existsAsFile() ? store->importFile (lane[l]) : juce::String();
                                     ids.add (id); names.add (id.isEmpty() ? juce::String() : lane[l].getFileNameWithoutExtension());

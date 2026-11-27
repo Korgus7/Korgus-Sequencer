@@ -25,7 +25,7 @@ void Engine::Slot::addVoice (AudioBufPtr b, juce::int64 pos, float gain, int lan
         for (auto& v : voices) if (v.lane == 99 && v.fade < 0) { v.fade = 256; v.fadeLen = 256; }
     if (voices.size() >= 64) voices.erase (voices.begin());
     Voice v; v.buf = std::move (b); v.pos = pos; v.gain = gain; v.lane = lane;
-    if (juce::isPositiveAndBelow (lane, 10)) v.ds = dset[(size_t) lane];
+    if (juce::isPositiveAndBelow (lane, 16)) v.ds = dset[(size_t) lane];
     voices.push_back (std::move (v));
 }
 
@@ -717,7 +717,7 @@ void Engine::renderSegment (const SongData& sd, double p0, double p1, int off, i
         {
             const juce::SpinLock::ScopedTryLockType tl (liveLock);
             if (tl.isLocked())
-                for (const auto& x : liveSets) if (x.slot == td.slot && juce::isPositiveAndBelow (x.lane, 10)) s.dset[(size_t) x.lane] = x.ds;
+                for (const auto& x : liveSets) if (x.slot == td.slot && juce::isPositiveAndBelow (x.lane, 16)) s.dset[(size_t) x.lane] = x.ds;
         }
 
         if (td.isAudio || td.frozen)
@@ -833,7 +833,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                     {
                         const juce::SpinLock::ScopedTryLockType tl (liveLock);
                         if (tl.isLocked())
-                            for (const auto& x : liveSets) if (x.slot == t.slot && juce::isPositiveAndBelow (x.lane, 10)) sl.dset[(size_t) x.lane] = x.ds;
+                            for (const auto& x : liveSets) if (x.slot == t.slot && juce::isPositiveAndBelow (x.lane, 16)) sl.dset[(size_t) x.lane] = x.ds;
                     }
                     sl.addVoice (t.buf, 0, t.gain, t.lane);
                 }

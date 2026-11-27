@@ -99,8 +99,28 @@ namespace
 
     // vsetky supravy maju rovnake ulohy riadkov: 0 kopak, 1 virbel, 2 clap, 3 hi-hat zatvoreny (shaker), 4 hi-hat otvoreny,
     // 5 tom / konga nizka, 6 tom / konga vysoka, 7 rim / clave, 8 cinel, 9 kravsky zvonec / agogo
+    // riadky 9 – 15 (pady 10 – 16 ako na MPC): ride, HH pedal, tom stredny, tom hlboky, tom podlahovy, cinel 2, splash
+    // spolocne pre vsetky supravy, jemne prisposobene charakteru supravy
+    void buildExtra (int kit, int lane, Gen& g)
+    {
+        const double k = kit == 3 || kit == 4 ? 1.25 : kit == 2 ? 1.08 : kit == 1 ? 0.95 : 1.0;   // afro / latino vyssie, house nizsie
+        const bool elec = kit == 1 || kit == 2;
+        switch (lane)
+        {
+            case 9:  g.metal (2.3, 5000, 0.45, 1.0, 0.001); g.mode (2900, 0.15, 0.9); g.noise (1, 7000, 0.7, 0.25, 0.5); break;          // ride
+            case 10: g.noise (1, 7500, 0.8, 0.65, 0.022); g.metal (1.6, 7200, 0.25, 0.02); g.noise (2, 1300, 1.0, 0.18, 0.012); break;    // HH pedal
+            case 11: g.sweep ((elec ? 180 : 150) * k, (elec ? 140 : 122) * k, 0.06, 0.9, 0.28); g.noise (2, 1500, 0.8, 0.2, 0.045); break; // tom stredny
+            case 12: g.sweep (100 * k, 76 * k, 0.08, 0.9, 0.36); g.noise (2, 1100, 0.8, 0.2, 0.05); break;                               // tom hlboky
+            case 13: g.sweep (84 * k, 62 * k, 0.1, 0.9, 0.44); g.noise (2, 900, 0.8, 0.2, 0.05); g.mode (62 * k, 0.15, 0.3); break;       // tom podlahovy
+            case 14: crash (g, 0.85); break;                                                                                             // cinel 2
+            case 15: g.noise (1, 6500, 0.7, 0.6, 0.45, 0, 0.001); g.metal (2.6, 6500, 0.45, 0.4, 0.001); g.noise (2, 10000, 0.8, 0.3, 0.25); break; // splash
+            default: break;
+        }
+    }
+
     void build (int kit, int lane, Gen& g)
     {
+        if (lane >= 9) { buildExtra (kit, lane, g); return; }
         switch (kit * 10 + lane)
         {
             // ---------------- Pop ----------------
@@ -164,7 +184,8 @@ namespace
 
     double lengthFor (int kit, int lane)
     {
-        if (lane == 8) return 2.0;
+        if (lane == 8 || lane == 9 || lane == 14) return 2.0;
+        if (lane == 15 || lane == 13) return 1.0;
         if (lane == 4) return 1.0;
         if (lane == 0 && kit == 1) return 1.0;
         return 0.8;
@@ -203,6 +224,8 @@ namespace DrumKits
 
     juce::String laneName (int kit, int lane)
     {
+        static const char* ex[7] = { "Ride", "HH pedál", "Tom stredný", "Tom hlboký", "Tom podlahový", "Činel 2", "Splash" };
+        if (lane >= 9 && lane < numLanes) return juce::String::fromUTF8 (ex[lane - 9]);
         static const char* nm[5][10] = {
             { "Kick", "Snare", "Clap", "HH zatvorený", "HH otvorený", "Tom nízky", "Tom vysoký", "Rim", "Činel", "Cowbell" },
             { "909 Kick", "909 Snare", "909 Clap", "909 HH", "909 HH otvorený", "909 Tom nízky", "909 Tom vysoký", "909 Rim", "909 Ride", "808 Cowbell" },
@@ -221,8 +244,8 @@ namespace DrumKits
     bool make (int kit, int lane, double sr, juce::AudioBuffer<float>& out)
     {
         if (! juce::isPositiveAndBelow (kit, numKits) || ! juce::isPositiveAndBelow (lane, numLanes) || sr < 8000) return false;
-        static const float lvl[numLanes] = { 0.8f, 0.6f, 0.5f, 0.28f, 0.28f, 0.5f, 0.45f, 0.38f, 0.28f, 0.32f };
-        if (isSampleKit (kit))
+        static const float lvl[numLanes] = { 0.8f, 0.6f, 0.5f, 0.28f, 0.28f, 0.5f, 0.45f, 0.38f, 0.28f, 0.24f, 0.26f, 0.5f, 0.55f, 0.58f, 0.26f, 0.24f };
+        if (isSampleKit (kit) && lane < 9)
         {
             if (! loadSample (kit, lane, sr, out)) return false;
             const float pk = out.getMagnitude (0, 0, out.getNumSamples());
