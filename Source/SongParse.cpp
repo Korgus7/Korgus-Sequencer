@@ -352,6 +352,13 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                     }
                 }
             }
+            if (const double lead = (double) t.getProperty ("lead", 0.0); td.midiOutCh > 0 && lead > 0.0)
+            {   // stopa MPC: noty idu do MPC o oneskorenie skor, aby zvuk MPC cez druhy vstup prisiel presne v case
+                const double sh = lead * 0.001 * sd->tempo / 60.0 * 4.0;
+                for (auto& n : td.notes) { const double len = n.end - n.start; n.start = juce::jmax (0.0, n.start - sh); n.end = n.start + len; }
+                for (auto& c : td.ccs) c.start = juce::jmax (0.0, c.start - sh);
+                std::sort (td.ccs.begin(), td.ccs.end(), [] (const CcEv& x, const CcEv& y) { return x.start < y.start; });
+            }
             std::sort (td.notes.begin(), td.notes.end(), [] (const NoteEv& x, const NoteEv& y) { return x.start < y.start; });
             std::sort (td.hits.begin(), td.hits.end(), [] (const HitEv& x, const HitEv& y) { return x.start < y.start; });
             std::stable_sort (td.ccs.begin(), td.ccs.end(), [] (const CcEv& x, const CcEv& y) { return x.start < y.start; });

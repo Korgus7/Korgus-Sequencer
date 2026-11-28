@@ -3061,6 +3061,7 @@ void MainView::onRecAudio (const juce::var& v)
                 const auto inp = t.getProperty ("inp", "0").toString();
                 rt.a = inp.upToFirstOccurrenceOf ("+", false, false).getIntValue();
                 rt.b = inp.contains ("+") ? inp.fromFirstOccurrenceOf ("+", false, false).getIntValue() : -1;
+                rt.noLat = (bool) t.getProperty ("nolat", false);   // zmrazenie MPC: zvuk uz prisiel v case
                 specs.push_back ({ rt.a, rt.b });
                 recTracks.push_back (std::move (rt));
             }
@@ -3092,7 +3093,7 @@ void MainView::finishRecording()
     {
         auto& rt = recTracks[i];
         // druhy vstup ma vlastne oneskorenie (Windows Audio + vyrovnavaci zasobnik)
-        const int lat = (secBase >= 0 && rt.a >= secBase) ? outLat + secondIn->latencySamples() : lat0;
+        const int lat = rt.noLat ? 0 : (secBase >= 0 && rt.a >= secBase) ? outLat + secondIn->latencySamples() : lat0;
         engine.drainRecording ((int) i, rt.l, rt.r);
         if (! engine.hasRecStarted() || (double) rt.l.size() <= lat + sr * 0.1) continue;
         const int n = (int) rt.l.size() - lat;
