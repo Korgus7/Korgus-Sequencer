@@ -526,9 +526,13 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
             if (sc.blockSize1 > 0) ccBuf[(size_t) sc.startIndex1] = c;
             else if (sc.blockSize2 > 0) ccBuf[(size_t) sc.startIndex2] = c;
         }
-        // pady MPC na bicej stope: nota padu -> nota bicich
-        if (const int pm = padMap[(size_t) m.getNoteNumber()].load(); pm >= 0 && pm < 128) m.setNoteNumber (pm);
-        else if (pm == 128) return;   // pad spusta sekciu piesne - nota sa nehra
+        // pady MPC na bicej stope: nota padu -> nota bicich (len zo zariadenia MPC, nie z inych klaves)
+        if (src != nullptr && src != lastPadSrc) { lastPadSrc = src; lastPadIsMpc = src->getName().containsIgnoreCase ("MPC"); }
+        if (src != nullptr && lastPadIsMpc)
+        {
+            if (const int pm = padMap[(size_t) m.getNoteNumber()].load(); pm >= 0 && pm < 128) m.setNoteNumber (pm);
+            else if (pm == 128) return;   // pad spusta sekciu piesne - nota sa nehra
+        }
     }
     if (m.isNoteOnOrOff())
     {   // transpozicia vstupu vybranej stopy; pustenie klavesy ide na ten ton, ktory zacal hrat

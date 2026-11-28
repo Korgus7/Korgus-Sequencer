@@ -5457,27 +5457,30 @@ function midiDialog(){
 }
 /* ---------------- AKAI MPC Sample: pady -> bicie, synchronizacia MIDI Clock ---------------- */
 const LSMPC='korgusMpc';
-let mpcCfg={pads:false,base:37,sync:0,out:'',outName:'',ch:1,dir:'',secs:false}; try{ Object.assign(mpcCfg,JSON.parse(localStorage.getItem(LSMPC)||'{}')); }catch(e){}
+let mpcCfg={pads:true,base:36,sync:0,out:'',outName:'',ch:1,dir:'',secs:false}; try{ Object.assign(mpcCfg,JSON.parse(localStorage.getItem(LSMPC)||'{}')); }catch(e){}
+mpcCfg.base=36;   // MPC Sample: pad A1 = nota 36, kazda banka o 16 dalej (podla zariadenia) - netreba ucit
+const mpcPadIdx=n=>(((n-36)%128+128)%128)%16;
 let mpcBaseLearn=null, midiDevs={outs:[],ins:[]};
 // pady 1-16 (zdola zlava ako na MPC): 1 Kick, 2 Snare, 3 HH zatv., 4 HH otv. | 5 Clap, 6 Rim, 7 Tom nizky, 8 Tom vysoky | 9 Cinel, 10 Ride, 11 HH pedal, 12 Tom stredny | 13-16 Tom hlboky, Tom podlahovy, Cinel 2, Cowbell
 const MPC_PADS=[36,38,42,46,39,37,45,50,49,51,44,47,41,43,57,56];
 function mpcSave(){ try{ localStorage.setItem(LSMPC,JSON.stringify(mpcCfg)); }catch(e){} }
 function mpcPadSync(){ if(!NATIVE) return; const tr=targetTrack&&targetTrack(); const on=mpcCfg.pads&&tr&&tr.type==='drum';
   const m=new Array(128).fill(-1);
-  if(mpcCfg.secs) MPC_PADS.forEach((n,i)=>{ const k=mpcCfg.base+i; if(k>=0&&k<128) m[k]=128; });   // pady spustaju sekcie - noty sa nehraju
-  else if(on) MPC_PADS.forEach((n,i)=>{ const k=mpcCfg.base+i; if(k>=0&&k<128) m[k]=n; });
+  // vsetky banky A - H: pad = (nota - 36) mod 16
+  if(mpcCfg.secs) for(let k=0;k<128;k++) m[k]=128;   // pady spustaju sekcie - noty sa nehraju
+  else if(on) for(let k=0;k<128;k++) m[k]=MPC_PADS[mpcPadIdx(k)];
   const key=mpcCfg.secs?'secs'+mpcCfg.base:(on?'on'+mpcCfg.base:'off'); if(mpcPadSync.k===key) return; mpcPadSync.k=key; nat('padMap',{map:(on||mpcCfg.secs)?m:[]});
   nat('midiMonitor',{on:!!mpcCfg.secs||!!$('mpcBox')}); }
 function mpcSyncSend(){ if(!NATIVE) return; nat('midiSync',{mode:mpcCfg.sync||0,out:mpcCfg.out||''});
   // noty stop "Hrať na MPC" - bicie na noty padov MPC (pad 1 = mpcCfg.base)
-  const dm=[...Array(128).keys()]; MPC_PADS.forEach((n,i)=>{ dm[n]=clamp(mpcCfg.base+i,0,127); });
+  const dm=[...Array(128).keys()]; MPC_PADS.forEach((n,i)=>{ dm[n]=36+i; });   // bicie -> pady banky A
   nat('drumOutMap',{map:dm}); nat('midiNoteOut',{out:song.tracks.some(t=>t.mpcCh)?(mpcCfg.out||''):''}); }
 function mpcSection(){
   const box=document.createElement('div'); box.id='mpcBox';
   box.innerHTML=`<h3 style="margin:14px 0 6px;font-size:13px">AKAI MPC Sample</h3>
-    <p style="margin:0 0 6px">Na MPC v <b>MIDI Config</b> nastav <b>MIDI Port = USB</b> a <b>Pad MIDI Out = Always</b>.</p>
+    <p style="margin:0 0 6px">Na MPC v <b>MIDI Config</b> nastav <b>MIDI Port = USB</b> a <b>Pad MIDI Out = Always</b>. Pady fungujú hneď, v hociktorej banke A – H.</p>
     <div class="frow"><label style="white-space:nowrap;width:auto"><input type="checkbox" id="mpcPads"${mpcCfg.pads?' checked':''}> Pady hrajú bicie (na bicej stope)</label>
-      <span style="flex:1"></span><span id="mpcBaseTx" style="color:#2d4362">Pad 1 = nota ${mpcCfg.base}</span><button id="mpcBaseGo" title="Klikni a udri na MPC do padu 1 – Korgus si zapamätá, akú notu posiela">Nauč pad 1</button></div>
+</div>
     <div class="frow"><label>Synchronizácia</label><select id="mpcSync" style="flex:1">
       <option value="0">Vypnutá</option><option value="1">Korgus vedie – posiela tempo, Play a Stop (MIDI Clock)</option><option value="2">Ovládač vedie – Korgus preberá tempo, Play a Stop</option></select></div>
     <div class="frow" id="mpcOutRow"><label>MIDI výstup</label><select id="mpcOut" style="flex:1"><option value="">(načítavam…)</option></select>
@@ -5496,8 +5499,6 @@ function mpcSection(){
   $('mpcLoadKit').onclick=()=>{ const tr=targetTrack(); if(!tr||tr.type!=='drum'){ toast('Najprv vyber bicu stopu.'); return; } nat('mpcPickDir',{path:mpcCfg.dir||'',why:'kit'}); };
   $('mpcHelp').onclick=()=>mpcHelpDlg();
   $('mpcPads').onchange=e=>{ mpcCfg.pads=e.target.checked; mpcSave(); mpcPadSync.k=null; mpcPadSync(); };
-  $('mpcBaseGo').onclick=()=>{ $('mpcBaseTx').textContent='Udri do padu 1 na MPC…'; nat('midiLearnNotes',{on:true});
-    mpcBaseLearn=n=>{ mpcBaseLearn=null; nat('midiLearnNotes',{on:false}); mpcCfg.base=n; mpcSave(); mpcPadSync.k=null; mpcPadSync(); const t=$('mpcBaseTx'); if(t) t.textContent='Pad 1 = nota '+n; toast('Pad 1 posiela notu '+n+'. Pady 1 – 16 teraz hrajú bicie.'); }; };
   $('mpcSync').onchange=e=>{ mpcCfg.sync=+e.target.value; mpcSave(); mpcSyncSend(); };
   $('mpcOut').onchange=e=>{ mpcCfg.out=e.target.value; mpcCfg.outName=e.target.selectedOptions[0].textContent; mpcSave(); mpcSyncSend(); };
   if(NATIVE){ nat('midiOutputs',{}); nat('midiMonitor',{on:true}); }
@@ -5553,7 +5554,7 @@ function mpcGridHtml(){ let pads='';
     pads+=`<g transform="translate(${x},${y})"><rect class="mpcR" id="mpcP${i}" width="104" height="86" rx="6" fill="#8e9094" stroke="${i===0?'#c9a35a':'#7d8ea3'}" stroke-width="${i===0?3:1.5}"/>`+
       `<text x="52" y="50" fill="#18181b" font-size="${nm.length>10?13:17}" font-weight="700" text-anchor="middle">${esc(nm)}</text><text x="4" y="102" fill="#e4e4e7" font-size="11" font-weight="700">${i+1}</text></g>`; }
   return '<style>#mpcGrid{margin:10px auto 4px;max-width:520px}#mpcGrid .mpcR{transition:fill .35s}#mpcGrid .mpcR.hit{fill:#d9a441;transition:none}</style>'+MPC_SVG.replace('@@PADS@@',pads); }
-function mpcPadHit(note,vel){ const i=note-mpcCfg.base;
+function mpcPadHit(note,vel){ const i=mpcPadIdx(note);
   if(mpcCfg.secs&&vel&&i>=0&&i<16){ const st=secs().slice().sort((a,b)=>a.start-b.start); const sct=st[i];   // pad N = N-ta sekcia piesne
     if(sct){ setPos(sct.start*SPB); if(!playing) play(); toast('▶ '+esc(sct.name||('Sekcia '+(i+1)))); } }
   const el=$('mpcP'+i); if(!el||!vel) return;

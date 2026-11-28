@@ -325,6 +325,7 @@ public:
         else if (sc.blockSize2 > 0) clkBuf[(size_t) sc.startIndex2] = { st, (int16_t) spp, atMs };
     }
     std::array<std::atomic<int>, 128> padMap {};
+    juce::MidiInput* lastPadSrc = nullptr; bool lastPadIsMpc = false;   // len MIDI vlakno
 
 private:
     enum State { stopped, counting, playing };
