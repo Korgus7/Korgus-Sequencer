@@ -92,6 +92,7 @@ struct TrackData
     std::vector<CcEv> ccs;      // MIDI CC a pitch bend, zoradene podla start
     bool frozen = false;        // zmrazena stopa: hra sa nahrane audio, nastroj a efekty sa nepocitaju
     int midiOutCh = 0;          // hra aj na externom MIDI zariadeni (AKAI MPC) na tomto kanali (0 = nie)
+    int retA = -1, retB = -1;   // navrat zvuku externeho nastroja (vstupne kanaly) - stopa MPC
     bool isDrum = false;
 };
 
@@ -250,7 +251,13 @@ public:
     int    getCountTotal() const     { return countTotal.load(); }
 
     // MIDI z klaves - zavolane na hlavnom vlakne (pre nahravanie a krokovy vstup)
-    std::function<void (int pitch, float vel, bool on, double pos)> onMidiIn;
+    std::function<void (int pitch, float vel, bool on, double pos, bool fromMpc)> onMidiIn;
+    // stopa MPC (externy nastroj): udery z MPC idu len do nej, nikam inam
+    void setMpcSlot (int s) { mpcSlot.store (s); }
+    // meranie oneskorenia MPC: posle uder a caka na zvuk na druhom vstupe; vysledok v ms (-1 = nic neprislo)
+    void startMpcPing (int note);
+    void setPingChannel (int ch) { pingCh.store (ch); }
+    double takeMpcPing() { return pingResult.exchange (-2.0); }
     // synchronizacia MIDI Clock: 0 vypnuta, 1 Korgus vedie (posiela clock, start, stop), 2 ovladac vedie (Korgus nasleduje)
     void setSync (int mode, const juce::String& outId);
     // noty stop s midiOutCh idu na MIDI vystup (MPC ako zvukovy modul); drumMap = nota bicich -> nota padu MPC
@@ -313,7 +320,11 @@ public:
     struct NoteSender : juce::Thread { explicit NoteSender (Engine& e) : Thread ("Korgus MIDI out"), en (e) {} void run() override; Engine& en; };
     std::unique_ptr<NoteSender> noteThread;
     void pushNoteOut (const juce::MidiBuffer& mb, int n, int ch, bool drum, const juce::MidiBuffer& skip);
-    std::atomic<double> mpcLatMs { 0.0 };   // oneskorenie zvuku MPC - noty sa poslu o tolko skor
+    std::atomic<double> mpcLatMs { 0.0 };
+    std::atomic<int> mpcSlot { -1 };
+    std::atomic<int> pingState { 0 };        // 0 nic, 1 caka na zvuk
+    std::atomic<double> pingSentMs { 0 }, pingResult { -2.0 };
+    std::atomic<int> pingCh { 1 };   // oneskorenie zvuku MPC - noty sa poslu o tolko skor
 public:
     void setMpcLatency (double ms) { mpcLatMs = juce::jlimit (0.0, 100.0, ms); }
 private:

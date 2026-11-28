@@ -168,6 +168,16 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             td.channel = juce::jlimit (1, 16, (int) t.getProperty ("midiCh", 1));
             td.midiOutCh = juce::jlimit (0, 16, (int) t.getProperty ("mpcCh", 0));
             td.isDrum = type == "drum";
+            if ((bool) t.getProperty ("mpc", false))
+            {   // stopa MPC: navrat zvuku z druheho vstupu ("a+b")
+                const auto ret = t.getProperty ("ret", "").toString();
+                if (ret.isNotEmpty())
+                {
+                    td.retA = ret.upToFirstOccurrenceOf ("+", false, false).getIntValue();
+                    td.retB = ret.contains ("+") ? ret.fromFirstOccurrenceOf ("+", false, false).getIntValue() : -1;
+                }
+                td.monitor = (bool) t.getProperty ("mon", true);
+            }
             if (td.isAudio)
             {
                 td.monitor = (bool) t.getProperty ("mon", false);

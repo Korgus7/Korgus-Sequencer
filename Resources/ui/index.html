@@ -647,6 +647,7 @@ window.addEventListener('load',()=>{ try{ if(typeof nat==='function') nat('lang'
     <button id="bAddD">+ Bicie</button>
     <button id="bAddS">+ Syntezátor</button>
     <button id="bAddA">+ Audio</button>
+    <button id="bAddM" hidden>+ MPC</button>
     <button id="bImpA">Import audio…</button>
     <button id="tbLoop" title="Knižnica slučiek">Slučky</button>
     <button id="tbGen" title="Generátor akordov a melódie">Akordy</button>
@@ -739,7 +740,7 @@ function onNat(ev,fn){ if(NATIVE) window.__JUCE__.backend.addEventListener(ev,fn
 let natPlugins=[], natTrackPlugins={}, natLast={pos:0,t:0}, songPushT=null;
 function songForEngine(){
   return {masterVol:song.masterVol==null?1:song.masterVol,aux:auxArr().map(a=>({vol:a.vol})),byp:song.byp||{},tempoMap:song.tempoLane&&song.tempoLane.pts.length?song.tempoLane.pts.map(q=>[q[0],Math.round((TMIN+q[1]*(TMAX-TMIN))*100)/100]):[],tempo:song.tempo,bars:song.bars,keyK:song.keyK==null?-1:song.keyK,keyM:song.keyM?1:0,chords:(song.chords||[]).map(c=>({s:c.s,c:c.c})),locL:song.locL,locR:song.locR,loopOn:song.loopOn,click:song.click,swing:song.swing,groups:(song.groups||[]).map(g=>({id:g.id,vol:g.vol==null?1:g.vol,pan:g.pan||0,mute:!!g.mute,solo:!!g.solo,send:g.send||[0,0]})),
-    tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,out:t.out&&(song.groups||[]).some(g=>g.id===t.out)?t.out:'',vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,sc:!!t.sc,send:t.send||[0,0],mon:!!t.mon,inp:t.inp||'0',midiCh:t.midiCh||1,smp:t.smp||{},dset:t.dset||{},auto:(t.autoR===false?[]:(t.auto||[])).filter(a=>!a.rec).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.follow&&t.type==='synth'?followParts(t):drumPartsMuted(t)}))};
+    tracks:song.tracks.map(t=>({id:t.id,name:t.name,type:t.type,out:t.out&&(song.groups||[]).some(g=>g.id===t.out)?t.out:'',vol:t.vol,pan:t.pan||0,mute:t.mute,solo:t.solo,sc:!!t.sc,send:t.send||[0,0],mon:!!t.mon,inp:t.inp||'0',mpc:!!t.mpc,mpcCh:t.mpc?(mpcCfg.ch||1):(t.mpcCh||0),ret:t.mpc&&natSecIn>=0?natSecIn+'+'+(natSecIn+1):'',midiCh:t.midiCh||1,smp:t.smp||{},dset:t.dset||{},auto:(t.autoR===false?[]:(t.auto||[])).filter(a=>!a.rec).map(a=>({t:a.t,w:a.w||0,i:a.i||0,pts:a.pts})),parts:t.follow&&t.type==='synth'?followParts(t):drumPartsMuted(t)}))};
 }
 // akordova stopa: stopa so zapnutym „Sleduje akordy“ hra noty prisposobene akordom (ulozene noty sa nemenia)
 function chordRootAt(st){ const cs=chordsSorted(); let c=null; cs.forEach(q=>{ if(q.s<=st) c=q; }); const r=c?parseChord(c.c):null; return r?r.root:null; }
@@ -777,7 +778,7 @@ function energyDrumParts(parts){
   return out; }
 function auxArr(){ if(!Array.isArray(song.aux)) song.aux=[{vol:.8},{vol:.8}]; return song.aux; }
 function songReset(){ nat('songReset'); }   // nova / nacitana pieseň: Korgus Master zabudne naucenu hlasitost
-function pushSong(now){ if(!NATIVE) return; midiMapSync(); clearTimeout(songPushT); const f=()=>nat('song',JSON.stringify(songForEngine())); if(now) f(); else songPushT=setTimeout(f,15); }
+function pushSong(now){ if(!NATIVE) return; midiMapSync(); clearTimeout(songPushT); const f=()=>{ nat('song',JSON.stringify(songForEngine())); const m=song.tracks.find(t=>t.mpc), k=m?m.id:''; if(pushSong.mpc!==k){ pushSong.mpc=k; try{ mpcTrackSend(); mpcPadSync.k=null; mpcPadSync(); }catch(_){ } } }; if(now) f(); else songPushT=setTimeout(f,15); }
 let keyPHinfo=null;
 // plynula ciara prehravania (posuva sa kazdy snimok obrazovky, platno sa neprekresluje)
 function natPH(){
@@ -883,13 +884,14 @@ function setupNative(){
   });
   onNat('midiIn',e=>{
     if(e.pitch===-64){ if(e.on&&stepActive()) stepMove(stepSize()); return; }
-    const tr=targetTrack(); if(!tr) return;
+    window._mpcTr=e.mpc?song.tracks.find(t=>t.mpc)||null:null;   // udery z MPC idu len do stopy MPC
+    const tr=targetTrack(); if(!tr){ window._mpcTr=null; return; }
     let val=e.pitch; if(tr.type==='drum'){ val=DRUMS.findIndex(d=>d[1]===e.pitch); if(val<0) val=(((e.pitch-36)%LANES9)+LANES9)%LANES9; }
     // presny cas noty z programu (pozicia, ktoru hrac pocul), nie cas dorucenia spravy
     window._recAt=(typeof e.pos==='number'&&e.pos>=0&&playing&&!counting)?e.pos:null;
     retroPush(e,tr);
     if(e.on&&e.vel>0) noteOn('m'+e.pitch,val,e.vel,true); else noteOff('m'+e.pitch);
-    window._recAt=null;
+    window._recAt=null; window._mpcTr=null;
   });
   onNat('plugins',list=>{ natPlugins=Array.isArray(list)?list:[]; renderTracks(); });
   onNat('blockedPlugins',list=>{ natBlocked=Array.isArray(list)?list:[]; });
@@ -938,7 +940,7 @@ function setupNative(){
   setTimeout(()=>$('boot').classList.add('done'),120000);
   onNat('lastSong',e=>{ try{ const t=e.text; if(t===JSON.stringify(song)) return; const s=normalize(JSON.parse(t));
       song=s; songReset(); selT=0; selPart=null; closeEditor(); renderAll(); pushSong(true); natSel(); natNeedPeaks(); }catch(err){} });
-  $('bAddS').textContent='+ Nástroj'; $('bAddS').title='Pridať stopu pre VST nástroj';
+  $('bAddM').hidden=false; $('bAddS').textContent='+ Nástroj'; $('bAddS').title='Pridať stopu pre VST nástroj';
   onNat('aiResult',aiResult);
   onNat('melodyNotes',melodyResult);
   onNat('params',autoParams);
@@ -954,7 +956,7 @@ function setupNative(){
   setTimeout(refSync,1500);
   onNat('meters',meterIn);
   onNat('midiCC',midiCcIn);
-  onNat('midiOutputs',mpcDevsIn); onNat('midiSyncIn',mpcSyncIn); onNat('mpcDir',mpcDirIn); onNat('chopped',mpcChopped);
+  onNat('midiOutputs',mpcDevsIn); onNat('midiSyncIn',mpcSyncIn); onNat('mpcDir',mpcDirIn); onNat('chopped',mpcChopped); onNat('mpcPinged',mpcPinged);
   onNat('drumKitLoaded',drumKitLoaded);
   onNat('fsList',sbListIn);
   onNat('tuner',tunerIn);
@@ -1679,9 +1681,9 @@ function noteOff(key){
 let stepOn=false, stepCur=0, stepChord=false, drumStep=1;
 function stepActive(){return stepOn&&!!ed&&!playing&&!!edGet();}
 function armedSynths(){ return NATIVE?song.tracks.filter(t=>t.mon&&t.type==='synth'):[]; }
-function targetTrack(){ if(stepActive()) return edGet().tr;
+function targetTrack(){ if(window._mpcTr) return window._mpcTr; if(stepActive()) return edGet().tr;
   if(NATIVE){ const a=song.tracks.find(t=>t.arm&&t.type!=='audio'); if(a) return a;
-    const mon=song.tracks.filter(t=>t.mon&&t.type!=='audio'); if(mon.length){ const sel=song.tracks[selT]; return mon.includes(sel)?sel:mon[0]; } }
+    const mon=song.tracks.filter(t=>t.mon&&t.type!=='audio'&&!t.mpc); if(mon.length){ const sel=song.tracks[selT]; return mon.includes(sel)?sel:mon[0]; } }
   return song.tracks[selT]; }
 /* reproduktor vybranej stopy: ked ziadna stopa nema zapnuty reproduktor ani ●, hra vybrana stopa – ukaze sa to obrysom */
 function updImp(){ if(!NATIVE) return; const any=song.tracks.some(t=>t.type!=='audio'&&(t.arm||t.mon));
@@ -2011,7 +2013,7 @@ function renderTracksNative(L){
       // vystup
       ...(tr.type!=='audio'?[['Nahrať do novej audio stopy',()=>bounceTrack(tr)]]:[]),
       null,
-      ...(tr.type!=='audio'?[[(tr.mpcCh?'✓ ':'')+'Hrať na MPC (MIDI výstup)',()=>mpcTrackToggle(tr)]]:[]),
+      ...(tr.mpc?[['Zmerať oneskorenie MPC',()=>mpcMeasure()],['Zmraziť MPC do audio stopy',()=>mpcFreeze(tr)]]:[]),
       selTracks.size>1&&selTracks.has(tr.id)?['Zmazať označené stopy ('+selTracks.size+')',()=>deleteSelTracks()]:['Zmazať stopu',()=>deleteTrack(i)]].filter((x,k,a)=>x||(k>0&&a[k-1]&&k<a.length-1))); });
     L.appendChild(r);
   });  showFxPop();
@@ -5343,6 +5345,7 @@ $('bNew').onclick=()=>{
 };
 $('bAddD').onclick=()=>{pushUndo(); const nt=mkTrack('drum'); song.tracks.push(nt); selT=song.tracks.length-1; renderAll(); save(); setTimeout(()=>ensureKit(nt),300);};
 $('bAddS').onclick=()=>{pushUndo(); const t=mkTrack('synth'); song.tracks.push(t); selT=song.tracks.length-1; renderAll(); save(); natDefaultInst(t);};
+$('bAddM').onclick=()=>mpcAddTrack();
 $('bAddA').onclick=()=>{pushUndo(); song.tracks.push(mkTrack('audio')); selT=song.tracks.length-1; renderAll(); save();};
 $('bImpA').onclick=()=>{const tr=song.tracks[selT]; audTarget={trId:tr&&tr.type==='audio'?tr.id:null,bar:Math.floor(curPos()/SPB)}; pickAudio();};
 function pickAudio(){ $('audIn').click(); }
@@ -5465,7 +5468,7 @@ let mpcBaseLearn=null, midiDevs={outs:[],ins:[]};
 // pady 1-16 (zdola zlava ako na MPC): 1 Kick, 2 Snare, 3 HH zatv., 4 HH otv. | 5 Clap, 6 Rim, 7 Tom nizky, 8 Tom vysoky | 9 Cinel, 10 Ride, 11 HH pedal, 12 Tom stredny | 13-16 Tom hlboky, Tom podlahovy, Cinel 2, Cowbell
 const MPC_PADS=[36,38,42,46,39,37,45,50,49,51,44,47,41,43,57,56];
 function mpcSave(){ try{ localStorage.setItem(LSMPC,JSON.stringify(mpcCfg)); }catch(e){} }
-function mpcPadSync(){ if(!NATIVE) return; const tr=targetTrack&&targetTrack(); const on=mpcCfg.pads&&tr&&tr.type==='drum';
+function mpcPadSync(){ if(!NATIVE) return; const tr=targetTrack&&targetTrack(); const on=song.tracks.some(t=>t.mpc)||(mpcCfg.pads&&tr&&tr.type==='drum');
   const m=new Array(128).fill(-1);
   // vsetky banky A - H: pad = (nota - 36) mod 16
   if(mpcCfg.secs) for(let k=0;k<128;k++) m[k]=128;   // pady spustaju sekcie - noty sa nehraju
@@ -5475,18 +5478,18 @@ function mpcPadSync(){ if(!NATIVE) return; const tr=targetTrack&&targetTrack(); 
 function mpcSyncSend(){ if(!NATIVE) return; nat('midiSync',{mode:mpcCfg.sync||0,out:mpcCfg.out||''});
   // noty stop "Hrať na MPC" - bicie na noty padov MPC (pad 1 = mpcCfg.base)
   const dm=[...Array(128).keys()]; MPC_PADS.forEach((n,i)=>{ dm[n]=36+i; });   // bicie -> pady banky A
-  nat('drumOutMap',{map:dm}); nat('mpcLatency',{ms:mpcCfg.lat||0}); nat('midiNoteOut',{out:song.tracks.some(t=>t.mpcCh)?(mpcCfg.out||''):''}); }
+  nat('drumOutMap',{map:dm}); nat('mpcLatency',{ms:mpcCfg.lat||0}); nat('midiNoteOut',{out:song.tracks.some(t=>t.mpcCh||t.mpc)?(mpcCfg.out||''):''}); mpcTrackSend(); }
 function mpcSection(){
   const box=document.createElement('div'); box.id='mpcBox';
   box.innerHTML=`<h3 style="margin:14px 0 6px;font-size:13px">AKAI MPC Sample</h3>
     <p style="margin:0 0 6px">Na MPC v <b>MIDI Config</b> nastav <b>MIDI Port = USB</b> a <b>Pad MIDI Out = Always</b>. Pady fungujú hneď, v hociktorej banke A – H.</p>
-    <div class="frow"><label style="white-space:nowrap;width:auto"><input type="checkbox" id="mpcPads"${mpcCfg.pads?' checked':''}> Pady hrajú bicie (na bicej stope)</label>
+    <div class="frow"${song.tracks.some(t=>t.mpc)?' hidden':''}><label style="white-space:nowrap;width:auto"><input type="checkbox" id="mpcPads"${mpcCfg.pads?' checked':''}> Pady hrajú bicie (na bicej stope)</label>
 </div>
     <div class="frow"><label>Synchronizácia</label><select id="mpcSync" style="flex:1">
       <option value="0">Vypnutá</option><option value="1">Korgus vedie – posiela tempo, Play a Stop (MIDI Clock)</option><option value="2">Ovládač vedie – Korgus preberá tempo, Play a Stop</option></select></div>
     <div class="frow" id="mpcOutRow"><label>MIDI výstup</label><select id="mpcOut" style="flex:1"><option value="">(načítavam…)</option></select>
       <label style="width:auto;margin-left:8px">Kanál</label><select id="mpcCh">${[...Array(16)].map((_,k)=>`<option value="${k+1}"${(mpcCfg.ch||1)===k+1?' selected':''}>${k+1}</option>`).join('')}</select></div>
-    <div class="frow"><label>Oneskorenie MPC</label><input type="range" id="mpcLat" min="0" max="60" step="1" value="${mpcCfg.lat||0}" style="flex:1"><span id="mpcLatTx" style="width:52px;text-align:right">${mpcCfg.lat||0} ms</span></div>
+    <div class="frow"><label>Oneskorenie MPC</label><input type="range" id="mpcLat" min="0" max="200" step="1" value="${mpcCfg.lat||0}" style="flex:1"><span id="mpcLatTx" style="width:52px;text-align:right">${mpcCfg.lat||0} ms</span><button id="mpcMeasure">Zmerať</button></div>
     <div class="frow"><label style="white-space:nowrap;width:auto"><input type="checkbox" id="mpcSecs"${mpcCfg.secs?' checked':''}> Živé hranie: pady 1 – 16 spúšťajú sekcie piesne (Intro, Sloha, Refrén…)</label></div>
     <div class="frow"><label>Priečinok MPC</label><span id="mpcDirTx" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(mpcCfg.dir||'(nevybraný – zapoj MPC cez USB a vyber jeho kartu)')}</span><button id="mpcDirGo">Vybrať…</button></div>
     <div class="frow"><label>Poslať do MPC</label><button id="mpcSendMix" title="Úsek medzi lokátormi L – R zmiešaný do jedného WAV">Úsek L – R</button><button id="mpcSendStems" title="Každá stopa zvlášť ako WAV (od začiatku po koniec piesne)">Každú stopu</button><button id="mpcSendPads" title="Zvuky padov vybranej bicej stopy ako WAV (01 Kick.wav …)">Zvuky padov</button>
@@ -5499,7 +5502,7 @@ function mpcSection(){
   $('mpcDirGo').onclick=()=>nat('mpcPickDir',{path:mpcCfg.dir||'',why:'set'});
   $('mpcSendMix').onclick=()=>mpcSend('mix'); $('mpcSendStems').onclick=()=>mpcSend('stems'); $('mpcSendPads').onclick=()=>mpcSend('pads');
   $('mpcLoadKit').onclick=()=>{ const tr=targetTrack(); if(!tr||tr.type!=='drum'){ toast('Najprv vyber bicu stopu.'); return; } nat('mpcPickDir',{path:mpcCfg.dir||'',why:'kit'}); };
-  $('mpcHelp').onclick=()=>mpcHelpDlg();
+  $('mpcHelp').onclick=()=>mpcHelpDlg(); $('mpcMeasure').onclick=()=>mpcMeasure();
   $('mpcLat').oninput=e=>{ mpcCfg.lat=+e.target.value; $('mpcLatTx').textContent=mpcCfg.lat+' ms'; mpcSave(); if(NATIVE) nat('mpcLatency',{ms:mpcCfg.lat}); };
   $('mpcPads').onchange=e=>{ mpcCfg.pads=e.target.checked; mpcSave(); mpcPadSync.k=null; mpcPadSync(); };
   $('mpcSync').onchange=e=>{ mpcCfg.sync=+e.target.value; mpcSave(); mpcSyncSend(); };
@@ -5508,6 +5511,42 @@ function mpcSection(){
 }
 function mpcTrackToggle(tr){ pushUndo(); if(tr.mpcCh) delete tr.mpcCh; else { tr.mpcCh=mpcCfg.ch||1; if(!mpcCfg.out) toast('Vyber MIDI výstup MPC v Nastavenia → MIDI ovládače (sekcia AKAI MPC Sample).'); }
   save(); mpcSyncSend(); renderTracks(); if(tr.mpcCh) toast('Stopa <b>'+esc(tr.name)+'</b> hrá aj na MPC (kanál '+tr.mpcCh+').'); }
+/* stopa MPC: noty idu do MPC, zvuk MPC sa vracia cez druhy vstup do tejto stopy */
+function mpcTrackSend(){ if(!NATIVE) return; const t=song.tracks.find(x=>x.mpc); nat('mpcTrack',{track:t?t.id:'',ch:mpcCfg.ch||1}); }
+function mpcAddTrack(){
+  if(song.tracks.some(t=>t.mpc)){ toast('Stopa MPC už v piesni je.'); return; }
+  pushUndo(); const t=mkTrack('drum'); t.name='MPC'; t.mpc=true; t.pads16=true; t.smp={}; t.smpN={}; t.noKit=true; t.kitManual=true; t.mon=true; t.rev=0;
+  song.tracks.push(t); selT=song.tracks.length-1; renderAll(); save(); mpcSyncSend(); mpcPadSync.k=null; mpcPadSync();
+  if(!mpcCfg.out) toast('Vyber MIDI výstup MPC v Nastavenia → MIDI ovládače.');
+  else if(natSecIn<0) toast('Zvuk MPC sa vráti cez druhý vstup – nastav ho v Nastavenia → Zvuk.'); }
+function mpcMeasure(){ if(!NATIVE) return; if(!mpcCfg.out){ toast('Najprv vyber MIDI výstup MPC.'); return; }
+  if(playing){ toast('Zastav prehrávanie.'); return; }
+  nat('midiNoteOut',{out:mpcCfg.out}); setTimeout(()=>nat('mpcPing',{note:36,ch:mpcCfg.ch||1}),300); toast('Meriam – MPC zahrá pad A1…'); }
+function mpcPinged(e){ mpcSyncSend();
+  if(!e.secOpen){ toast('Druhý vstup nie je zapnutý (Nastavenia → Zvuk).'); return; }
+  if(e.rt===-3){ toast('MIDI výstup MPC nie je otvorený.'); return; }
+  if(!(e.rt>0)){ toast('Zo MPC neprišiel zvuk. Na pade A1 musí byť zvuk a MPC musí mať MIDI In Channel = All.'); return; }
+  mpcCfg.lat=clamp(Math.round(e.rt-(e.sec||0)),0,200); mpcSave(); nat('mpcLatency',{ms:mpcCfg.lat});
+  if($('mpcLat')){ $('mpcLat').value=mpcCfg.lat; $('mpcLatTx').textContent=mpcCfg.lat+' ms'; }
+  toast('Oneskorenie MPC: '+mpcCfg.lat+' ms'); }
+/* zmrazit: zvuk MPC sa nahra v realnom case do audio stopy (export MPC nezachyti) */
+let mpcFrz=null;
+function mpcFreeze(tr){ if(!NATIVE) return;
+  if(natSecIn<0){ toast('Zapni druhý vstup (Nastavenia → Zvuk).'); return; }
+  if(playing||rec){ toast('Zastav prehrávanie.'); return; }
+  const endBar=Math.max(1,...(tr.parts||[]).map(p=>Math.ceil((p.start||0)+(p.len||0))))+1;
+  pushUndo(); const a=mkTrack('audio'); a.name='MPC – zmrazené'; a.inp=natSecIn+'+'+(natSecIn+1);
+  song.tracks.forEach(t=>{ t.arm=false; }); a.arm=true;
+  song.tracks.splice(song.tracks.indexOf(tr)+1,0,a); selT=song.tracks.indexOf(a);
+  mpcFrz={tr,a,end:endBar*SPB,loop:song.loopOn}; song.loopOn=false; renderAll(); setPos(0); toggleRec();
+  const tick=()=>{ if(!mpcFrz) return;
+    if(!playing){ mpcFreezeEnd(false); return; }
+    if(curNatPos()>=mpcFrz.end){ mpcFreezeEnd(true); return; } setTimeout(tick,100); };
+  setTimeout(tick,300); toast('Zmrazujem MPC – nahráva sa do konca stopy…'); }
+function mpcFreezeEnd(ok){ const f=mpcFrz; mpcFrz=null; if(!f) return;
+  if(rec) toggleRec(); if(playing) stop(); f.a.arm=false; song.loopOn=f.loop;
+  if(ok){ f.tr.mute=true; toast('Hotovo – MPC je v audio stope, stopa MPC je stlmená.'); }
+  renderAll(); save(); }
 /* MPC zapojene: ukazovatel v hornej liste a automaticke nastavenie (MIDI vystup, pady na bicie) */
 function mpcAuto(){ const on=(natMidiDevs||[]).some(d=>/mpc/i.test(d.name||''));
   let ind=$('mpcInd'); if(!ind){ const v=document.querySelector('#tbVer'); if(v&&v.parentNode){ ind=document.createElement('span'); ind.id='mpcInd'; ind.textContent='MPC'; ind.title='AKAI MPC je pripojené – klik = nastavenia MPC'; ind.onclick=()=>midiDialog(); v.parentNode.insertBefore(ind,v.nextSibling); } }
@@ -6192,7 +6231,7 @@ function langDialog(){ dialog('Jazyk / Language','<div class="frow"><label>Jazyk
   const l=$('langSel2'); l.value=LANG; l.onchange=()=>{ $('langSel').value=l.value; $('langSel').onchange({target:$('langSel')}); }; }
 window._mTrack=window._mTrack||$('mTrack');
 window._mTrack.onclick=e=>{ e.stopPropagation(); menuAt(window._mTrack,[
-  ['Bicie (krokový sekvencer)',clk('bAddD')],[NATIVE?'Nástroj (VST)':'Syntezátor',clk('bAddS')],['Audio (nahrávanie, wav)',clk('bAddA')],...(NATIVE?[null,['Slučka z knižnice…',clk('tbLoop')]]:[])]); };
+  ['Bicie (krokový sekvencer)',clk('bAddD')],[NATIVE?'Nástroj (VST)':'Syntezátor',clk('bAddS')],['Audio (nahrávanie, wav)',clk('bAddA')],...(NATIVE?[['MPC (externý nástroj)',()=>mpcAddTrack()]]:[]),...(NATIVE?[null,['Slučka z knižnice…',clk('tbLoop')]]:[])]); };
 $('barsIn').onchange=e=>{const mx=Math.max(4,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len))); song.bars=clamp(+e.target.value||32,mx,256);
   song.locR=Math.min(song.locR,song.bars*SPB); song.locL=Math.min(song.locL,song.locR-1); song.pos=Math.min(song.pos,song.bars*SPB-1); updTransport(); drawArrange(); save();};
 function saveView(){try{localStorage.setItem(LSV,JSON.stringify({zoomA,ROWH,zoomK,KH,latMode,sinkId,inId}));}catch(e){}}

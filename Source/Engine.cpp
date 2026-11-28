@@ -245,6 +245,18 @@ void Engine::pushNoteOut (const juce::MidiBuffer& mb, int n, int ch, bool drum, 
     }
 }
 
+void Engine::startMpcPing (int note)
+{
+    pingResult = -2.0;
+    const juce::ScopedLock l (noteOutLock);
+    if (noteOut == nullptr) { pingResult = -3.0; return; }   // MIDI vystup MPC nie je otvoreny
+    const int ch = juce::jmax (1, pingCh.load());
+    pingSentMs = juce::Time::getMillisecondCounterHiRes();
+    pingState = 1;
+    noteOut->sendMessageNow (juce::MidiMessage::noteOn (ch, juce::jlimit (0, 127, note), (juce::uint8) 120));
+    noteOut->sendMessageNow (juce::MidiMessage::noteOff (ch, juce::jlimit (0, 127, note)));
+}
+
 void Engine::NoteSender::run()
 {
     std::vector<NoteMsg> pend;
@@ -570,7 +582,9 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
         if (midiFilter.isNotEmpty() && (src == nullptr || src->getIdentifier() != midiFilter)) return;
     }
     int slot = selectedSlot.load();
-    if (m.isNoteOnOrOff())
+    const bool toMpc = src != nullptr && lastPadIsMpc && mpcSlot.load() >= 0;   // stopa MPC: udery z MPC len do nej
+    if (toMpc) slot = mpcSlot.load();
+    else if (m.isNoteOnOrOff())
     {
         const juce::SpinLock::ScopedLockType l (filterLock);
         if (skipPitch[(size_t) juce::jlimit (0, 127, m.getNoteNumber())]) slot = -1;   // zahra program (vlastny sampel bicich)
@@ -585,7 +599,7 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
         else if (scope.blockSize2 > 0) liveBuf[(size_t) scope.startIndex2] = { slot, copy, ext };
         std::array<int, 8> ex {}; int ne = 0;
         { const juce::SpinLock::ScopedLockType l (filterLock); ex = extraSlots; ne = numExtra; }
-        for (int k = 0; k < ne; ++k)
+        for (int k = 0; k < (toMpc ? 0 : ne); ++k)
         {
             if (ex[(size_t) k] == slot || ex[(size_t) k] < 0) continue;
             const auto sc2 = liveFifo.write (1);
@@ -602,7 +616,7 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
         double p = publicPos.load();
         if (state == playing)
             p = juce::jmax (0.0, p + ((juce::Time::getMillisecondCounterHiRes() - publicMs.load()) * 0.001 - outLatSec.load()) * publicSps.load());
-        juce::MessageManager::callAsync ([this, pitch, vel, on, p] { if (onMidiIn) onMidiIn (pitch, vel, on, p); });
+        juce::MessageManager::callAsync ([this, pitch, vel, on, p, toMpc] { if (onMidiIn) onMidiIn (pitch, vel, on, p, toMpc); });
     }
 }
 
@@ -874,6 +888,14 @@ void Engine::audioDeviceIOCallbackWithContext (const float* const* in, int numIn
         const int base = juce::jmin (numIn, 64);
         for (int c = 0; c < base; ++c) inPtrs[(size_t) c] = in[c];
         si->pull (secL.data(), secR.data(), n, sampleRate);
+        if (pingState.load() == 1)
+        {   // meranie oneskorenia MPC: prvy hlasny vzorok na druhom vstupe
+            const double tcb = juce::Time::getMillisecondCounterHiRes();
+            int hit = -1;
+            for (int i = 0; i < n && hit < 0; ++i) if (std::abs (secL[(size_t) i]) > 0.03f || std::abs (secR[(size_t) i]) > 0.03f) hit = i;
+            if (hit >= 0) { pingResult = tcb + hit * 1000.0 / juce::jmax (1.0, sampleRate) - pingSentMs.load(); pingState = 0; }
+            else if (tcb - pingSentMs.load() > 1500.0) { pingResult = -1.0; pingState = 0; }
+        }
         inPtrs[(size_t) base] = secL.data(); inPtrs[(size_t) base + 1] = secR.data();
         secBase.store (base, std::memory_order_relaxed);
         process (inPtrs.data(), base + 2, out, numOut, n, nullptr);
@@ -1215,6 +1237,15 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                             }
                         }
                 CrashGuard::Busy cg (slot.plugin.get()); slot.plugin->processBlock (view, slot.midi); any = true;
+            }
+            // stopa MPC: navrat zvuku z druheho vstupu ide cez tuto stopu (hlasitost, efekty, mixpult)
+            if (td.retA >= 0 && td.monitor && td.audible && curIn != nullptr)
+            {
+                const float* a = juce::isPositiveAndBelow (td.retA, curNumIn) ? curIn[td.retA] : nullptr;
+                const float* b = td.retB < 0 ? a : (juce::isPositiveAndBelow (td.retB, curNumIn) ? curIn[td.retB] : nullptr);
+                if (a != nullptr) view.addFrom (0, 0, a, n);
+                if (b != nullptr && view.getNumChannels() > 1) view.addFrom (1, 0, b, n);
+                any = true;
             }
             if (! slot.voices.empty())
             {

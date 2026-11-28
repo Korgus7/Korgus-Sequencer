@@ -654,12 +654,12 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
         auto* o = new juce::DynamicObject(); o->setProperty ("kind", kind); o->setProperty ("v", v);
         emit ("midiSyncIn", juce::var (o));
     };
-    engine.onMidiIn = [this] (int pitch, float vel, bool on, double pos)
+    engine.onMidiIn = [this] (int pitch, float vel, bool on, double pos, bool fromMpc)
     {
         auto o = obj();
-        put (o, "pitch", pitch); put (o, "vel", vel); put (o, "on", on); put (o, "pos", pos);
+        put (o, "pitch", pitch); put (o, "vel", vel); put (o, "on", on); put (o, "pos", pos); put (o, "mpc", fromMpc);
         emit ("midiIn", o);
-        recordLive (selTrackId, pitch, vel, on, engine.isPlaying() ? pos : -1.0);
+        recordLive (fromMpc && mpcTrackId.isNotEmpty() ? mpcTrackId : selTrackId, pitch, vel, on, engine.isPlaying() ? pos : -1.0);
     };
 
     bootLog ("nastavenia a pluginy z disku");
@@ -1279,6 +1279,27 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 emit ("kitImported", o);
                             })
         .withEventListener ("midiNoteOut", [this] (const juce::var& v) { engine.setNoteOut (v["out"].toString()); })
+        .withEventListener ("mpcTrack",    [this] (const juce::var& v)
+                            {   // stopa MPC (externy nastroj) - udery z MPC idu len do nej
+                                mpcTrackId = v["track"].toString();
+                                engine.setMpcSlot (mpcTrackId.isNotEmpty() ? engine.getOrCreateSlot (mpcTrackId) : -1);
+                                engine.setPingChannel ((int) v.getProperty ("ch", 1));
+                            })
+        .withEventListener ("mpcPing",     [this] (const juce::var& v)
+                            {   // zmerat oneskorenie MPC: uder -> zvuk na druhom vstupe
+                                engine.setPingChannel ((int) v.getProperty ("ch", 1));
+                                engine.startMpcPing ((int) v.getProperty ("note", 36));
+                                juce::Component::SafePointer<MainView> sp (this);
+                                juce::Timer::callAfterDelay (1700, [sp]
+                                {
+                                    if (sp == nullptr) return;
+                                    auto o = obj();
+                                    put (o, "rt", sp->engine.takeMpcPing());
+                                    put (o, "sec", sp->secondIn->latencySamples() * 1000.0 / juce::jmax (1.0, sp->engine.getSampleRate()));
+                                    put (o, "secOpen", sp->secondIn->isOpen());
+                                    sp->emit ("mpcPinged", o);
+                                });
+                            })
         .withEventListener ("mpcLatency",  [this] (const juce::var& v) { engine.setMpcLatency ((double) v.getProperty ("ms", 0.0)); })
         .withEventListener ("drumOutMap",  [this] (const juce::var& v)
                             {

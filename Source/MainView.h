@@ -176,7 +176,8 @@ private:
     KorgusLookAndFeel lnf;
     juce::AudioDeviceManager deviceManager;
     Engine engine;
-    std::unique_ptr<SecondInput> secondIn = std::make_unique<SecondInput>();   // druhy zvukovy vstup (Windows Audio)
+    std::unique_ptr<SecondInput> secondIn = std::make_unique<SecondInput>();
+    juce::String mpcTrackId;   // stopa MPC (externy nastroj)   // druhy zvukovy vstup (Windows Audio)
     void openSecondInput (const juce::String& name, bool save, int bufferSize = -1);
     juce::AudioPluginFormatManager formatManager;
     juce::KnownPluginList knownPlugins;
