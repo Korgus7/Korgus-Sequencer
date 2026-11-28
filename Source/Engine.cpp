@@ -214,19 +214,31 @@ void Engine::setNoteOut (const juce::String& outId)
 }
 
 // audio vlakno: noty bloku do fronty s casom (aby zneli spolu so zvukom z reproduktorov)
-void Engine::pushNoteOut (const juce::MidiBuffer& mb, int n, int ch, bool drum)
+void Engine::pushNoteOut (const juce::MidiBuffer& mb, int n, int ch, bool drum, const juce::MidiBuffer& skip)
 {
     if (! noteOutOn.load()) return;
-    const double now = juce::Time::getMillisecondCounterHiRes() + outLatSec * 1000.0;
+    // nota zaznie z MPC o mpcLatMs neskor - poslat ju o tolko skor (najskor hned)
+    const double t0 = juce::Time::getMillisecondCounterHiRes();
+    const double now = t0 + outLatSec * 1000.0 - mpcLatMs.load();
     for (const auto meta : mb)
     {
         auto m = meta.getMessage();
+        if (! skip.isEmpty() && m.isNoteOnOrOff())
+        {   // uder z padu MPC uz MPC zahralo - neposielat spat (dvojity uder)
+            bool dup = false;
+            for (const auto sm : skip)
+            {
+                const auto x = sm.getMessage();
+                if (sm.samplePosition == meta.samplePosition && x.isNoteOn() == m.isNoteOn() && x.getNoteNumber() == m.getNoteNumber()) { dup = true; break; }
+            }
+            if (dup) continue;
+        }
         if (! (m.isNoteOnOrOff() || m.isController() || m.isPitchWheel() || m.isAftertouch() || m.isChannelPressure())) continue;
         m.setChannel (ch);
         if (drum && m.isNoteOnOrOff()) m.setNoteNumber (juce::jlimit (0, 127, drumOutMap[(size_t) m.getNoteNumber()].load()));
         const auto* d = m.getRawData();
         const NoteMsg nm { d[0], m.getRawDataSize() > 1 ? d[1] : (uint8_t) 0, m.getRawDataSize() > 2 ? d[2] : (uint8_t) 0,
-                           now + juce::jlimit (0, n, meta.samplePosition) * 1000.0 / juce::jmax (1.0, sampleRate) };
+                           juce::jmax (t0, now + juce::jlimit (0, n, meta.samplePosition) * 1000.0 / juce::jmax (1.0, sampleRate)) };
         const auto sc = noteFifo.write (1);
         if (sc.blockSize1 > 0) noteBuf[(size_t) sc.startIndex1] = nm;
         else if (sc.blockSize2 > 0) noteBuf[(size_t) sc.startIndex2] = nm;
@@ -480,6 +492,7 @@ void Engine::liveNote (int slot, int pitch, float vel, bool on)
 
 void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMessage& mIn)
 {
+    if (src != nullptr && src != lastPadSrc) { lastPadSrc = src; lastPadIsMpc = src->getName().containsIgnoreCase ("MPC"); }
     // citlivost kláves (0 = lahky uder, 1 = normalna, 2 = tvrdy uder) - plati pre vsetky nastroje aj nahravanie
     if (mIn.getRawDataSize() == 1 || mIn.isSongPositionPointer())
     {   // synchronizacia (MIDI Clock, start, stop) - nehra, len pri rezime "ovladac vedie"
@@ -527,7 +540,6 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
             else if (sc.blockSize2 > 0) ccBuf[(size_t) sc.startIndex2] = c;
         }
         // pady MPC na bicej stope: nota padu -> nota bicich (len zo zariadenia MPC, nie z inych klaves)
-        if (src != nullptr && src != lastPadSrc) { lastPadSrc = src; lastPadIsMpc = src->getName().containsIgnoreCase ("MPC"); }
         if (src != nullptr && lastPadIsMpc)
         {
             if (const int pm = padMap[(size_t) m.getNoteNumber()].load(); pm >= 0 && pm < 128) m.setNoteNumber (pm);
@@ -567,9 +579,10 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
     {
         auto copy = m;
         copy.setChannel (1);
+        const bool ext = src != nullptr && lastPadIsMpc;
         const auto scope = liveFifo.write (1);
-        if (scope.blockSize1 > 0) liveBuf[(size_t) scope.startIndex1] = { slot, copy };
-        else if (scope.blockSize2 > 0) liveBuf[(size_t) scope.startIndex2] = { slot, copy };
+        if (scope.blockSize1 > 0) liveBuf[(size_t) scope.startIndex1] = { slot, copy, ext };
+        else if (scope.blockSize2 > 0) liveBuf[(size_t) scope.startIndex2] = { slot, copy, ext };
         std::array<int, 8> ex {}; int ne = 0;
         { const juce::SpinLock::ScopedLockType l (filterLock); ex = extraSlots; ne = numExtra; }
         for (int k = 0; k < ne; ++k)
@@ -887,7 +900,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
     if (! sl.isLocked() || (offline.load() && forced == nullptr)) return;   // pocas exportu ticho
     curIn = in; curNumIn = numIn; curOut = out; curNumOut = juce::jmin (2, numOut);
 
-    for (auto& s : slots) s->midi.clear();
+    for (auto& s : slots) { s->midi.clear(); s->extIn.clear(); }
 
     // ziva hra (klavesy, MIDI)
     {
@@ -904,6 +917,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
                     auto msg = l.msg;
                     msg.setChannel (sl.channel);
                     sl.midi.addEvent (msg, 0);
+                    if (l.ext) sl.extIn.addEvent (msg, 0);
                 }
             }
         };
@@ -1181,7 +1195,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             if (td.frozen) { slot.midi.clear(); any = true; }   // zmrazena: len nahrane audio, setri procesor
             else {
             if (slot.midiFx != nullptr) { CrashGuard::Busy cg (slot.midiFx.get()); slot.midiFx->processBlock (view, slot.midi); }
-            if (td.midiOutCh > 0) pushNoteOut (slot.midi, n, td.midiOutCh, td.isDrum);   // AKAI MPC ako zvukovy modul
+            if (td.midiOutCh > 0) pushNoteOut (slot.midi, n, td.midiOutCh, td.isDrum, slot.extIn);   // AKAI MPC ako zvukovy modul (bez uderov, ktore prisli z MPC)
             // MIDI stopy (po arpeggiatore, pred nastrojom) pre efekty, ktore ho chcu (Korgus Vocoder: Interny syntezator)
             trackMidi.clear();
             for (int k = 0; k < numFx; ++k)

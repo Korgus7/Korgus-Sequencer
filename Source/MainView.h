@@ -29,6 +29,7 @@ private:
     juce::ComboBox secBox;
     juce::TextButton secHelp { "?" };
     void fillSecond();
+    int lastSelH = -1;
 };
 
 // Hlavne okno: rozhranie sekvencera (HTML) + prepojenie so zvukovym motorom

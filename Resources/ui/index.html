@@ -491,6 +491,7 @@ svg.mi{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.4;str
 .ntr .tg.pwr{width:24px} .ntr .tg.pwr.off{color:#6b7889;border-color:rgba(255,255,255,.06)} .ntr .tg.fxn{width:30px;font-size:11px}
 .fxpop{position:fixed;z-index:60;background:#1f2833;border:1px solid #3a4757;border-radius:3px;padding:4px;display:flex;flex-direction:column;gap:3px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
 .fxpop .r{display:flex;gap:3px;align-items:center}
+#mpcInd{margin-left:8px;padding:1px 6px;border:1px solid #4f6f91;border-radius:2px;font-size:10px;color:#c9d6e6;cursor:pointer;vertical-align:middle}
 .ntr .rgrip{position:absolute;left:0;right:0;bottom:0;height:5px;cursor:ns-resize;z-index:2}
 .ntr .rgrip:hover{background:rgba(201,162,74,.35)}
 .tlgrip{position:absolute;top:0;bottom:0;right:-4px;width:7px;cursor:ew-resize;z-index:4}
@@ -1027,7 +1028,7 @@ function setupNative(){
   $('bStems').onclick=()=>{ const end=Math.ceil(Math.max(1,...song.tracks.flatMap(t=>t.parts.map(p=>p.start+p.len)))*SPB); stopIfPlaying(); nat('exportStems',{end}); };
   initAuto();
   $('bAi').onclick=openAi;
-  onNat('devices',e=>{ natMidiDevs=e.midi||[]; natIns=e.ins||[]; natSecIn=e.sec==null?-1:e.sec; renderTracks(); });
+  onNat('devices',e=>{ natMidiDevs=e.midi||[]; natIns=e.ins||[]; natSecIn=e.sec==null?-1:e.sec; renderTracks(); mpcAuto(); });
   onNat('audioImported',e=>{
     const lp=loopPending[e.track]; if(lp) delete loopPending[e.track];
     if(e.error){ dialog('Import audio','<p>Tento súbor sa nedá prečítať. Použi WAV alebo MP3.</p>'); return; }
@@ -2762,7 +2763,7 @@ function trPop(tr,btn){
 function natSel(){ const tr=targetTrack(); if(!tr) return;
   // stopy so zapnutym reproduktorom hraju spolu; bicie: riadky s vlastnym samplom zahra program (drumHit), nie nastroj stopy – inak by znel dvakrat / iny nastroj
   const drum=tr.type==='drum', skip=[];
-  if(drum) for(let p=0;p<128;p++){ let l=DRUMS.findIndex(d=>d[1]===p); if(l<0) l=(((p-36)%LANES9)+LANES9)%LANES9; if(smpOf(tr,l)||!natTrackPlugins[tr.id]) skip.push(p); }
+  if(drum&&!tr.mpcCh) for(let p=0;p<128;p++){ let l=DRUMS.findIndex(d=>d[1]===p); if(l<0) l=(((p-36)%LANES9)+LANES9)%LANES9; if(smpOf(tr,l)||!natTrackPlugins[tr.id]) skip.push(p); }
   nat('selTrack',{track:tr.id,tr:tr.type==='drum'?0:(tr.inTr||0),midiIn:tr.midiIn||'',arm:armedSynths().filter(t=>t!==tr).map(t=>t.id),skip}); }
 function selectTrack(i){
   if(NATIVE){ setTimeout(natSel,0); setTimeout(mpcPadSync,0); if(i!==selT) setTimeout(()=>{ renderMixer(); renderAuto(); },0); }
@@ -5457,7 +5458,7 @@ function midiDialog(){
 }
 /* ---------------- AKAI MPC Sample: pady -> bicie, synchronizacia MIDI Clock ---------------- */
 const LSMPC='korgusMpc';
-let mpcCfg={pads:true,base:36,sync:0,out:'',outName:'',ch:1,dir:'',secs:false}; try{ Object.assign(mpcCfg,JSON.parse(localStorage.getItem(LSMPC)||'{}')); }catch(e){}
+let mpcCfg={pads:true,base:36,sync:0,out:'',outName:'',ch:1,dir:'',secs:false,lat:0}; try{ Object.assign(mpcCfg,JSON.parse(localStorage.getItem(LSMPC)||'{}')); }catch(e){}
 mpcCfg.base=36;   // MPC Sample: pad A1 = nota 36, kazda banka o 16 dalej (podla zariadenia) - netreba ucit
 const mpcPadIdx=n=>(((n-36)%128+128)%128)%16;
 let mpcBaseLearn=null, midiDevs={outs:[],ins:[]};
@@ -5474,7 +5475,7 @@ function mpcPadSync(){ if(!NATIVE) return; const tr=targetTrack&&targetTrack(); 
 function mpcSyncSend(){ if(!NATIVE) return; nat('midiSync',{mode:mpcCfg.sync||0,out:mpcCfg.out||''});
   // noty stop "Hrať na MPC" - bicie na noty padov MPC (pad 1 = mpcCfg.base)
   const dm=[...Array(128).keys()]; MPC_PADS.forEach((n,i)=>{ dm[n]=36+i; });   // bicie -> pady banky A
-  nat('drumOutMap',{map:dm}); nat('midiNoteOut',{out:song.tracks.some(t=>t.mpcCh)?(mpcCfg.out||''):''}); }
+  nat('drumOutMap',{map:dm}); nat('mpcLatency',{ms:mpcCfg.lat||0}); nat('midiNoteOut',{out:song.tracks.some(t=>t.mpcCh)?(mpcCfg.out||''):''}); }
 function mpcSection(){
   const box=document.createElement('div'); box.id='mpcBox';
   box.innerHTML=`<h3 style="margin:14px 0 6px;font-size:13px">AKAI MPC Sample</h3>
@@ -5485,6 +5486,7 @@ function mpcSection(){
       <option value="0">Vypnutá</option><option value="1">Korgus vedie – posiela tempo, Play a Stop (MIDI Clock)</option><option value="2">Ovládač vedie – Korgus preberá tempo, Play a Stop</option></select></div>
     <div class="frow" id="mpcOutRow"><label>MIDI výstup</label><select id="mpcOut" style="flex:1"><option value="">(načítavam…)</option></select>
       <label style="width:auto;margin-left:8px">Kanál</label><select id="mpcCh">${[...Array(16)].map((_,k)=>`<option value="${k+1}"${(mpcCfg.ch||1)===k+1?' selected':''}>${k+1}</option>`).join('')}</select></div>
+    <div class="frow"><label>Oneskorenie MPC</label><input type="range" id="mpcLat" min="0" max="60" step="1" value="${mpcCfg.lat||0}" style="flex:1"><span id="mpcLatTx" style="width:52px;text-align:right">${mpcCfg.lat||0} ms</span></div>
     <div class="frow"><label style="white-space:nowrap;width:auto"><input type="checkbox" id="mpcSecs"${mpcCfg.secs?' checked':''}> Živé hranie: pady 1 – 16 spúšťajú sekcie piesne (Intro, Sloha, Refrén…)</label></div>
     <div class="frow"><label>Priečinok MPC</label><span id="mpcDirTx" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(mpcCfg.dir||'(nevybraný – zapoj MPC cez USB a vyber jeho kartu)')}</span><button id="mpcDirGo">Vybrať…</button></div>
     <div class="frow"><label>Poslať do MPC</label><button id="mpcSendMix" title="Úsek medzi lokátormi L – R zmiešaný do jedného WAV">Úsek L – R</button><button id="mpcSendStems" title="Každá stopa zvlášť ako WAV (od začiatku po koniec piesne)">Každú stopu</button><button id="mpcSendPads" title="Zvuky padov vybranej bicej stopy ako WAV (01 Kick.wav …)">Zvuky padov</button>
@@ -5498,6 +5500,7 @@ function mpcSection(){
   $('mpcSendMix').onclick=()=>mpcSend('mix'); $('mpcSendStems').onclick=()=>mpcSend('stems'); $('mpcSendPads').onclick=()=>mpcSend('pads');
   $('mpcLoadKit').onclick=()=>{ const tr=targetTrack(); if(!tr||tr.type!=='drum'){ toast('Najprv vyber bicu stopu.'); return; } nat('mpcPickDir',{path:mpcCfg.dir||'',why:'kit'}); };
   $('mpcHelp').onclick=()=>mpcHelpDlg();
+  $('mpcLat').oninput=e=>{ mpcCfg.lat=+e.target.value; $('mpcLatTx').textContent=mpcCfg.lat+' ms'; mpcSave(); if(NATIVE) nat('mpcLatency',{ms:mpcCfg.lat}); };
   $('mpcPads').onchange=e=>{ mpcCfg.pads=e.target.checked; mpcSave(); mpcPadSync.k=null; mpcPadSync(); };
   $('mpcSync').onchange=e=>{ mpcCfg.sync=+e.target.value; mpcSave(); mpcSyncSend(); };
   $('mpcOut').onchange=e=>{ mpcCfg.out=e.target.value; mpcCfg.outName=e.target.selectedOptions[0].textContent; mpcSave(); mpcSyncSend(); };
@@ -5505,6 +5508,11 @@ function mpcSection(){
 }
 function mpcTrackToggle(tr){ pushUndo(); if(tr.mpcCh) delete tr.mpcCh; else { tr.mpcCh=mpcCfg.ch||1; if(!mpcCfg.out) toast('Vyber MIDI výstup MPC v Nastavenia → MIDI ovládače (sekcia AKAI MPC Sample).'); }
   save(); mpcSyncSend(); renderTracks(); if(tr.mpcCh) toast('Stopa <b>'+esc(tr.name)+'</b> hrá aj na MPC (kanál '+tr.mpcCh+').'); }
+/* MPC zapojene: ukazovatel v hornej liste a automaticke nastavenie (MIDI vystup, pady na bicie) */
+function mpcAuto(){ const on=(natMidiDevs||[]).some(d=>/mpc/i.test(d.name||''));
+  let ind=$('mpcInd'); if(!ind){ const v=document.querySelector('#tbVer'); if(v&&v.parentNode){ ind=document.createElement('span'); ind.id='mpcInd'; ind.textContent='MPC'; ind.title='AKAI MPC je pripojené – klik = nastavenia MPC'; ind.onclick=()=>midiDialog(); v.parentNode.insertBefore(ind,v.nextSibling); } }
+  if(ind) ind.hidden=!on;
+  if(on&&!mpcAuto.done&&NATIVE){ mpcAuto.done=true; if(!mpcCfg.out) nat('midiOutputs',{}); setTimeout(()=>{ try{ mpcSyncSend(); mpcPadSync.k=null; mpcPadSync(); }catch(_){ } },600); } }
 /* Poslat do MPC / Nacitat z MPC (karta MPC cez USB) */
 let mpcAfterDir=null;
 function mpcNeedDir(fn){ if(mpcCfg.dir){ fn(mpcCfg.dir); return; } mpcAfterDir=fn; nat('mpcPickDir',{path:'',why:'send'}); }
@@ -5541,6 +5549,8 @@ function mpcHelpDlg(){ dialog('AKAI MPC a Korgus',`<ul style="margin:0 0 8px 18p
   <li><b>Nasekať na pady:</b> pravý klik na audio klip → Nasekať na 16 padov. Rozdelí ho podľa úderov.</li>
   <li><b>Živé hranie:</b> pady 1 – 16 spúšťajú sekcie piesne v poradí.</li>
   <li><b>Gombíky MPC:</b> hore v tomto okne vyber, čo chceš ovládať (hlasitosť, efekt, parameter Inspirie), klikni Učiť sa a pohni gombíkom. Zmeny nahráš ako automatizáciu tlačidlom W.</li>
+  <li><b>Oneskorenie MPC:</b> ak bicie z MPC zaznejú o chlp neskôr ako ostatné stopy, posuň posuvník – Korgus posiela noty do MPC o toľko skôr.</li>
+  <li><b>Údery z padov pri nahrávaní</b> sa zapíšu do mriežky bubeníka (na najbližší krok); pri nástroji ich zarovná AQ.</li>
   <li><b>Tlak na pad:</b> Inspiria pri silnejšom tlaku (aftertouch) zjasní zvuk a pridá vibrato.</li>
   <li><b>Play / Stop z MPC:</b> Synchronizácia = Ovládač vedie.</li>
   <li><b>Zachytiť zahrané:</b> Shift+R alebo pravý klik na Rec – vloží aj to, čo si zahral na padoch bez nahrávania.</li></ul>

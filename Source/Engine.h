@@ -312,7 +312,11 @@ public:
     std::atomic<bool> noteOutOn { false };
     struct NoteSender : juce::Thread { explicit NoteSender (Engine& e) : Thread ("Korgus MIDI out"), en (e) {} void run() override; Engine& en; };
     std::unique_ptr<NoteSender> noteThread;
-    void pushNoteOut (const juce::MidiBuffer& mb, int n, int ch, bool drum);
+    void pushNoteOut (const juce::MidiBuffer& mb, int n, int ch, bool drum, const juce::MidiBuffer& skip);
+    std::atomic<double> mpcLatMs { 0.0 };   // oneskorenie zvuku MPC - noty sa poslu o tolko skor
+public:
+    void setMpcLatency (double ms) { mpcLatMs = juce::jlimit (0.0, 100.0, ms); }
+private:
     std::unique_ptr<ClockSender> clockThread;
     juce::CriticalSection clockOutLock;
     std::atomic<int> syncMode { 0 };
@@ -355,6 +359,7 @@ private:
         std::unique_ptr<juce::AudioPluginInstance> plugin;
         std::array<std::unique_ptr<juce::AudioPluginInstance>, numFx> fx;
         juce::MidiBuffer midi;
+        juce::MidiBuffer extIn;   // zive udery z MPC v tomto bloku (MPC ich uz zahralo samo)
         juce::AudioBuffer<float> buf;
         std::vector<std::pair<int, double>> active; // pitch, koniec
         float curL = -1, curR = -1;                        // posledne zosilnenie (plynuly prechod)
@@ -380,7 +385,7 @@ private:
         std::vector<float> l, r;
     };
 
-    struct Live { int slot; juce::MidiMessage msg; };
+    struct Live { int slot; juce::MidiMessage msg; bool ext = false; };   // ext = prislo z MPC (neposielat spat)
     struct Cmd  { int type; double a; int b; };   // 1=play 2=stop 3=setPos
 
     void process (const float* const* in, int numIn, float* const* out, int numOut, int n, const SongData* forced);

@@ -113,6 +113,7 @@ juce::String skTranslate (const char* utf8)
         { "Nahrávam pieseň…", "Recording the song…" },
         { "Najlepšia odozva je s typom zariadenia ASIO a malým bufferom (64 – 256). Ak zvuk praská, zväčši buffer. MIDI klávesy zaškrtni v zozname MIDI vstupov.", "The best response is with the ASIO device type and a small buffer (64 – 256). If the sound crackles, increase the buffer. Tick MIDI keyboards in the list of MIDI inputs." },
         { "Nastavenia zvuku", "Audio settings" },
+        { "Druhý vstup:", "Second input:" }, { "Druhý vstup", "Second input" }, { "Žiadny", "None" }, { "Druhý vstup sa nepodarilo otvoriť: ", "Second input could not be opened: " },
         { "Načítavam ", "Loading " },
         { "Načítavam nástroj: ", "Loading instrument: " },
         { "Načítavam zvuk ", "Loading sound " },

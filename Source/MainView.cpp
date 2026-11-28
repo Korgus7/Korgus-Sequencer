@@ -179,7 +179,7 @@ SettingsComponent::SettingsComponent (juce::AudioDeviceManager& d, std::function
 {
     if (sec.list)
     {
-        secLabel.setText (sk ("Druhý vstup (Windows Audio):"), juce::dontSendNotification);
+        secLabel.setText (sk ("Druhý vstup:"), juce::dontSendNotification);
         addAndMakeVisible (secLabel);
         addAndMakeVisible (secBox);
         fillSecond();
@@ -222,19 +222,22 @@ void SettingsComponent::paint (juce::Graphics& g) { g.fillAll (Col::panel); }
 void SettingsComponent::resized()
 {
     auto r = getLocalBounds().reduced (10);
-    selector.setBounds (r.removeFromLeft (540));
-    r.removeFromLeft (10);
-    pluginsButton.setBounds (r.removeFromTop (30).removeFromLeft (220));
-    r.removeFromTop (10);
+    auto left = r.removeFromLeft (540);
+    selector.setBounds (left.withHeight (left.getHeight() - (sec.list ? 40 : 0)));   // vyber sa sam zmensi na svoj obsah
     if (sec.list)
-    {
-        auto row = r.removeFromTop (26);
-        secLabel.setBounds (row.removeFromLeft (200));
+    {   // druhy vstup hned pod vstupmi a MIDI hlavnej karty (zarovnany ako riadky vyberu)
+        auto row = juce::Rectangle<int> (left.getX(), selector.getBottom() + 2, left.getWidth(), 26);
+        secLabel.setJustificationType (juce::Justification::centredRight);
+        secLabel.setBounds (row.removeFromLeft (left.getWidth() * 35 / 100));
+        row.removeFromLeft (4);
         secHelp.setBounds (row.removeFromRight (26));
         row.removeFromRight (6);
         secBox.setBounds (row);
-        r.removeFromTop (10);
+        lastSelH = selector.getHeight();
     }
+    r.removeFromLeft (10);
+    pluginsButton.setBounds (r.removeFromTop (30).removeFromLeft (220));
+    r.removeFromTop (10);
     info.setBounds (r.removeFromTop (130));
     r.removeFromTop (10);
     hint.setBounds (r.removeFromTop (80));
@@ -253,6 +256,7 @@ void SettingsComponent::fillSecond()
 
 void SettingsComponent::timerCallback()
 {
+    if (sec.list && selector.getHeight() != lastSelH) resized();   // vyber zmenil vysku (ina karta, viac vstupov)
     juce::String s;
     if (auto* dev = dm.getCurrentAudioDevice())
     {
@@ -1252,6 +1256,7 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 emit ("kitImported", o);
                             })
         .withEventListener ("midiNoteOut", [this] (const juce::var& v) { engine.setNoteOut (v["out"].toString()); })
+        .withEventListener ("mpcLatency",  [this] (const juce::var& v) { engine.setMpcLatency ((double) v.getProperty ("ms", 0.0)); })
         .withEventListener ("drumOutMap",  [this] (const juce::var& v)
                             {
                                 juce::Array<int> m;
