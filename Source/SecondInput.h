@@ -15,7 +15,10 @@ public:
     // zoznam vstupnych zariadeni Windows Audio
     juce::StringArray deviceNames();
     // otvori zariadenie (na hlavnom vlakne); preferredRate = vzorkovanie hlavnej karty
-    bool open (const juce::String& name, double preferredRate, juce::String& error);
+    bool open (const juce::String& name, double preferredRate, juce::String& error, int bufferSize = 0);
+    juce::Array<int> bufferSizes();          // velkosti zasobnika, ktore zariadenie vie (ako pri kartach)
+    int currentBufferSize() const { return srcBlock.load(); }
+    double currentRate() const { return srcRate.load(); }
     void close();
     bool isOpen() const { return active.load(); }
     juce::String deviceName() const { return devName; }

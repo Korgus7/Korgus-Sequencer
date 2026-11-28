@@ -20,7 +20,7 @@ juce::StringArray SecondInput::deviceNames()
     return type->getDeviceNames (true);
 }
 
-bool SecondInput::open (const juce::String& name, double preferredRate, juce::String& error)
+bool SecondInput::open (const juce::String& name, double preferredRate, juce::String& error, int bufferSize)
 {
     close();
     if (name.isEmpty()) return false;
@@ -34,7 +34,9 @@ bool SecondInput::open (const juce::String& name, double preferredRate, juce::St
     for (auto r : d->getAvailableSampleRates()) if (std::abs (r - preferredRate) < 1.0) rate = r;
     if (rate <= 0) rate = d->getAvailableSampleRates().isEmpty() ? 48000.0 : d->getAvailableSampleRates().getLast();
     juce::BigInteger ins; ins.setRange (0, juce::jmin (2, d->getInputChannelNames().size()), true);
-    error = d->open (ins, {}, rate, d->getDefaultBufferSize());
+    int bs = d->getDefaultBufferSize();
+    if (bufferSize > 0) { bs = bufferSize; for (auto b : d->getAvailableBufferSizes()) if (b >= bufferSize) { bs = b; break; } }
+    error = d->open (ins, {}, rate, bs);
     if (error.isNotEmpty()) return false;
     numCh = d->getActiveInputChannels().countNumberOfSetBits();
     devName = name;
@@ -57,6 +59,12 @@ void SecondInput::close()
     }
     if (d != nullptr) { d->stop(); d->close(); }
     devName.clear();
+}
+
+juce::Array<int> SecondInput::bufferSizes()
+{
+    const juce::SpinLock::ScopedLockType l (lock);
+    return device != nullptr ? device->getAvailableBufferSizes() : juce::Array<int>();
 }
 
 juce::StringArray SecondInput::channelNames() const
@@ -104,8 +112,8 @@ bool SecondInput::pull (float* l, float* r, int n, double mainRate)
         return false;
     }
     const double sr = srcRate.load(), base = sr / mainRate;
-    // cielova naplnenost zasobnika (vo vzorkach zdroja): dva bloky zdroja + jeden blok hlavnej karty + rezerva
-    const double target = 2.0 * srcBlock.load() + mainBlock * base + 64.0;
+    // cielova naplnenost zasobnika (vo vzorkach zdroja): poldruha bloku zdroja + jeden blok hlavnej karty + rezerva
+    const double target = 1.5 * srcBlock.load() + mainBlock * base + 32.0;
     const auto w = wpos.load (std::memory_order_acquire);
     if (! started)
     {

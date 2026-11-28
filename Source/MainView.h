@@ -13,7 +13,8 @@ void bootLogDir (const juce::File& dir);
 class SettingsComponent : public juce::Component, private juce::Timer
 {
 public:
-    struct SecondInputUi { std::function<juce::StringArray()> list; std::function<juce::String()> current; std::function<void (const juce::String&)> set; };
+    struct SecondInputUi { std::function<juce::StringArray()> list; std::function<juce::String()> current; std::function<void (const juce::String&)> set;
+                           std::function<juce::Array<int>()> buffers; std::function<int()> curBuf; std::function<double()> rate; std::function<void (int)> setBuf; };
     SettingsComponent (juce::AudioDeviceManager&, std::function<void()> onPlugins, SecondInputUi second = {});
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -28,6 +29,9 @@ private:
     juce::Label secLabel;
     juce::ComboBox secBox;
     juce::TextButton secHelp { "?" };
+    juce::Label secBufLabel;
+    juce::ComboBox secBufBox;
+    void fillSecondBuf();
     void fillSecond();
     int lastSelH = -1;
 };
@@ -173,7 +177,7 @@ private:
     juce::AudioDeviceManager deviceManager;
     Engine engine;
     std::unique_ptr<SecondInput> secondIn = std::make_unique<SecondInput>();   // druhy zvukovy vstup (Windows Audio)
-    void openSecondInput (const juce::String& name, bool save);
+    void openSecondInput (const juce::String& name, bool save, int bufferSize = -1);
     juce::AudioPluginFormatManager formatManager;
     juce::KnownPluginList knownPlugins;
     juce::File dataDir;

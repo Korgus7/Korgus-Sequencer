@@ -187,6 +187,7 @@ SettingsComponent::SettingsComponent (juce::AudioDeviceManager& d, std::function
         {
             const int id = secBox.getSelectedId();
             if (sec.set) sec.set (id <= 1 ? juce::String() : secBox.getItemText (secBox.getSelectedItemIndex()));
+            fillSecondBuf();
         };
         secHelp.onClick = []
         {
@@ -198,6 +199,12 @@ SettingsComponent::SettingsComponent (juce::AudioDeviceManager& d, std::function
                     "druhého vstupu, aby sedela do rytmu. Počúvanie druhého vstupu naživo má o niečo väčšie oneskorenie."));
         };
         addAndMakeVisible (secHelp);
+        secBufLabel.setText (sk ("Zásobník druhého vstupu:"), juce::dontSendNotification);
+        secBufLabel.setJustificationType (juce::Justification::centredRight);
+        addAndMakeVisible (secBufLabel);
+        addAndMakeVisible (secBufBox);
+        secBufBox.onChange = [this] { if (sec.setBuf && secBufBox.getSelectedId() > 0) sec.setBuf (secBufBox.getSelectedId()); };
+        fillSecondBuf();
     }
     addAndMakeVisible (selector);
     info.setColour (juce::Label::backgroundColourId, Col::lcdBg);
@@ -223,7 +230,7 @@ void SettingsComponent::resized()
 {
     auto r = getLocalBounds().reduced (10);
     auto left = r.removeFromLeft (540);
-    selector.setBounds (left.withHeight (left.getHeight() - (sec.list ? 40 : 0)));   // vyber sa sam zmensi na svoj obsah
+    selector.setBounds (left.withHeight (left.getHeight() - (sec.list ? 72 : 0)));   // vyber sa sam zmensi na svoj obsah
     if (sec.list)
     {   // druhy vstup hned pod vstupmi a MIDI hlavnej karty (zarovnany ako riadky vyberu)
         auto row = juce::Rectangle<int> (left.getX(), selector.getBottom() + 2, left.getWidth(), 26);
@@ -233,6 +240,10 @@ void SettingsComponent::resized()
         secHelp.setBounds (row.removeFromRight (26));
         row.removeFromRight (6);
         secBox.setBounds (row);
+        auto row2 = juce::Rectangle<int> (left.getX(), secBox.getBottom() + 6, left.getWidth(), 26);
+        secBufLabel.setBounds (row2.removeFromLeft (left.getWidth() * 35 / 100));
+        row2.removeFromLeft (4);
+        secBufBox.setBounds (row2.removeFromLeft (260));
         lastSelH = selector.getHeight();
     }
     r.removeFromLeft (10);
@@ -241,6 +252,18 @@ void SettingsComponent::resized()
     info.setBounds (r.removeFromTop (130));
     r.removeFromTop (10);
     hint.setBounds (r.removeFromTop (80));
+}
+
+void SettingsComponent::fillSecondBuf()
+{   // velkosti zasobnika ako pri kartach: "256 vzoriek (5.3 ms)"
+    secBufBox.clear (juce::dontSendNotification);
+    const auto sizes = sec.buffers ? sec.buffers() : juce::Array<int>();
+    const double sr = sec.rate ? sec.rate() : 48000.0;
+    const int cur = sec.curBuf ? sec.curBuf() : 0;
+    for (auto b : sizes) secBufBox.addItem (juce::String (b) + sk (" vzoriek (") + juce::String (1000.0 * b / juce::jmax (1.0, sr), 1) + " ms)", b);
+    if (cur > 0 && sizes.contains (cur)) secBufBox.setSelectedId (cur, juce::dontSendNotification);
+    secBufBox.setEnabled (! sizes.isEmpty());
+    secBufLabel.setEnabled (! sizes.isEmpty());
 }
 
 void SettingsComponent::fillSecond()
@@ -1839,14 +1862,15 @@ void MainView::onOpenFx (const juce::var& v)
     if (p != nullptr) openWindow (trackId + "#fx" + juce::String (idx), p, p->getName() + sk ("  –  ") + v.getProperty ("name", "").toString());
 }
 
-void MainView::openSecondInput (const juce::String& name, bool save)
+void MainView::openSecondInput (const juce::String& name, bool save, int bufferSize)
 {
-    if (save) props.getUserSettings()->setValue ("secondInput", name);
+    if (bufferSize < 0) bufferSize = props.getUserSettings()->getIntValue ("secondInputBuf", 0);
+    if (save) { props.getUserSettings()->setValue ("secondInput", name); props.getUserSettings()->setValue ("secondInputBuf", bufferSize); }
     secondIn->close();
     if (name.isNotEmpty())
     {
         juce::String err;
-        if (! secondIn->open (name, engine.getSampleRate() > 0 ? engine.getSampleRate() : 48000.0, err))
+        if (! secondIn->open (name, engine.getSampleRate() > 0 ? engine.getSampleRate() : 48000.0, err, bufferSize))
         {
             auto o = obj(); put (o, "text", sk ("Druhý vstup sa nepodarilo otvoriť: ") + err); emit ("toast", o);
         }
@@ -2701,7 +2725,11 @@ void MainView::showSettings()
         new SettingsComponent (deviceManager, [sp] { if (sp != nullptr) sp->showPluginManager(); },
                                { [this] { return secondIn->deviceNames(); },
                                  [this] { return secondIn->deviceName(); },
-                                 [this] (const juce::String& n) { openSecondInput (n, true); } }),
+                                 [this] (const juce::String& n) { openSecondInput (n, true); },
+                                 [this] { return secondIn->bufferSizes(); },
+                                 [this] { return secondIn->isOpen() ? secondIn->currentBufferSize() : 0; },
+                                 [this] { return secondIn->currentRate(); },
+                                 [this] (int b) { openSecondInput (secondIn->deviceName(), true, b); } }),
         [sp] { juce::MessageManager::callAsync ([sp] { if (sp != nullptr) { sp->settingsWindow = nullptr; sp->saveSettings(); } }); });
 }
 
