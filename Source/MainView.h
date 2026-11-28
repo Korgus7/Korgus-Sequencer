@@ -13,7 +13,8 @@ void bootLogDir (const juce::File& dir);
 class SettingsComponent : public juce::Component, private juce::Timer
 {
 public:
-    SettingsComponent (juce::AudioDeviceManager&, std::function<void()> onPlugins);
+    struct SecondInputUi { std::function<juce::StringArray()> list; std::function<juce::String()> current; std::function<void (const juce::String&)> set; };
+    SettingsComponent (juce::AudioDeviceManager&, std::function<void()> onPlugins, SecondInputUi second = {});
     void paint (juce::Graphics&) override;
     void resized() override;
 private:
@@ -23,6 +24,11 @@ private:
     juce::Label info, hint;
     juce::TextButton pluginsButton;
     std::function<void()> onPluginsFn;
+    SecondInputUi sec;
+    juce::Label secLabel;
+    juce::ComboBox secBox;
+    juce::TextButton secHelp { "?" };
+    void fillSecond();
 };
 
 // Hlavne okno: rozhranie sekvencera (HTML) + prepojenie so zvukovym motorom
@@ -164,6 +170,8 @@ private:
     KorgusLookAndFeel lnf;
     juce::AudioDeviceManager deviceManager;
     Engine engine;
+    std::unique_ptr<SecondInput> secondIn = std::make_unique<SecondInput>();   // druhy zvukovy vstup (Windows Audio)
+    void openSecondInput (const juce::String& name, bool save);
     juce::AudioPluginFormatManager formatManager;
     juce::KnownPluginList knownPlugins;
     juce::File dataDir;

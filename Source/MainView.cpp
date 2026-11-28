@@ -174,9 +174,31 @@ struct MainView::LearnJob : juce::Thread
 
 
 //==============================================================================
-SettingsComponent::SettingsComponent (juce::AudioDeviceManager& d, std::function<void()> onPlugins)
-    : dm (d), selector (d, 0, 2, 2, 2, true, false, true, false), onPluginsFn (std::move (onPlugins))
+SettingsComponent::SettingsComponent (juce::AudioDeviceManager& d, std::function<void()> onPlugins, SecondInputUi second)
+    : dm (d), selector (d, 0, 2, 2, 2, true, false, true, false), onPluginsFn (std::move (onPlugins)), sec (std::move (second))
 {
+    if (sec.list)
+    {
+        secLabel.setText (sk ("Druhý vstup (Windows Audio):"), juce::dontSendNotification);
+        addAndMakeVisible (secLabel);
+        addAndMakeVisible (secBox);
+        fillSecond();
+        secBox.onChange = [this]
+        {
+            const int id = secBox.getSelectedId();
+            if (sec.set) sec.set (id <= 1 ? juce::String() : secBox.getItemText (secBox.getSelectedItemIndex()));
+        };
+        secHelp.onClick = []
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, sk ("Druhý vstup"),
+                sk ("Popri hlavnej karte (napr. Scarlett cez ASIO) môžeš nahrávať aj z inej karty, napríklad z AKAI MPC cez USB.\n\n"
+                    "Hlavná karta ostáva na ASIO – prehrávanie aj nízka odozva. Druhá karta sa otvorí cez Windows Audio a jej dva "
+                    "kanály sa objavia vo vstupoch audio stopy (napr. „MPC Sample: 1 + 2“).\n\n"
+                    "Korgus sám dorovnáva rozdiel hodín oboch kariet, takže nahrávka necvaká, a nahrávku posunie o oneskorenie "
+                    "druhého vstupu, aby sedela do rytmu. Počúvanie druhého vstupu naživo má o niečo väčšie oneskorenie."));
+        };
+        addAndMakeVisible (secHelp);
+    }
     addAndMakeVisible (selector);
     info.setColour (juce::Label::backgroundColourId, Col::lcdBg);
     info.setColour (juce::Label::textColourId, Col::lcdFg);
@@ -204,9 +226,29 @@ void SettingsComponent::resized()
     r.removeFromLeft (10);
     pluginsButton.setBounds (r.removeFromTop (30).removeFromLeft (220));
     r.removeFromTop (10);
+    if (sec.list)
+    {
+        auto row = r.removeFromTop (26);
+        secLabel.setBounds (row.removeFromLeft (200));
+        secHelp.setBounds (row.removeFromRight (26));
+        row.removeFromRight (6);
+        secBox.setBounds (row);
+        r.removeFromTop (10);
+    }
     info.setBounds (r.removeFromTop (130));
     r.removeFromTop (10);
     hint.setBounds (r.removeFromTop (80));
+}
+
+void SettingsComponent::fillSecond()
+{
+    secBox.clear (juce::dontSendNotification);
+    secBox.addItem (sk ("Žiadny"), 1);
+    const auto names = sec.list();
+    const auto cur = sec.current ? sec.current() : juce::String();
+    int sel = 1;
+    for (int i = 0; i < names.size(); ++i) { secBox.addItem (names[i], i + 2); if (names[i] == cur) sel = i + 2; }
+    secBox.setSelectedId (sel, juce::dontSendNotification);
 }
 
 void SettingsComponent::timerCallback()
@@ -541,6 +583,7 @@ void bootLog (const juce::String& what)
 
 MainView::MainView (juce::ApplicationProperties& p) : props (p)
 {
+    engine.setSecondInput (secondIn.get());
     bootLog ("MainView: zaciatok");
     setLookAndFeel (&lnf);
     juce::LookAndFeel::setDefaultLookAndFeel (&lnf);
@@ -634,6 +677,8 @@ MainView::MainView (juce::ApplicationProperties& p) : props (p)
 MainView::~MainView()
 {
     if (audioInit.joinable()) audioInit.join();
+    engine.setSecondInput (nullptr);
+    secondIn->close();
     if (learnJob != nullptr) { learnJob->signalThreadShouldExit(); learnJob->stopThread (10000); learnJob = nullptr; }
     stopTimer();
     kbdPoll = nullptr;
@@ -1736,6 +1781,21 @@ void MainView::onOpenFx (const juce::var& v)
     if (p != nullptr) openWindow (trackId + "#fx" + juce::String (idx), p, p->getName() + sk ("  –  ") + v.getProperty ("name", "").toString());
 }
 
+void MainView::openSecondInput (const juce::String& name, bool save)
+{
+    if (save) props.getUserSettings()->setValue ("secondInput", name);
+    secondIn->close();
+    if (name.isNotEmpty())
+    {
+        juce::String err;
+        if (! secondIn->open (name, engine.getSampleRate() > 0 ? engine.getSampleRate() : 48000.0, err))
+        {
+            auto o = obj(); put (o, "text", sk ("Druhý vstup sa nepodarilo otvoriť: ") + err); emit ("toast", o);
+        }
+    }
+    sendDevices();
+}
+
 void MainView::sendDevices()
 {
     auto o = obj();
@@ -1754,7 +1814,9 @@ void MainView::sendDevices()
         for (int i = 0; i < names.size(); ++i)
             if (active[i]) ins.add (names[i]);
     }
-    put (o, "midi", md); put (o, "ins", ins);
+    const int secAt = secondIn->isOpen() ? ins.size() : -1;
+    for (const auto& n : secondIn->channelNames()) ins.add (n);   // druhy vstup (ina karta) - za vstupmi hlavnej karty
+    put (o, "midi", md); put (o, "ins", ins); put (o, "sec", secAt);
     emit ("devices", o);
 }
 
@@ -1806,15 +1868,17 @@ void MainView::onReady()
         // zvukova karta (2 s) sa otvara v pozadi popri ostatnych krokoch; ASIO ovladace len z hlavneho vlakna
         std::shared_ptr<juce::XmlElement> saved (props.getUserSettings()->getXmlValue ("audioDevice"));
         const bool asio = saved != nullptr && saved->getStringAttribute ("deviceType").containsIgnoreCase ("ASIO");
-        if (asio) { deviceManager.initialise (2, 2, saved.get(), true); return; }
+        auto openSecond = [this] { const auto n = props.getUserSettings()->getValue ("secondInput"); if (n.isNotEmpty()) openSecondInput (n, false); };
+        if (asio) { deviceManager.initialise (2, 2, saved.get(), true); openSecond(); return; }
         audioBusy = true;
-        audioInit = std::thread ([this, saved]
+        audioInit = std::thread ([this, saved, openSecond]
         {
            #if JUCE_WINDOWS
             CoInitializeEx (nullptr, 0 /* COINIT_MULTITHREADED */);
            #endif
             deviceManager.initialise (2, 2, saved.get(), true);
             audioBusy = false;
+            juce::MessageManager::callAsync ([this, openSecond] { openSecond(); });
         });
     });
     step (sk ("Hľadám pluginy vedľa programu…"), [this]
@@ -2576,7 +2640,10 @@ void MainView::showSettings()
     if (settingsWindow != nullptr) { settingsWindow->toFront (true); return; }
     juce::Component::SafePointer<MainView> sp (this);
     settingsWindow = std::make_unique<SimpleWindow> (sk ("Nastavenia zvuku"),
-        new SettingsComponent (deviceManager, [sp] { if (sp != nullptr) sp->showPluginManager(); }),
+        new SettingsComponent (deviceManager, [sp] { if (sp != nullptr) sp->showPluginManager(); },
+                               { [this] { return secondIn->deviceNames(); },
+                                 [this] { return secondIn->deviceName(); },
+                                 [this] (const juce::String& n) { openSecondInput (n, true); } }),
         [sp] { juce::MessageManager::callAsync ([sp] { if (sp != nullptr) { sp->settingsWindow = nullptr; sp->saveSettings(); } }); });
 }
 
@@ -2907,12 +2974,18 @@ void MainView::finishRecording()
 {
     recFinishing = false;
     const double sr = engine.getSampleRate();
-    int lat = 0;
+    int lat0 = 0, outLat = 0;
     if (auto* dev = deviceManager.getCurrentAudioDevice())
-        lat = juce::jmax (0, dev->getInputLatencyInSamples() + dev->getOutputLatencyInSamples());
+    {
+        outLat = juce::jmax (0, dev->getOutputLatencyInSamples());
+        lat0 = juce::jmax (0, dev->getInputLatencyInSamples()) + outLat;
+    }
+    const int secBase = engine.secondInputBase();
     for (size_t i = 0; i < recTracks.size(); ++i)
     {
         auto& rt = recTracks[i];
+        // druhy vstup ma vlastne oneskorenie (Windows Audio + vyrovnavaci zasobnik)
+        const int lat = (secBase >= 0 && rt.a >= secBase) ? outLat + secondIn->latencySamples() : lat0;
         engine.drainRecording ((int) i, rt.l, rt.r);
         if (! engine.hasRecStarted() || (double) rt.l.size() <= lat + sr * 0.1) continue;
         const int n = (int) rt.l.size() - lat;

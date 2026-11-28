@@ -1,7 +1,8 @@
 #include <map>
 #include "SongParse.h"
 
-static const int GM_DRUMS[] = { 36, 38, 39, 42, 46, 45, 50, 37, 49, 56 };
+static const int GM_DRUMS[] = { 36, 38, 39, 42, 46, 45, 50, 37, 49, 56, 51, 44, 47, 41, 43, 57 };   // 16 riadkov bicich (rovnako ako DRUMS v rozhrani)
+static constexpr int kDrumLanes = 16;
 
 namespace
 {
@@ -224,7 +225,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                     for (const auto& prop : ds->getProperties())
                     {
                         const int l = prop.name.toString().getIntValue();
-                        if (! juce::isPositiveAndBelow (l, 10)) continue;
+                        if (! juce::isPositiveAndBelow (l, kDrumLanes)) continue;
                         const auto& o = prop.value;
                         auto f = [&o] (const char* k, float def) { return (float) (double) o.getProperty (k, def); };
                         auto& d = td.dset[(size_t) l];
@@ -235,13 +236,13 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                         d.fVel = f ("fVel", 0); d.drive = f ("drive", 0); d.punch = f ("punch", 0);
                         d.gain = f ("gain", 0); d.pan = f ("pan", 0); d.aA = f ("aA", 0); d.aH = f ("aH", 2); d.aD = f ("aD", 4); d.aVel = f ("aVel", 1);
                     }
-            std::array<AudioBufPtr, 10> laneBuf {};
+            std::array<AudioBufPtr, kDrumLanes> laneBuf {};
             if (type == "drum")
                 if (auto* sm = t["smp"].getDynamicObject())
                     for (const auto& prop : sm->getProperties())
                     {
                         const int l = prop.name.toString().getIntValue();
-                        if (juce::isPositiveAndBelow (l, 10)) laneBuf[(size_t) l] = clipFor (prop.value.toString(), 1.0, 0);
+                        if (juce::isPositiveAndBelow (l, kDrumLanes)) laneBuf[(size_t) l] = clipFor (prop.value.toString(), 1.0, 0);
                     }
 
             if (const auto* parts = t["parts"].getArray())
@@ -275,7 +276,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                         for (int st = 0; st < (int) steps; ++st)
                         {
                             const int idx = st % plen;
-                            for (int l = 0; l < juce::jmin (10, grid->size()); ++l)
+                            for (int l = 0; l < juce::jmin (kDrumLanes, grid->size()); ++l)
                             {
                                 const auto* row = (*grid)[l].getArray();
                                 if (row == nullptr || idx >= row->size()) continue;

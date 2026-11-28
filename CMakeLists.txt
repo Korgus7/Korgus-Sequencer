@@ -81,6 +81,7 @@ juce_add_binary_data(KorgusData SOURCES Resources/ui/index.html
 target_sources(KorgusSequencer PRIVATE
     Source/Main.cpp
     Source/Engine.cpp
+    Source/SecondInput.cpp
     Source/SongParse.cpp
     Source/AudioStore.cpp
     Source/Melody.cpp

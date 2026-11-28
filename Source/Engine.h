@@ -1,4 +1,5 @@
 #pragma once
+#include "SecondInput.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <atomic>
@@ -74,7 +75,7 @@ struct TrackData
     float vol = 0.8f, pan = 0;  // zakladna hlasitost a panorama (pre automatizaciu)
     std::vector<AutoLane> autos;
     std::vector<HitEv> hits;    // zoradene podla start
-    std::array<DrumSet, 10> dset {};   // uprava zvuku nastrojov bicich
+    std::array<DrumSet, 16> dset {};   // uprava zvuku nastrojov bicich
     bool isAudio = false;
     bool monitor = false;       // odposluch vstupu (audio stopa)
     int inA = 0, inB = -1;      // vstupne kanaly zvukovky (inB = -1 -> mono)
@@ -186,6 +187,9 @@ public:
     void setPosition (double step);
     void liveNote (int slot, int pitch, float vel, bool on);
     void setSelectedSlot (int slot)                 { selectedSlot = slot; }
+    // druhy vstup (ina karta cez Windows Audio) - jeho kanaly sa pridaju za vstupy hlavnej karty
+    void setSecondInput (SecondInput* si)           { second.store (si); }
+    int  secondInputBase() const                    { return secBase.load(); }   // index prveho kanala druheho vstupu (-1 = nie je)
     void setInTranspose (int semi)                  { inTranspose = juce::jlimit (-48, 48, semi); }   // transpozicia vstupu z klaves (vybrana stopa)
     int  getInTranspose() const                     { return inTranspose.load(); }
     // dalsie zapnute stopy, na ktorych MIDI klavesy hraju naraz (ako v Cubase); max 8
@@ -342,7 +346,7 @@ private:
         std::unique_ptr<juce::AudioPluginInstance> midiFx;   // MIDI efekt pred nastrojom (Korgus Arp)
         struct Voice { AudioBufPtr buf; juce::int64 pos = 0; float gain = 1; int lane = 0; int fade = -1; int fadeLen = 64;
                        DrumSet ds; double rpos = 0; float t = 0, fc = 0, s1[4] {}, s2[4] {}; float g = 0, k = 2; int cnt = 0; };
-        std::array<DrumSet, 10> dset {};   // aktualne upravy nastrojov (z piesne)
+        std::array<DrumSet, 16> dset {};   // aktualne upravy nastrojov (z piesne)
         std::atomic<bool> killVoices { false };   // "Vsetky noty vyp." z editora zvuku
         double sr = 48000;
         std::vector<Voice> voices;
@@ -386,6 +390,10 @@ private:
     std::vector<Cmd> cmds;
 
     std::atomic<int> inTranspose { 0 };
+    std::atomic<SecondInput*> second { nullptr };
+    std::atomic<int> secBase { -1 };
+    std::vector<float> secL, secR;
+    std::array<const float*, 66> inPtrs {};
     std::array<int, 128> inHeld {};   // ktory tón hra drzana klavesa (pre spravne pustenie po zmene transpozicie)
     std::atomic<int> state { stopped }, selectedSlot { -1 }, countBeat { 0 }, countTotal { 0 };
     std::atomic<double> publicPos { 0 };
