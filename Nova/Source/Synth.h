@@ -121,6 +121,7 @@ namespace nova
             float curNote = 60, targetNote = 60, drift = 0, driftTarget = 0;
             Noise rng;                     // vlastny generator hlasu (deterministicky seed v Synth::prepare)
             float mmRand = 0;              // zdroj "Nahoda" modulacnej matice (novy pri kazdom tone)
+            float press = 0;               // tlak na pad/klaves (polyfonny aftertouch) - jasnejsie a vibrato
             LayerVoice lv[2];
             bool isActive() const { return lv[0].active || lv[1].active; }
         };
@@ -151,7 +152,7 @@ namespace nova
         uint64_t ageCounter = 0;
         bool sustain = false, fadeRequest = false;
         int tailState = 0; float tailG = 1.0f; uint64_t fadeAge = 0;   // prepnutie zvuku: 1 = stlmovanie, 2 = nabeh
-        float bend = 0, modWheel = 0;
+        float bend = 0, modWheel = 0, chanPress = 0;   // chanPress = tlak (channel aftertouch)
         int lastNote = -1;
         std::vector<int> monoStack;
         std::vector<float> bufL, bufR, bufBL, bufBR, gateBuf;

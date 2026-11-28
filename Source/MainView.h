@@ -124,6 +124,7 @@ private:
     void onRecAudio (const juce::var&);
     void onExportWav (const juce::var&);
     void onExportStems (const juce::var&);
+    void onChopClip (const juce::var&);
     void onBounce (const juce::var&);
     void sendMeters();
     bool metersLive = false;

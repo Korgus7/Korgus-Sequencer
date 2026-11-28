@@ -165,6 +165,7 @@ void Engine::Slot::prepare (double rate, int bs)
 Engine::Engine()
 {
     for (auto& a : padMap) a.store (-1);
+    for (int k = 0; k < 128; ++k) drumOutMap[(size_t) k].store (k);
     cmds.reserve (64);
     order.reserve (512);
     trigs.reserve (64);
@@ -192,6 +193,69 @@ void Engine::setSync (int mode, const juce::String& outId)
     }
     inIntN = 0; inIntSum = 0; inLastTick = 0; inLastBpm = 0;
     syncMode.store (mode == 1 && clockOut == nullptr ? 0 : mode);
+}
+
+void Engine::setNoteOut (const juce::String& outId)
+{
+    noteOutOn = false;
+    if (noteThread != nullptr) { noteThread->stopThread (500); noteThread.reset(); }
+    {
+        const juce::ScopedLock l (noteOutLock);
+        noteOut.reset();
+        if (outId.isNotEmpty()) noteOut = juce::MidiOutput::openDevice (outId);
+    }
+    noteFifo.reset();
+    if (noteOut != nullptr)
+    {
+        noteThread = std::make_unique<NoteSender> (*this);
+        noteThread->startThread (juce::Thread::Priority::highest);
+        noteOutOn = true;
+    }
+}
+
+// audio vlakno: noty bloku do fronty s casom (aby zneli spolu so zvukom z reproduktorov)
+void Engine::pushNoteOut (const juce::MidiBuffer& mb, int n, int ch, bool drum)
+{
+    if (! noteOutOn.load()) return;
+    const double now = juce::Time::getMillisecondCounterHiRes() + outLatSec * 1000.0;
+    for (const auto meta : mb)
+    {
+        auto m = meta.getMessage();
+        if (! (m.isNoteOnOrOff() || m.isController() || m.isPitchWheel() || m.isAftertouch() || m.isChannelPressure())) continue;
+        m.setChannel (ch);
+        if (drum && m.isNoteOnOrOff()) m.setNoteNumber (juce::jlimit (0, 127, drumOutMap[(size_t) m.getNoteNumber()].load()));
+        const auto* d = m.getRawData();
+        const NoteMsg nm { d[0], m.getRawDataSize() > 1 ? d[1] : (uint8_t) 0, m.getRawDataSize() > 2 ? d[2] : (uint8_t) 0,
+                           now + juce::jlimit (0, n, meta.samplePosition) * 1000.0 / juce::jmax (1.0, sampleRate) };
+        const auto sc = noteFifo.write (1);
+        if (sc.blockSize1 > 0) noteBuf[(size_t) sc.startIndex1] = nm;
+        else if (sc.blockSize2 > 0) noteBuf[(size_t) sc.startIndex2] = nm;
+    }
+}
+
+void Engine::NoteSender::run()
+{
+    std::vector<NoteMsg> pend;
+    while (! threadShouldExit())
+    {
+        {
+            const auto sc = en.noteFifo.read (en.noteFifo.getNumReady());
+            for (int k = 0; k < sc.blockSize1; ++k) pend.push_back (en.noteBuf[(size_t) (sc.startIndex1 + k)]);
+            for (int k = 0; k < sc.blockSize2; ++k) pend.push_back (en.noteBuf[(size_t) (sc.startIndex2 + k)]);
+        }
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        size_t i = 0;
+        for (; i < pend.size() && pend[i].atMs <= now; ++i)
+        {
+            const auto& c = pend[i];
+            const int len = (c.b0 & 0xf0) == 0xc0 || (c.b0 & 0xf0) == 0xd0 ? 2 : 3;
+            const juce::MidiMessage m (c.b0, c.b1, len == 3 ? c.b2 : 0);
+            const juce::ScopedLock l (en.noteOutLock);
+            if (en.noteOut != nullptr) en.noteOut->sendMessageNow (len == 3 ? m : juce::MidiMessage (c.b0, c.b1));
+        }
+        pend.erase (pend.begin(), pend.begin() + (std::ptrdiff_t) i);
+        wait (1);
+    }
 }
 
 void Engine::ClockSender::run()
@@ -222,6 +286,7 @@ void Engine::ClockSender::run()
 Engine::~Engine()
 {
     if (clockThread != nullptr) { clockThread->stopThread (500); clockThread.reset(); }
+    if (noteThread != nullptr) { noteThread->stopThread (500); noteThread.reset(); }
     const juce::ScopedLock sl (slotLock);
     forEachPlugin ([] (juce::AudioPluginInstance& p) { p.releaseResources(); });
 }
@@ -376,8 +441,17 @@ void Engine::play (double fromStep, int countInBars)
 
 void Engine::stop()
 {
-    const juce::SpinLock::ScopedLockType l (cmdLock);
-    cmds.push_back ({ 2, 0, 0 });
+    {
+        const juce::SpinLock::ScopedLockType l (cmdLock);
+        cmds.push_back ({ 2, 0, 0 });
+    }
+    // externe MIDI (MPC): po zastaveni vypnut vsetky noty, nech nic nezostane visiet
+    if (noteOutOn.load())
+    {
+        const juce::ScopedLock ol (noteOutLock);
+        if (noteOut != nullptr)
+            for (int ch = 1; ch <= 16; ++ch) noteOut->sendMessageNow (juce::MidiMessage::allNotesOff (ch));
+    }
 }
 
 // Reset MIDI: vsetky noty a zvuky vypnut na vsetkych kanaloch (zaseknuty ton), prehravanie bezi dalej
@@ -454,6 +528,7 @@ void Engine::handleIncomingMidiMessage (juce::MidiInput* src, const juce::MidiMe
         }
         // pady MPC na bicej stope: nota padu -> nota bicich
         if (const int pm = padMap[(size_t) m.getNoteNumber()].load(); pm >= 0 && pm < 128) m.setNoteNumber (pm);
+        else if (pm == 128) return;   // pad spusta sekciu piesne - nota sa nehra
     }
     if (m.isNoteOnOrOff())
     {   // transpozicia vstupu vybranej stopy; pustenie klavesy ide na ten ton, ktory zacal hrat
@@ -1102,6 +1177,7 @@ void Engine::process (const float* const* in, int numIn, float* const* out, int 
             if (td.frozen) { slot.midi.clear(); any = true; }   // zmrazena: len nahrane audio, setri procesor
             else {
             if (slot.midiFx != nullptr) { CrashGuard::Busy cg (slot.midiFx.get()); slot.midiFx->processBlock (view, slot.midi); }
+            if (td.midiOutCh > 0) pushNoteOut (slot.midi, n, td.midiOutCh, td.isDrum);   // AKAI MPC ako zvukovy modul
             // MIDI stopy (po arpeggiatore, pred nastrojom) pre efekty, ktore ho chcu (Korgus Vocoder: Interny syntezator)
             trackMidi.clear();
             for (int k = 0; k < numFx; ++k)

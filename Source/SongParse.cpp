@@ -166,6 +166,8 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
             td.isAudio = type == "audio";
             td.slot = slotFor (t["id"].toString());
             td.channel = juce::jlimit (1, 16, (int) t.getProperty ("midiCh", 1));
+            td.midiOutCh = juce::jlimit (0, 16, (int) t.getProperty ("mpcCh", 0));
+            td.isDrum = type == "drum";
             if (td.isAudio)
             {
                 td.monitor = (bool) t.getProperty ("mon", false);
@@ -284,7 +286,7 @@ std::unique_ptr<SongData> parseSong (const juce::var& v, const std::function<int
                                 if (val == 0) continue;
                                 const double at = a + st + ((st % 2) ? swing : 0.0);
                                 const float vel = val == 2 ? 1.0f : 0.62f;
-                                if (laneBuf[(size_t) l] != nullptr)
+                                if (laneBuf[(size_t) l] != nullptr && td.midiOutCh == 0)
                                 {
                                     td.hits.push_back ({ at, laneBuf[(size_t) l], vel, l });
                                     continue;

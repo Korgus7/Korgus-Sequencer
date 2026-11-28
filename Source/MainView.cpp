@@ -1213,18 +1213,22 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                     for (auto& f : dir.findChildFiles (juce::File::findFiles, false))
                                         if (juce::StringArray { "wav", "mp3", "ogg", "flac", "aif", "aiff" }.contains (f.getFileExtension().substring (1).toLowerCase()) && ! f.isHidden()) fs.add (f);
                                 fs.sort();
-                                juce::File lane[10];
+                                const int NL = (int) v.getProperty ("lanes", 10) >= 16 ? 16 : 10;   // 16 = pady ako na MPC
+                                juce::File lane[16];
                                 juce::Array<juce::File> rest;
                                 for (auto& f : fs)
                                 {
                                     const auto n = f.getFileNameWithoutExtension();
                                     const int num = n.substring (0, 2).containsOnly ("0123456789") ? n.substring (0, 2).getIntValue() : 0;
-                                    if (num >= 1 && num <= 10 && lane[num - 1] == juce::File()) lane[num - 1] = f; else rest.add (f);
+                                    if (num >= 1 && num <= NL && lane[num - 1] == juce::File()) lane[num - 1] = f; else rest.add (f);
                                 }
-                                static const char* kw[10] = { "kick|bd|bassdrum|bass drum|kopak", "snare|sd|virbel", "clap|tlesk", "closed|chh|hh|hat",
-                                                              "open|ohh", "low tom|tom low|floor|lt|tom1", "tom|ht|mt", "rim|stick|side", "crash|ride|cymbal|cym|cinel", "cowbell|bell|perc|shaker|tamb" };
-                                static const int order[10] = { 4, 0, 1, 2, 5, 6, 7, 8, 9, 3 };   // otvoreny hi-hat a nizky tom skor nez vseobecne slova
-                                for (int oi = 0; oi < 10; ++oi)
+                                static const char* kw[16] = { "kick|bd|bassdrum|bass drum|kopak", "snare|sd|virbel", "clap|tlesk", "closed|chh|hh|hat",
+                                                              "open|ohh", "low tom|tom low|floor|lt|tom1", "tom|ht|mt", "rim|stick|side", "crash|ride|cymbal|cym|cinel", "cowbell|bell|perc|shaker|tamb",
+                                                              "ride", "pedal|phh", "mid tom|tom mid|mt|tom2", "floor tom|tom floor|ft|tom4", "tom3|high floor", "crash2|crash 2|china|splash" };
+                                static const int order10[10] = { 4, 0, 1, 2, 5, 6, 7, 8, 9, 3 };   // otvoreny hi-hat a nizky tom skor nez vseobecne slova
+                                static const int order16[16] = { 10, 11, 12, 13, 14, 15, 4, 0, 1, 2, 5, 6, 7, 8, 9, 3 };   // specificke slova (ride, pedal...) skor
+                                const int* order = NL == 16 ? order16 : order10;
+                                for (int oi = 0; oi < NL; ++oi)
                                 {
                                     const int l = order[oi];
                                     if (lane[l] != juce::File()) continue;
@@ -1237,9 +1241,9 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                         if (hit) { lane[l] = rest[i]; rest.remove (i); break; }
                                     }
                                 }
-                                for (int l = 0; l < 10 && ! rest.isEmpty(); ++l) if (lane[l] == juce::File()) { lane[l] = rest[0]; rest.remove (0); }
+                                for (int l = 0; l < NL && ! rest.isEmpty(); ++l) if (lane[l] == juce::File()) { lane[l] = rest[0]; rest.remove (0); }
                                 juce::Array<juce::var> ids, names;
-                                for (int l = 0; l < 10; ++l)
+                                for (int l = 0; l < NL; ++l)
                                 {
                                     const auto id = lane[l].existsAsFile() ? store->importFile (lane[l]) : juce::String();
                                     ids.add (id); names.add (id.isEmpty() ? juce::String() : lane[l].getFileNameWithoutExtension());
@@ -1247,6 +1251,55 @@ juce::WebBrowserComponent::Options MainView::makeOptions()
                                 put (o, "ids", ids); put (o, "names", names);
                                 emit ("kitImported", o);
                             })
+        .withEventListener ("midiNoteOut", [this] (const juce::var& v) { engine.setNoteOut (v["out"].toString()); })
+        .withEventListener ("drumOutMap",  [this] (const juce::var& v)
+                            {
+                                juce::Array<int> m;
+                                if (auto* a = v["map"].getArray()) for (auto& k : *a) m.add ((int) k);
+                                engine.setDrumOutMap (m);
+                            })
+        .withEventListener ("mpcPickDir",  [this] (const juce::var& v)
+                            {   // priecinok na MPC (karta cez USB) - pre Poslat do MPC / Nacitat z MPC
+                                juce::File start (v["path"].toString());
+                                if (! start.isDirectory()) start = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+                                chooser = std::make_unique<juce::FileChooser> (sk ("Priečinok na MPC (karta cez USB)"), start);
+                                juce::Component::SafePointer<MainView> sp (this);
+                                const auto why = v["why"].toString();
+                                chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                                                      [sp, why] (const juce::FileChooser& fc)
+                                                      {
+                                                          const auto d = fc.getResult();
+                                                          if (sp == nullptr || ! d.isDirectory()) return;
+                                                          auto o = obj(); put (o, "path", d.getFullPathName()); put (o, "why", why);
+                                                          sp->emit ("mpcDir", o);
+                                                      });
+                            })
+        .withEventListener ("mpcSendPads", [this] (const juce::var& v)
+                            {   // zvuky padov ako WAV do priecinka MPC ("01 Kick.wav" ...)
+                                const juce::File dir (v["dir"].toString());
+                                int written = 0;
+                                if (juce::File::isAbsolutePath (v["dir"].toString()))
+                                {
+                                    const auto sub = dir.getChildFile (juce::File::createLegalFileName (v.getProperty ("name", "Korgus kit").toString()));
+                                    sub.createDirectory();
+                                    if (auto* a = v["items"].getArray())
+                                        for (auto& it : *a)
+                                        {
+                                            auto buf = store->get (it["id"].toString());
+                                            if (buf == nullptr || buf->getNumSamples() == 0) continue;
+                                            const auto f = sub.getChildFile (juce::File::createLegalFileName (juce::String ((int) it["n"]).paddedLeft ('0', 2) + " " + it["name"].toString()) + ".wav");
+                                            f.deleteFile();
+                                            std::unique_ptr<juce::OutputStream> os (f.createOutputStream().release());
+                                            juce::WavAudioFormat wav;
+                                            auto w = os != nullptr ? wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (store->getSampleRate())
+                                                                                              .withNumChannels (buf->getNumChannels()).withBitsPerSample (24)) : nullptr;
+                                            if (w != nullptr && w->writeFromAudioSampleBuffer (*buf, 0, buf->getNumSamples())) ++written;
+                                        }
+                                    auto o = obj(); put (o, "ok", written > 0); put (o, "name", sub.getFullPathName() + "  (" + juce::String (written) + sk (" zvukov)"));
+                                    emit ("exported", o);
+                                }
+                            })
+        .withEventListener ("chopClip",    [this] (const juce::var& v) { onChopClip (v); })
         .withEventListener ("importSample",[this] (const juce::var& v)
                             {
                                 const auto track = v["track"].toString();
@@ -3052,12 +3105,9 @@ void MainView::onExportWav (const juce::var& v)
     if (exporting.load() || lastSong.isVoid()) return;
     const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
     const double start = juce::jlimit (0.0, juce::jmax (0.0, end - 1.0), (double) v.getProperty ("start", 0.0));
-    chooser = std::make_unique<juce::FileChooser> (sk ("Export WAV"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("piesen.wav"), "*.wav");
     juce::Component::SafePointer<MainView> sp (this);
-    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [sp, end, start] (const juce::FileChooser& fc)
+    auto run = [sp, end, start] (juce::File f)
                           {
-                              auto f = fc.getResult();
                               if (sp == nullptr || f == juce::File()) return;
                               f = f.withFileExtension ("wav");
                               sp->engine.exportStart = start;
@@ -3083,7 +3133,12 @@ void MainView::onExportWav (const juce::var& v)
                                   sp->emit ("exported", o);
                               });
                               job->launchThread();
-                          });
+                          };
+    // priamo do suboru (napr. Poslat do MPC) alebo cez okno na ulozenie
+    if (juce::File::isAbsolutePath (v.getProperty ("path", "").toString())) { run (juce::File (v["path"].toString())); return; }
+    chooser = std::make_unique<juce::FileChooser> (sk ("Export WAV"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("piesen.wav"), "*.wav");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [run] (const juce::FileChooser& fc) { run (fc.getResult()); });
 }
 
 namespace
@@ -3852,12 +3907,9 @@ void MainView::onExportStems (const juce::var& v)
 {
     if (exporting.load() || lastSong.isVoid()) return;
     const double end = juce::jmax (16.0, (double) v.getProperty ("end", 64));
-    chooser = std::make_unique<juce::FileChooser> (sk ("Export stôp – vyber priečinok"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
     juce::Component::SafePointer<MainView> sp (this);
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-                          [sp, end] (const juce::FileChooser& fc)
+    auto run = [sp, end] (juce::File dir)
                           {
-                              const auto dir = fc.getResult();
                               if (sp == nullptr || ! dir.isDirectory()) return;
                               std::vector<std::unique_ptr<SongData>> songs;
                               juce::StringArray names;
@@ -3889,7 +3941,17 @@ void MainView::onExportStems (const juce::var& v)
                                   sp->emit ("exported", o);
                               });
                               job->launchThread();
-                          });
+                          };
+    if (juce::File::isAbsolutePath (v.getProperty ("dir", "").toString()))
+    {
+        const juce::File d (v["dir"].toString());
+        d.createDirectory();
+        run (d);
+        return;
+    }
+    chooser = std::make_unique<juce::FileChooser> (sk ("Export stôp – vyber priečinok"), juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                          [run] (const juce::FileChooser& fc) { run (fc.getResult()); });
 }
 
 //==============================================================================
@@ -4954,4 +5016,78 @@ void MainView::learnFinished()
     put (o, "sample", r.usedSample);
     put (o, "target", learnTarget);
     emit ("learnDone", o);
+}
+
+
+//==============================================================================
+// Nasekat audio klip na pady: rozdeli podla uderov (nabeh energie) na n kuskov, kazdy ako novy sampel
+void MainView::onChopClip (const juce::var& v)
+{
+    const auto id = v["id"].toString();
+    auto src = store->get (id);
+    auto o = obj(); put (o, "track", v["track"].toString());
+    if (src == nullptr || src->getNumSamples() < 1000) { put (o, "error", sk ("Klip sa nedá načítať.")); emit ("chopped", o); return; }
+    const double sr = store->getSampleRate();
+    const int total = src->getNumSamples(), nch = src->getNumChannels();
+    const int a0 = juce::jlimit (0, total - 1, (int) ((double) v.getProperty ("off", 0.0) * sr));
+    const int len = juce::jlimit (1, total - a0, (double) v.getProperty ("dur", 0.0) > 0 ? (int) ((double) v["dur"] * sr) : total - a0);
+    const int want = juce::jlimit (2, 16, (int) v.getProperty ("n", 16));
+    const bool equal = (bool) v.getProperty ("equal", false);
+    // obalka energie v oknach 10 ms, nabehy = narast energie
+    const int hop = juce::jmax (64, (int) (sr * 0.01));
+    const int frames = len / hop;
+    std::vector<float> en ((size_t) juce::jmax (1, frames), 0.0f);
+    for (int f = 0; f < frames; ++f)
+    {
+        double e = 0;
+        for (int c = 0; c < nch; ++c) { const float* d = src->getReadPointer (c, a0 + f * hop); for (int i = 0; i < hop; ++i) e += d[i] * d[i]; }
+        en[(size_t) f] = (float) std::sqrt (e / (hop * nch));
+    }
+    std::vector<int> cuts { 0 };
+    if (! equal && frames > want * 4)
+    {
+        std::vector<std::pair<float, int>> cand;
+        for (int f = 2; f < frames - 2; ++f)
+        {
+            const float prev = 0.5f * (en[(size_t) f - 1] + en[(size_t) f - 2]);
+            const float rise = en[(size_t) f] - prev;
+            if (rise > 0 && en[(size_t) f] >= en[(size_t) f - 1] && en[(size_t) f] >= en[(size_t) f + 1]) cand.push_back ({ rise, f });
+        }
+        std::sort (cand.begin(), cand.end(), [] (auto& x, auto& y) { return x.first > y.first; });
+        const int minGap = juce::jmax (4, frames / (want * 3));   // kusky nie kratsie nez tretina priemeru
+        for (auto& c : cand)
+        {
+            if ((int) cuts.size() >= want) break;
+            bool ok = true;
+            for (int k : cuts) if (std::abs (k - c.second) < minGap) { ok = false; break; }
+            if (ok) cuts.push_back (c.second);
+        }
+        std::sort (cuts.begin(), cuts.end());
+    }
+    if ((int) cuts.size() < 2)   // malo uderov - rovnake kusky
+    {
+        cuts.clear();
+        for (int k = 0; k < want; ++k) cuts.push_back (frames * k / want);
+    }
+    juce::Array<juce::var> ids, names;
+    const auto base = v.getProperty ("name", "Klip").toString();
+    for (size_t k = 0; k < cuts.size(); ++k)
+    {
+        // zaciatok kusa kusok pred nabehom (2 ms), koniec pred dalsim
+        const int s0 = juce::jmax (0, cuts[k] * hop - (int) (sr * 0.002));
+        const int s1 = k + 1 < cuts.size() ? juce::jmax (s0 + 64, cuts[k + 1] * hop - (int) (sr * 0.002)) : len;
+        const int n = s1 - s0;
+        std::vector<float> L ((size_t) n), R ((size_t) n);
+        for (int i = 0; i < n; ++i)
+        {
+            const float fo = i > n - 64 ? (float) (n - i) / 64.0f : 1.0f;   // kratke stisenie na konci (bez lupnutia)
+            L[(size_t) i] = src->getSample (0, a0 + s0 + i) * fo;
+            R[(size_t) i] = src->getSample (juce::jmin (1, nch - 1), a0 + s0 + i) * fo;
+        }
+        const auto nid = store->addRecording (L.data(), nch > 1 ? R.data() : nullptr, n, sr);
+        if (nid.isEmpty()) continue;
+        ids.add (nid); names.add (base + " " + juce::String ((int) k + 1));
+    }
+    put (o, "ids", ids); put (o, "names", names);
+    emit ("chopped", o);
 }

@@ -91,6 +91,8 @@ struct TrackData
     std::vector<NoteEv> notes;  // zoradene podla start
     std::vector<CcEv> ccs;      // MIDI CC a pitch bend, zoradene podla start
     bool frozen = false;        // zmrazena stopa: hra sa nahrane audio, nastroj a efekty sa nepocitaju
+    int midiOutCh = 0;          // hra aj na externom MIDI zariadeni (AKAI MPC) na tomto kanali (0 = nie)
+    bool isDrum = false;
 };
 
 // Skupinova stopa (zbernica): stopy sa do nej scitaju, potom jej efekty, hlasitost a panorama -> master
@@ -251,6 +253,9 @@ public:
     std::function<void (int pitch, float vel, bool on, double pos)> onMidiIn;
     // synchronizacia MIDI Clock: 0 vypnuta, 1 Korgus vedie (posiela clock, start, stop), 2 ovladac vedie (Korgus nasleduje)
     void setSync (int mode, const juce::String& outId);
+    // noty stop s midiOutCh idu na MIDI vystup (MPC ako zvukovy modul); drumMap = nota bicich -> nota padu MPC
+    void setNoteOut (const juce::String& outId);
+    void setDrumOutMap (const juce::Array<int>& m) { for (int k = 0; k < 128; ++k) drumOutMap[(size_t) k].store (k < m.size() ? m[k] : k); }
     // prichadzajuca synchronizacia: kind 0 tempo (v = BPM), 1 start, 2 pokracovat, 3 stop, 4 pozicia (v = 16-tiny)
     std::function<void (int kind, double v)> onSyncIn;
 
@@ -298,6 +303,16 @@ public:
     juce::AbstractFifo clkFifo { 1024 };
     std::array<ClockMsg, 1024> clkBuf {};
     std::unique_ptr<juce::MidiOutput> clockOut;
+    struct NoteMsg { uint8_t b0, b1, b2; double atMs; };
+    juce::AbstractFifo noteFifo { 4096 };
+    std::array<NoteMsg, 4096> noteBuf {};
+    std::unique_ptr<juce::MidiOutput> noteOut;
+    juce::CriticalSection noteOutLock;
+    std::array<std::atomic<int>, 128> drumOutMap {};
+    std::atomic<bool> noteOutOn { false };
+    struct NoteSender : juce::Thread { explicit NoteSender (Engine& e) : Thread ("Korgus MIDI out"), en (e) {} void run() override; Engine& en; };
+    std::unique_ptr<NoteSender> noteThread;
+    void pushNoteOut (const juce::MidiBuffer& mb, int n, int ch, bool drum);
     std::unique_ptr<ClockSender> clockThread;
     juce::CriticalSection clockOutLock;
     std::atomic<int> syncMode { 0 };

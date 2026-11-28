@@ -199,6 +199,7 @@ namespace nova
     {
         v.note = note; v.vel = vel; v.held = true; v.sustained = false; v.age = ++ageCounter;
         v.mmRand = v.rng.next();
+        v.press = 0;
         if (! st.playing) { bool other = false; for (auto& o : voices) if (&o != &v && o.note >= 0) { other = true; break; } if (! other) gtFree = 0; }
         v.curNote = fromNote; v.targetNote = (float) note;
         v.drift = v.rng.next() * 4.0f; v.driftTarget = v.rng.next() * 4.0f;
@@ -473,6 +474,8 @@ namespace nova
             const float fe = lv.fenv.next();
             // modulacna matica
             float mCut = 0, mVol = 0, mPitch = 0, mCol = 0, mPan = 0, mRes = 0;
+            const float pr = std::max (chanPress, v.press);   // tlak na pad (MPC) alebo klaves: jasnejsi zvuk
+            mCut += pr * 1.5f;
             if (anyMod)
                 for (const auto& m : st.mm)
                 {
@@ -507,7 +510,7 @@ namespace nova
                 }
             float cents = (s.ltgt == 0 ? lfoV * 100.0f : 0.0f) + mPitch * 100.0f;
             if (hasPEnv) { cents += s.penv * 100.0f * std::exp (-lv.t / std::max (0.002f, s.ptime)); mPitch += 0.0001f; }   // obalka vysky
-            if (modWheel > 0.001f) cents += modWheel * 30.0f * std::sin (twoPi * 5.5f * lv.t);
+            if (modWheel > 0.001f || pr > 0.001f) cents += (modWheel * 30.0f + pr * 18.0f) * std::sin (twoPi * 5.5f * lv.t);   // vibrato (koliesko aj tlak)
             const float pitchMul = mPitch != 0.0f ? std::pow (2.0f, cents / 1200.0f) : 1.0f + cents * 0.000577789f;
             const float volMul = (s.ltgt == 2 ? std::max (0.0f, 1.0f + 0.5f * lfoV) : 1.0f) * std::max (0.0f, 1.0f + mVol);
             const float panMod = (s.ltgt == 3 ? lfoV : 0.0f) + mPan;
@@ -894,6 +897,8 @@ namespace nova
             else if (m.isSustainPedalOff()) setSustain (false);
             else if (m.isPitchWheel()) bend = (float) (m.getPitchWheelValue() - 8192) / 8192.0f * 2.0f;
             else if (m.isController() && m.getControllerNumber() == 1) modWheel = (float) m.getControllerValue() / 127.0f;
+            else if (m.isChannelPressure()) chanPress = (float) m.getChannelPressureValue() / 127.0f;
+            else if (m.isAftertouch()) { const int nn = m.getNoteNumber(); const float pv = (float) m.getAfterTouchValue() / 127.0f; for (auto& vv : voices) if (vv.note == nn) vv.press = pv; }
             else if (m.isAllNotesOff() || m.isAllSoundOff())
             {
                 setSustain (false); arpHeld.clear(); arpStopNotes(); physDown.clear(); monoStack.clear();
